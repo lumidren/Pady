@@ -402,12 +402,19 @@
           h('span', { class: 'banner-text' }, 'Gestures are still recognised, but no actions run until you turn Pady back on.')),
         h('div', { class: 'banner-actions' }, h('button', { class: 'btn btn--sm btn--primary', type: 'button', onClick: () => { $('#master-switch').click(); } }, 'Turn on'))));
     }
-    (s.conflicts || []).forEach((c) => {
+    // One banner here, however many conflicts; Settings lists them all.
+    const conflicts = s.conflicts || [];
+    if (conflicts.length) {
+      const one = conflicts.length === 1;
+      const canOpen = conflicts.some((c) => c.can_open_settings);
       gestUI.banners.append(h('div', { class: 'banner' }, ico('warning', 18),
-        h('div', { class: 'banner-body' }, h('span', { class: 'banner-title' }, c.message), h('span', { class: 'banner-text' }, c.fix)),
+        h('div', { class: 'banner-body' },
+          h('span', { class: 'banner-title' }, one ? conflicts[0].message : `${conflicts.length} system settings clash with your gestures`),
+          h('span', { class: 'banner-text' }, one ? conflicts[0].fix : conflicts.map((c) => c.message).join(' '))),
         h('div', { class: 'banner-actions' },
-          c.can_open_settings ? h('button', { class: 'btn btn--sm', type: 'button', onClick: openTouchpadSettings }, ico('external', 14), 'Open settings') : null)));
-    });
+          one ? null : h('button', { class: 'btn btn--sm', type: 'button', onClick: () => { location.hash = '#settings'; } }, 'Details'),
+          canOpen ? h('button', { class: 'btn btn--sm', type: 'button', onClick: openTouchpadSettings }, ico('external', 14), 'Open settings') : null)));
+    }
 
     // Segmented control
     $$('.seg-btn', gestUI.seg).forEach((btn) => {
