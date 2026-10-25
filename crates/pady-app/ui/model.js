@@ -1,0 +1,315 @@
+/*
+ * Pady — domain model shared by the UI: gesture slots, action catalogue,
+ * key-combo grammar (mirrors pady-core/src/keys.rs), labels and presets.
+ * Pure functions only; no DOM access.
+ */
+(function () {
+  'use strict';
+  const P = (window.Pady = window.Pady || {});
+  const M = (P.model = {});
+
+  /* ---------------- Gesture slots ---------------- */
+
+  M.FINGERS = [3, 4, 5];
+
+  M.SLOTS = [
+    { id: 'tap', kind: 'tap', name: 'Tap', hint: 'Touch and lift quickly' },
+    { id: 'hold', kind: 'hold', name: 'Hold', hint: 'Rest fingers without moving' },
+    { id: 'swipe-up', kind: 'swipe', dir: 'up', name: 'Swipe up', hint: 'Slide upward' },
+    { id: 'swipe-down', kind: 'swipe', dir: 'down', name: 'Swipe down', hint: 'Slide downward' },
+    { id: 'swipe-left', kind: 'swipe', dir: 'left', name: 'Swipe left', hint: 'Slide to the left' },
+    { id: 'swipe-right', kind: 'swipe', dir: 'right', name: 'Swipe right', hint: 'Slide to the right' },
+    { id: 'drag', kind: 'drag', name: 'Drag', hint: 'Move a window or selection' },
+  ];
+
+  M.triggerOf = (slot, n) => (slot.kind === 'swipe' ? `swipe:${n}:${slot.dir}` : `${slot.kind}:${n}`);
+
+  M.parseTrigger = function (t) {
+    const [kind, n, dir] = String(t || '').split(':');
+    return { kind, fingers: Number(n), dir: dir || null };
+  };
+
+  M.slotOfTrigger = function (t) {
+    const p = M.parseTrigger(t);
+    return M.SLOTS.find((s) => s.kind === p.kind && (s.dir || null) === p.dir) || null;
+  };
+
+  /** "4-finger swipe up" */
+  M.triggerLabel = function (t) {
+    const p = M.parseTrigger(t);
+    return `${p.fingers}-finger ${p.kind}${p.dir ? ' ' + p.dir : ''}`;
+  };
+
+  M.gestureLabel = function (g) {
+    if (!g) return 'Gesture';
+    const f = g.fingers ? `${g.fingers}-finger ` : '';
+    switch (g.kind) {
+      case 'tap': return `${f}tap`;
+      case 'hold': return `${f}hold`;
+      case 'swipe': return `${f}swipe ${g.direction}`;
+      case 'drag_start': return `${f}drag`;
+      case 'drag_end': return 'Drag released';
+      default: return g.kind;
+    }
+  };
+
+  /* ---------------- Action catalogue ---------------- */
+
+  M.GROUPS = [
+    { id: 'system', label: 'System' },
+    { id: 'media', label: 'Media' },
+    { id: 'keyboard', label: 'Keyboard' },
+    { id: 'web', label: 'Apps & web' },
+    { id: 'pointer', label: 'Pointer' },
+  ];
+
+  M.TYPES = {
+    volume: { label: 'Volume', icon: 'volume', group: 'system', make: () => ({ type: 'volume', step: 4 }) },
+    brightness: { label: 'Brightness', icon: 'sun', group: 'system', make: () => ({ type: 'brightness', step: 10 }) },
+    mute: { label: 'Mute', icon: 'mute', group: 'system', make: () => ({ type: 'mute' }) },
+    lock: { label: 'Lock', icon: 'lock', group: 'system', make: () => ({ type: 'lock' }) },
+    media: { label: 'Media key', icon: 'play-pause', group: 'media', make: () => ({ type: 'media', key: 'play_pause' }) },
+    keys: { label: 'Shortcut', icon: 'keyboard', group: 'keyboard', make: () => ({ type: 'keys', combo: '' }) },
+    open_url: { label: 'Open link', icon: 'globe', group: 'web', make: () => ({ type: 'open_url', url: '' }) },
+    focus_or_launch: { label: 'Switch to app', icon: 'switch', group: 'web', make: () => ({ type: 'focus_or_launch', program: '' }) },
+    launch: { label: 'Launch app', icon: 'apps', group: 'web', make: () => ({ type: 'launch', program: '' }) },
+    run: { label: 'Run command', icon: 'terminal', group: 'web', make: () => ({ type: 'run', command: '' }) },
+    drag: { label: 'Drag', icon: 'drag', group: 'pointer', make: () => ({ type: 'drag' }) },
+    none: { label: 'Nothing', icon: 'none', group: null, make: () => ({ type: 'none' }) },
+  };
+
+  M.MEDIA_KEYS = [
+    { key: 'previous', label: 'Previous', long: 'Previous track', icon: 'prev' },
+    { key: 'play_pause', label: 'Play/Pause', long: 'Play / pause', icon: 'play-pause' },
+    { key: 'next', label: 'Next', long: 'Next track', icon: 'next' },
+    { key: 'stop', label: 'Stop', long: 'Stop', icon: 'stop' },
+    { key: 'volume_down', label: 'Vol −', long: 'Volume down (OS overlay)', icon: 'volume-down' },
+    { key: 'volume_up', label: 'Vol +', long: 'Volume up (OS overlay)', icon: 'volume' },
+    { key: 'mute', label: 'Mute', long: 'Mute (OS overlay)', icon: 'mute' },
+  ];
+
+  M.BROWSERS = [
+    { id: '', label: 'Default browser' },
+    { id: 'chrome', label: 'Google Chrome' },
+    { id: 'firefox', label: 'Firefox' },
+    { id: 'edge', label: 'Microsoft Edge' },
+    { id: 'brave', label: 'Brave' },
+  ];
+
+  const browserName = (id) => ({ chrome: 'Chrome', firefox: 'Firefox', edge: 'Edge', brave: 'Brave' }[id] || id);
+
+  /* ---------------- Key combos ---------------- */
+
+  const KEY_ALIASES = {
+    return: 'enter', escape: 'esc', del: 'delete', ins: 'insert', pgup: 'pageup', pgdn: 'pagedown',
+    prtsc: 'printscreen', print: 'printscreen', '-': 'minus', plus: 'equal', '=': 'equal', ',': 'comma',
+    '.': 'period', '/': 'slash', '\\': 'backslash', ';': 'semicolon', "'": 'quote', '[': 'bracketleft',
+    ']': 'bracketright', backtick: 'grave', '`': 'grave',
+  };
+  const KEY_NAMES = 'abcdefghijklmnopqrstuvwxyz0123456789'.split('').concat(
+    Array.from({ length: 12 }, (_, i) => 'f' + (i + 1)),
+    ['enter', 'esc', 'tab', 'space', 'backspace', 'delete', 'insert', 'home', 'end', 'pageup', 'pagedown',
+      'up', 'down', 'left', 'right', 'printscreen', 'minus', 'equal', 'comma', 'period', 'slash', 'backslash',
+      'semicolon', 'quote', 'bracketleft', 'bracketright', 'grave']);
+  const KEY_SET = new Set(KEY_NAMES);
+  const MOD_ALIASES = { ctrl: 'ctrl', control: 'ctrl', alt: 'alt', option: 'alt', shift: 'shift', win: 'win', super: 'win', meta: 'win', cmd: 'win', windows: 'win' };
+  M.MOD_ORDER = ['ctrl', 'alt', 'shift', 'win'];
+
+  /**
+   * Parse a combo string the same way the backend does.
+   * Returns { ok, combo (canonical), mods:Set, key, error }.
+   */
+  M.parseCombo = function (str) {
+    const parts = String(str || '').split('+').map((p) => p.trim()).filter(Boolean);
+    if (!parts.length) return { ok: false, error: 'Press a shortcut or type one, e.g. ctrl+shift+t' };
+    const mods = new Set();
+    let key = null;
+    for (const part of parts) {
+      const l = part.toLowerCase();
+      if (MOD_ALIASES[l]) { mods.add(MOD_ALIASES[l]); continue; }
+      const k = KEY_ALIASES[l] || l;
+      if (!KEY_SET.has(k)) return { ok: false, error: `Unknown key “${part}”` };
+      if (key) return { ok: false, error: `Only one main key allowed (“${key}” and “${k}”)` };
+      key = k;
+    }
+    const combo = M.MOD_ORDER.filter((m) => mods.has(m)).concat(key ? [key] : []).join('+');
+    return { ok: true, combo, mods, key };
+  };
+
+  const KEY_LABELS = {
+    enter: 'Enter', esc: 'Esc', tab: 'Tab', space: 'Space', backspace: '⌫ Backspace', delete: 'Del', insert: 'Ins',
+    home: 'Home', end: 'End', pageup: 'PgUp', pagedown: 'PgDn', up: '↑', down: '↓', left: '←', right: '→',
+    printscreen: 'PrtSc', minus: '-', equal: '=', comma: ',', period: '.', slash: '/', backslash: '\\',
+    semicolon: ';', quote: "'", bracketleft: '[', bracketright: ']', grave: '`',
+  };
+
+  M.modLabel = (m, platform) => ({ ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', win: platform === 'linux' ? 'Super' : 'Win' }[m]);
+  M.keyLabel = (k) => KEY_LABELS[k] || (k.length === 1 ? k.toUpperCase() : k.toUpperCase());
+
+  /** Keycap labels for display, e.g. ["Win", "Shift", "S"]. Invalid combos fall back to raw parts. */
+  M.keycaps = function (combo, platform) {
+    const p = M.parseCombo(combo);
+    if (!p.ok) return String(combo || '').split('+').filter(Boolean);
+    return M.MOD_ORDER.filter((m) => p.mods.has(m)).map((m) => M.modLabel(m, platform)).concat(p.key ? [M.keyLabel(p.key)] : []);
+  };
+
+  /** Map a KeyboardEvent.code to a grammar key name (null for modifiers / unsupported). */
+  M.keyFromCode = function (code) {
+    if (!code) return null;
+    let m;
+    if ((m = /^Key([A-Z])$/.exec(code))) return m[1].toLowerCase();
+    if ((m = /^(?:Digit|Numpad)([0-9])$/.exec(code))) return m[1];
+    if ((m = /^F([0-9]{1,2})$/.exec(code)) && +m[1] >= 1 && +m[1] <= 12) return 'f' + m[1];
+    const table = {
+      Enter: 'enter', NumpadEnter: 'enter', Escape: 'esc', Tab: 'tab', Space: 'space', Backspace: 'backspace',
+      Delete: 'delete', Insert: 'insert', Home: 'home', End: 'end', PageUp: 'pageup', PageDown: 'pagedown',
+      ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', PrintScreen: 'printscreen',
+      Minus: 'minus', NumpadSubtract: 'minus', Equal: 'equal', NumpadAdd: 'equal', Comma: 'comma', Period: 'period',
+      NumpadDecimal: 'period', Slash: 'slash', NumpadDivide: 'slash', Backslash: 'backslash', IntlBackslash: 'backslash',
+      Semicolon: 'semicolon', Quote: 'quote', BracketLeft: 'bracketleft', BracketRight: 'bracketright', Backquote: 'grave',
+    };
+    return table[code] || null;
+  };
+
+  M.isModifierCode = (code) => /^(Control|Alt|Shift|Meta|OS)(Left|Right)?$/.test(code || '');
+
+  /* ---------------- Args helpers ---------------- */
+
+  /** Split a command-line-ish string into args, honouring "double" and 'single' quotes. */
+  M.parseArgs = function (str) {
+    const out = [];
+    const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+    let m;
+    while ((m = re.exec(String(str || '')))) out.push(m[1] ?? m[2] ?? m[3]);
+    return out;
+  };
+  M.formatArgs = (args) => (args || []).map((a) => (/\s/.test(a) || a === '' ? `"${a}"` : a)).join(' ');
+
+  /* ---------------- Labels ---------------- */
+
+  const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : '0');
+  M.signed = signed;
+
+  const prettyUrl = (u) => String(u || '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '');
+  const programName = (p) => String(p || '').split(/[\\/]/).pop();
+
+  /** Rich summary for chips: { icon, text, keys? } */
+  M.summarize = function (action, platform) {
+    const a = action || { type: 'none' };
+    const t = M.TYPES[a.type] || M.TYPES.none;
+    switch (a.type) {
+      case 'volume': return { icon: a.step < 0 ? 'volume-down' : 'volume', text: `Volume ${signed(a.step)}%` };
+      case 'brightness': return { icon: a.step < 0 ? 'sun-dim' : 'sun', text: `Brightness ${signed(a.step)}%` };
+      case 'mute': return { icon: 'mute', text: 'Toggle mute' };
+      case 'lock': return { icon: 'lock', text: 'Lock screen' };
+      case 'media': {
+        const k = M.MEDIA_KEYS.find((x) => x.key === a.key);
+        return { icon: k ? k.icon : 'play-pause', text: k ? k.long.replace(' (OS overlay)', '') : a.key };
+      }
+      case 'keys': { const caps = M.keycaps(a.combo, platform); return { icon: 'keyboard', text: caps.join('+'), keys: caps }; }
+      case 'open_url': return { icon: /youtube\./i.test(a.url) ? 'youtube' : 'globe', text: `Open ${prettyUrl(a.url)}${a.browser ? ' in ' + browserName(a.browser) : ''}` };
+      case 'launch': return { icon: 'apps', text: `Launch ${programName(a.program)}` };
+      case 'focus_or_launch': return { icon: 'switch', text: `Switch to ${programName(a.program)}` };
+      case 'run': return { icon: 'terminal', text: a.command };
+      case 'drag': return { icon: 'drag', text: 'Click-and-drag' };
+      default: return { icon: t.icon, text: 'Nothing' };
+    }
+  };
+
+  /* ---------------- Validation & cleaning ---------------- */
+
+  /** Returns an error message for an incomplete draft, or null if it can be saved. */
+  M.validate = function (a) {
+    switch (a.type) {
+      case 'keys': { const p = M.parseCombo(a.combo); return p.ok ? null : p.error; }
+      case 'volume': case 'brightness':
+        if (!Number.isInteger(a.step) || a.step === 0) return 'Pick a step other than 0';
+        return null;
+      case 'open_url': {
+        if (!String(a.url || '').trim()) return 'Enter a link to open';
+        try { new URL(M.fixUrl(a.url)); return null; } catch (_) { return 'That doesn’t look like a link (try https://…)'; }
+      }
+      case 'launch': case 'focus_or_launch': return String(a.program || '').trim() ? null : 'Enter a program name or path';
+      case 'run': return String(a.command || '').trim() ? null : 'Enter a command to run';
+      default: return null;
+    }
+  };
+
+  /** Canonical shape for the backend: trims strings, drops empty optional fields. */
+  M.clean = function (a) {
+    const out = { type: a.type };
+    switch (a.type) {
+      case 'keys': out.combo = M.parseCombo(a.combo).combo || String(a.combo || '').trim(); break;
+      case 'volume': case 'brightness': out.step = Math.round(Number(a.step) || 0); break;
+      case 'media': out.key = a.key; break;
+      case 'open_url': out.url = M.fixUrl(a.url); if (a.browser) out.browser = a.browser; break;
+      case 'launch': case 'focus_or_launch':
+        out.program = String(a.program || '').trim();
+        if (a.args && a.args.length) out.args = a.args.slice();
+        break;
+      case 'run': out.command = String(a.command || '').trim(); break;
+      default: break;
+    }
+    return out;
+  };
+
+  M.sameAction = (a, b) => JSON.stringify(M.clean(a || { type: 'none' })) === JSON.stringify(M.clean(b || { type: 'none' }));
+
+  /** Prefix https:// when the user typed a bare domain. */
+  M.fixUrl = function (u) {
+    const s = String(u || '').trim();
+    if (!s) return s;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return s;
+    return 'https://' + s;
+  };
+
+  /* ---------------- Presets ---------------- */
+
+  M.presetsFor = function (slot, platform) {
+    const linux = platform === 'linux';
+    if (slot.kind === 'drag') {
+      return [
+        { id: 'drag', label: 'Three-finger drag', icon: 'drag', action: { type: 'drag' } },
+        { id: 'off', label: 'Off', icon: 'none', action: { type: 'none' } },
+      ];
+    }
+    const k = (combo) => ({ type: 'keys', combo });
+    return [
+      { id: 'vol-up', label: 'Volume up', icon: 'volume', action: { type: 'volume', step: 4 }, repeat: true },
+      { id: 'vol-down', label: 'Volume down', icon: 'volume-down', action: { type: 'volume', step: -4 }, repeat: true },
+      { id: 'bri-up', label: 'Brightness up', icon: 'sun', action: { type: 'brightness', step: 10 }, repeat: true },
+      { id: 'bri-down', label: 'Brightness down', icon: 'sun-dim', action: { type: 'brightness', step: -10 }, repeat: true },
+      { id: 'play', label: 'Play / Pause', icon: 'play-pause', action: { type: 'media', key: 'play_pause' } },
+      { id: 'next', label: 'Next track', icon: 'next', action: { type: 'media', key: 'next' } },
+      { id: 'prev', label: 'Previous track', icon: 'prev', action: { type: 'media', key: 'previous' } },
+      { id: 'mute', label: 'Mute', icon: 'mute', action: { type: 'mute' } },
+      { id: 'desktop', label: 'Show desktop', icon: 'desktop', action: k(linux ? 'win+d' : 'win+d') },
+      { id: 'taskview', label: linux ? 'Overview' : 'Task view', icon: 'taskview', action: k(linux ? 'win' : 'win+tab') },
+      { id: 'desk-next', label: 'Next desktop', icon: 'desk-next', action: k(linux ? 'win+pagedown' : 'win+ctrl+right') },
+      { id: 'desk-prev', label: 'Previous desktop', icon: 'desk-prev', action: k(linux ? 'win+pageup' : 'win+ctrl+left') },
+      { id: 'shot', label: 'Screenshot', icon: 'screenshot', action: k(linux ? 'printscreen' : 'win+shift+s') },
+      { id: 'close', label: 'Close window', icon: 'close-window', action: k('alt+f4') },
+      { id: 'lock', label: 'Lock', icon: 'lock', action: { type: 'lock' } },
+      { id: 'chrome', label: 'Open Chrome', icon: 'browser', action: { type: 'focus_or_launch', program: linux ? 'google-chrome' : 'chrome.exe' } },
+      { id: 'youtube', label: 'Open YouTube', icon: 'youtube', action: { type: 'open_url', url: 'https://youtube.com', browser: 'chrome' } },
+    ];
+  };
+
+  /* ---------------- Config helpers ---------------- */
+
+  M.bindingFor = (config, trigger) => (config.binding || []).find((b) => b.trigger === trigger) || null;
+
+  M.dragOn = (config, n) => (config.binding || []).some((b) => b.trigger === `drag:${n}` && b.action.type === 'drag');
+
+  /** A copy of config with the trigger's binding replaced (or removed for `none`). */
+  M.withBinding = function (config, trigger, action, repeat) {
+    const next = JSON.parse(JSON.stringify(config));
+    next.binding = (next.binding || []).filter((b) => b.trigger !== trigger);
+    if (action && action.type !== 'none') {
+      const b = { trigger, action: M.clean(action) };
+      if (repeat) b.repeat = true;
+      next.binding.push(b);
+    }
+    return next;
+  };
+})();
