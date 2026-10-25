@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-detect-app"
+description = "Enables the detect_app command without any pre-configured scope."
+commands.allow = ["detect_app"]
+
+[[permission]]
+identifier = "deny-detect-app"
+description = "Denies the detect_app command without any pre-configured scope."
+commands.deny = ["detect_app"]

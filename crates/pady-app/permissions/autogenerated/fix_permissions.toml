@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-fix-permissions"
+description = "Enables the fix_permissions command without any pre-configured scope."
+commands.allow = ["fix_permissions"]
+
+[[permission]]
+identifier = "deny-fix-permissions"
+description = "Denies the fix_permissions command without any pre-configured scope."
+commands.deny = ["fix_permissions"]

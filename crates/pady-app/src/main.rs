@@ -635,3 +635,30 @@ fn main() {
             _ => {}
         });
 }
+
+#[cfg(test)]
+mod tests {
+    /// The names between `open` and the next `close` in `text`, split on commas.
+    fn names<'a>(text: &'a str, open: &str, close: char) -> Vec<&'a str> {
+        let start = text.find(open).expect("list start") + open.len();
+        let end = start + text[start..].find(close).expect("list end");
+        text[start..end].split(',').map(|s| s.trim().trim_matches('"')).filter(|s| !s.is_empty()).collect()
+    }
+
+    /// A command missing from build.rs or the main window's capability fails
+    /// at runtime ("not allowed"), so the three lists must agree.
+    #[test]
+    fn every_command_is_permitted_for_the_main_window_only() {
+        let handlers = names(include_str!("main.rs"), "generate_handler![", ']');
+        let declared = names(include_str!("../build.rs"), "const COMMANDS: &[&str] = &[", ']');
+        let main_window = include_str!("../capabilities/default.json");
+        let overlay = include_str!("../capabilities/overlay.json");
+        assert!(!handlers.is_empty());
+        assert_eq!(handlers, declared, "build.rs COMMANDS must match generate_handler!");
+        for command in handlers {
+            let permission = format!("\"allow-{}\"", command.replace('_', "-"));
+            assert!(main_window.contains(&permission), "{permission} missing from capabilities/default.json");
+            assert!(!overlay.contains(&permission), "the overlay must not get {permission}");
+        }
+    }
+}
