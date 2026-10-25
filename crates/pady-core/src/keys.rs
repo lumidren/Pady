@@ -185,4 +185,24 @@ mod tests {
             assert_eq!(Key::from_name(k.name()), Some(k));
         }
     }
+
+    /// Shortcuts come from the config file and the recorder: random strings
+    /// parse or fail cleanly, and whatever parses prints back the same.
+    #[test]
+    fn fuzzed_shortcuts_never_panic() {
+        let alphabet: Vec<char> = "ctrlaltshiftwinsuperf0123456789+-=,./;[]'\\` é🙂".chars().collect();
+        let words = ["ctrl", "alt", "shift", "win", "a", "f12", "f13", "esc", "plus", "-", "+", "", "banana"];
+        let mut rng = crate::Rng::new(0x0BAD_C0FF_EE15_600D);
+        for i in 0..30_000 {
+            let s = if i % 2 == 0 {
+                let len = rng.below(14) as usize;
+                rng.text(&alphabet, len)
+            } else {
+                (0..=rng.below(4)).map(|_| words[rng.below(words.len() as u64) as usize]).collect::<Vec<_>>().join("+")
+            };
+            if let Ok(c) = s.parse::<KeyCombo>() {
+                assert_eq!(c.to_string().parse::<KeyCombo>(), Ok(c), "{s:?}");
+            }
+        }
+    }
 }

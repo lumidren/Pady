@@ -182,4 +182,26 @@ mod tests {
         assert!(!Trigger::DoubleTap(3).can_repeat());
         assert!(!Trigger::Drag(3).can_repeat());
     }
+
+    /// Trigger strings come from the config file: random ones parse or fail
+    /// cleanly, and whatever parses prints back to the same trigger.
+    #[test]
+    fn fuzzed_trigger_strings_never_panic() {
+        let alphabet: Vec<char> = "tapdoublrihswpncg:0123456789 -+é🙂\u{0}".chars().collect();
+        let names = ["tap", "doubletap", "tripletap", "hold", "swipe", "pinch", "drag", "x"];
+        let tails = ["", ":up", ":left", ":in", ":out", ":sideways", ":up:up"];
+        let mut rng = crate::Rng::new(0x1234_5678_9ABC_DEF1);
+        for i in 0..30_000 {
+            let s = if i % 2 == 0 {
+                let len = rng.below(16) as usize;
+                rng.text(&alphabet, len)
+            } else {
+                let n = rng.next() as i64 % 12;
+                format!("{}:{n}{}", names[rng.below(8) as usize], tails[rng.below(7) as usize])
+            };
+            if let Ok(t) = s.parse::<Trigger>() {
+                assert_eq!(t.to_string().parse::<Trigger>().ok(), Some(t), "{s:?}");
+            }
+        }
+    }
 }

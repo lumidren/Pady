@@ -204,12 +204,10 @@ impl Recognizer {
                         Axis::Horizontal => dx,
                         Axis::Vertical => dy,
                     };
-                    let size = self.settings.swipe_step_mm;
-                    while progress.abs() >= size {
+                    let direction = axis_direction(axis, progress);
+                    for _ in 0..take_steps(&mut progress, self.settings.swipe_step_mm) {
                         step += 1;
-                        let direction = axis_direction(axis, progress);
                         out.push(Gesture::Swipe { fingers: self.fingers, direction, step });
-                        progress -= size * progress.signum();
                     }
                     self.phase = Phase::Swiping { axis, progress, step };
                 }
@@ -219,12 +217,10 @@ impl Recognizer {
                     self.phase = Phase::Consumed;
                 } else {
                     progress += dspread;
-                    let size = self.settings.swipe_step_mm;
-                    while progress.abs() >= size {
+                    let direction = PinchDirection::from_change(progress);
+                    for _ in 0..take_steps(&mut progress, self.settings.swipe_step_mm) {
                         step += 1;
-                        let direction = PinchDirection::from_change(progress);
                         out.push(Gesture::Pinch { fingers: self.fingers, direction, step });
-                        progress -= size * progress.signum();
                     }
                     self.phase = Phase::Pinching { progress, step };
                 }
@@ -433,6 +429,25 @@ fn axis_direction(axis: Axis, progress: f32) -> Direction {
         (Axis::Vertical, true) => Direction::Down,
         (Axis::Vertical, false) => Direction::Up,
     }
+}
+
+/// Most repeat steps one frame may produce. Fingers move well under two
+/// steps per frame; a bigger jump can only come from a broken driver.
+const MAX_STEPS_PER_FRAME: u32 = 8;
+
+/// Take whole `size` steps out of `progress` (towards zero), returning how
+/// many. An impossible jump is dropped after [`MAX_STEPS_PER_FRAME`] steps.
+fn take_steps(progress: &mut f32, size: f32) -> u32 {
+    let mut steps = 0;
+    while progress.abs() >= size {
+        if steps == MAX_STEPS_PER_FRAME {
+            *progress = 0.0;
+            break;
+        }
+        steps += 1;
+        *progress -= size * progress.signum();
+    }
+    steps
 }
 
 /// Change in how spread out the fingers present in both frames are: the
@@ -863,5 +878,54 @@ mod tests {
         assert_eq!(s.rec.next_deadline(), Some(1351), "a tap waiting for a second one");
         s.tick(1351);
         assert_eq!(s.rec.next_deadline(), None);
+    }
+
+    /// Frames come from device drivers: odd finger counts, duplicate ids,
+    /// absurd or NaN positions and time jumps must never panic, and no frame
+    /// may produce a flood of gestures.
+    #[test]
+    fn fuzzed_frames_never_panic() {
+        let settings = RecognizerSettings {
+            drag_fingers: [false, false, false, true, false, false],
+            pinch_fingers: [false, false, false, false, true, true],
+            multi_tap_fingers: [0, 0, 0, 3, 2, 1],
+            ..RecognizerSettings::default()
+        };
+        let mut rec = Recognizer::new(settings);
+        let mut rng = crate::Rng::new(0xA076_1D64_78BD_642F);
+        let mut t: u64 = 1_000;
+        for _ in 0..50_000 {
+            // Mostly small steps forward; sometimes a long gap or a step back.
+            t = match rng.below(50) {
+                0 => t.saturating_sub(rng.below(5_000)),
+                1 => t + rng.below(100_000),
+                _ => t + rng.below(20),
+            };
+            let n = [0, 0, 1, 2, 3, 3, 4, 4, 5, 5, 6, 10][rng.below(12) as usize];
+            let contacts = (0..n)
+                .map(|i| Contact { id: if rng.below(10) == 0 { 7 } else { i }, x: rng.mm(), y: rng.mm() })
+                .collect();
+            let gestures = rec.update(&TouchFrame { time_ms: t, contacts, width_mm: 100.0, height_mm: 70.0 });
+            assert!(gestures.len() <= 2 * MAX_STEPS_PER_FRAME as usize, "{} gestures from one frame", gestures.len());
+            if rng.below(5) == 0 {
+                let due = rec.next_deadline().unwrap_or(t);
+                assert!(rec.tick(due + rng.below(1_000)).len() <= 4);
+            }
+        }
+        rec.tick(u64::MAX);
+        rec.reset();
+    }
+
+    #[test]
+    fn an_impossible_jump_is_capped_and_dropped() {
+        let mut progress = 1e9;
+        assert_eq!(take_steps(&mut progress, 7.0), MAX_STEPS_PER_FRAME);
+        assert_eq!(progress, 0.0);
+        let mut progress = f32::INFINITY;
+        assert_eq!(take_steps(&mut progress, 7.0), MAX_STEPS_PER_FRAME);
+        let mut progress = f32::NAN;
+        assert_eq!(take_steps(&mut progress, 7.0), 0);
+        let mut progress = -15.0;
+        assert_eq!((take_steps(&mut progress, 7.0), progress), (2, -1.0));
     }
 }

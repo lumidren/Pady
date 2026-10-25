@@ -63,6 +63,25 @@ impl Default for Settings {
     }
 }
 
+impl Settings {
+    /// Keep hand-edited values in a range Pady can work with (wider than the
+    /// app's sliders). NaN falls back to the default.
+    pub fn sanitize(&mut self) {
+        let d = Settings::default();
+        let fit = |v: f32, lo: f32, hi: f32, default: f32| if v.is_nan() { default } else { v.clamp(lo, hi) };
+        self.tap_max_ms = self.tap_max_ms.clamp(50, 2_000);
+        self.multi_tap_ms = self.multi_tap_ms.clamp(50, 2_000);
+        self.hold_ms = self.hold_ms.clamp(100, 10_000);
+        self.drag_release_ms = self.drag_release_ms.min(5_000);
+        self.tap_slop_mm = fit(self.tap_slop_mm, 0.5, 50.0, d.tap_slop_mm);
+        self.swipe_threshold_mm = fit(self.swipe_threshold_mm, 1.0, 100.0, d.swipe_threshold_mm);
+        self.swipe_step_mm = fit(self.swipe_step_mm, 1.0, 100.0, d.swipe_step_mm);
+        self.pinch_threshold_mm = fit(self.pinch_threshold_mm, 1.0, 100.0, d.pinch_threshold_mm);
+        self.drag_speed = fit(self.drag_speed, 0.1, 100.0, d.drag_speed);
+        self.drag_acceleration = fit(self.drag_acceleration, 0.0, 10.0, d.drag_acceleration);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Binding {
     pub trigger: Trigger,
@@ -276,6 +295,7 @@ impl Config {
     /// Profiles keep `none` bindings (they switch a gesture off) but not
     /// drags: whether movement drags is decided before the app is known.
     pub fn normalize(&mut self) {
+        self.settings.sanitize();
         self.bindings = dedupe(std::mem::take(&mut self.bindings), |b| {
             !b.action.is_none() && matches!(b.trigger, Trigger::Drag(_)) == matches!(b.action, Action::Drag)
         });
@@ -286,6 +306,8 @@ impl Config {
                 !matches!(b.trigger, Trigger::Drag(_)) && !matches!(b.action, Action::Drag)
             });
         }
+        let profile_bindings = self.profiles.iter_mut().flat_map(|p| p.bindings.iter_mut());
+        self.bindings.iter_mut().chain(profile_bindings).for_each(|b| b.action.sanitize());
     }
 
     /// Finger counts whose movement is a drag rather than a swipe. A drag
@@ -605,5 +627,111 @@ mod tests {
         shared.update(|c| c.settings.enabled = false);
         assert!(shared.generation() > g);
         assert!(!shared.get().settings.enabled);
+    }
+
+    #[test]
+    fn hand_edited_extremes_are_kept_in_range() {
+        let cfg = Config::from_toml(
+            r#"
+[settings]
+tap_max_ms = 9223372036854775807
+hold_ms = 0
+multi_tap_ms = 1
+drag_release_ms = 999999999
+tap_slop_mm = nan
+swipe_threshold_mm = -5.0
+swipe_step_mm = inf
+pinch_threshold_mm = -inf
+drag_speed = 1e30
+drag_acceleration = nan
+
+[[binding]]
+trigger = "swipe:4:up"
+action = { type = "volume", step = 2147483647 }
+
+[[profile]]
+name = "Any"
+apps = ["any.exe"]
+
+[[profile.binding]]
+trigger = "tap:4"
+action = { type = "brightness", step = -999 }
+"#,
+        )
+        .unwrap();
+        let (s, d) = (&cfg.settings, Settings::default());
+        assert_eq!((s.tap_max_ms, s.hold_ms, s.multi_tap_ms, s.drag_release_ms), (2_000, 100, 50, 5_000));
+        assert_eq!((s.tap_slop_mm, s.drag_acceleration), (d.tap_slop_mm, d.drag_acceleration));
+        assert_eq!((s.swipe_threshold_mm, s.swipe_step_mm, s.pinch_threshold_mm), (1.0, 100.0, 1.0));
+        assert_eq!(s.drag_speed, 100.0);
+        assert_eq!(cfg.bindings[0].action, Action::Volume { step: 100 });
+        assert_eq!(cfg.profiles[0].bindings[0].action, Action::Brightness { step: -100 });
+    }
+
+    /// People hand-edit the file: random damage to a real config must never
+    /// panic, and whatever still parses is usable and can be saved again.
+    #[test]
+    fn fuzzed_config_text_never_panics() {
+        let base = toml::to_string(&Config::default()).unwrap();
+        let pieces = [
+            "=",
+            "\"",
+            "[",
+            "]",
+            "{",
+            "}",
+            ",",
+            "\n",
+            "-",
+            "[[binding]]",
+            "[settings]",
+            "[[profile]]",
+            "trigger = ",
+            "\"tap:3\"",
+            "\"swipe:9:up\"",
+            "\"pinch:4:sideways\"",
+            "action = ",
+            "step = ",
+            "type = \"volume\"",
+            "type = \"keys\"",
+            "combo = \"ctrl+banana\"",
+            "repeat = true",
+            "hold_ms = ",
+            "9999999999",
+            "-1",
+            "nan",
+            "inf",
+            "1e400",
+            "\u{0}",
+            "é",
+            "🙂",
+        ];
+        let mut rng = crate::Rng::new(0x5851_F42D_4C95_7F2D);
+        let mut parsed = 0;
+        for _ in 0..3_000 {
+            let mut text = base.clone();
+            for _ in 0..=rng.below(5) {
+                let mut at = rng.below(text.len() as u64 + 1) as usize;
+                while !text.is_char_boundary(at) {
+                    at -= 1;
+                }
+                if rng.below(3) == 0 {
+                    let mut end = (at + rng.below(24) as usize).min(text.len());
+                    while !text.is_char_boundary(end) {
+                        end += 1;
+                    }
+                    text.replace_range(at..end, "");
+                } else {
+                    text.insert_str(at, pieces[rng.below(pieces.len() as u64) as usize]);
+                }
+            }
+            if let Ok(cfg) = Config::from_toml(&text) {
+                parsed += 1;
+                let s = cfg.recognizer_settings();
+                assert!(s.swipe_step_mm >= 1.0 && s.pinch_threshold_mm >= 1.0, "{s:?}");
+                assert!(toml::to_string(&cfg).is_ok(), "a parsed config could not be saved:\n{text}");
+            }
+        }
+        assert!(parsed > 0, "every mutation broke the file; the fuzzer is too blunt");
     }
 }

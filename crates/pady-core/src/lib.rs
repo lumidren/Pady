@@ -29,3 +29,43 @@ pub use keys::{Key, KeyCombo, Modifiers};
 pub use presets::{Preset, PRESETS};
 pub use recognizer::{Recognizer, RecognizerSettings};
 pub use trigger::Trigger;
+
+/// Deterministic random input for the fuzz tests (xorshift64*): the same
+/// cases on every run, with no dependencies.
+#[cfg(test)]
+pub(crate) struct Rng(u64);
+
+#[cfg(test)]
+impl Rng {
+    pub(crate) fn new(seed: u64) -> Self {
+        Rng(seed | 1)
+    }
+
+    pub(crate) fn next(&mut self) -> u64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+
+    pub(crate) fn below(&mut self, n: u64) -> u64 {
+        self.next() % n
+    }
+
+    /// A position in millimetres: usually on a pad, sometimes absurd (huge,
+    /// negative, infinite or NaN) as a broken driver might report.
+    pub(crate) fn mm(&mut self) -> f32 {
+        match self.below(40) {
+            0 => f32::NAN,
+            1 => f32::INFINITY,
+            2 => -1e9,
+            3 => 1e9,
+            _ => self.below(12_000) as f32 / 100.0,
+        }
+    }
+
+    /// A string of `len` characters drawn from `alphabet`.
+    pub(crate) fn text(&mut self, alphabet: &[char], len: usize) -> String {
+        (0..len).map(|_| alphabet[self.below(alphabet.len() as u64) as usize]).collect()
+    }
+}

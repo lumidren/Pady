@@ -70,6 +70,14 @@ impl MediaKey {
 }
 
 impl Action {
+    /// Volume and brightness steps beyond ±100% mean nothing; keep what a
+    /// hand-edited config says in range.
+    pub fn sanitize(&mut self) {
+        if let Action::Volume { step } | Action::Brightness { step } = self {
+            *step = (*step).clamp(-100, 100);
+        }
+    }
+
     pub fn is_none(&self) -> bool {
         matches!(self, Action::None)
     }
