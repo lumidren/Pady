@@ -14,3 +14,7 @@ crossbeam-channel.workspace = true
 log.workspace = true
 thiserror.workspace = true
 dirs.workspace = true
+
+[[bench]]
+name = "hot_path"
+harness = false
