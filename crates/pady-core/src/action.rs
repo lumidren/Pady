@@ -107,11 +107,10 @@ mod tests {
 
     #[test]
     fn toml_shape_is_friendly() {
-        let w: Wrap = toml::from_str(r#"action = { type = "open_url", url = "https://example.com", browser = "chrome" }"#).unwrap();
-        assert_eq!(
-            w.action,
-            Action::OpenUrl { url: "https://example.com".into(), browser: Some("chrome".into()) }
-        );
+        let w: Wrap =
+            toml::from_str(r#"action = { type = "open_url", url = "https://example.com", browser = "chrome" }"#)
+                .unwrap();
+        assert_eq!(w.action, Action::OpenUrl { url: "https://example.com".into(), browser: Some("chrome".into()) });
         let w: Wrap = toml::from_str(r#"action = { type = "media", key = "play_pause" }"#).unwrap();
         assert_eq!(w.action, Action::Media { key: MediaKey::PlayPause });
         let w: Wrap = toml::from_str(r#"action = { type = "lock" }"#).unwrap();

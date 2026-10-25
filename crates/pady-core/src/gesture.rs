@@ -60,13 +60,26 @@ impl fmt::Display for Direction {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Gesture {
-    Tap { fingers: u8 },
-    Hold { fingers: u8 },
+    Tap {
+        fingers: u8,
+    },
+    Hold {
+        fingers: u8,
+    },
     /// `step` is 0 for the first trigger of a swipe and counts up as the
     /// fingers keep travelling (used for "scrub" bindings like volume).
-    Swipe { fingers: u8, direction: Direction, step: u32 },
-    DragStart { fingers: u8 },
+    Swipe {
+        fingers: u8,
+        direction: Direction,
+        step: u32,
+    },
+    DragStart {
+        fingers: u8,
+    },
     /// Movement in millimetres since the previous drag event.
-    DragMove { dx: f32, dy: f32 },
+    DragMove {
+        dx: f32,
+        dy: f32,
+    },
     DragEnd,
 }

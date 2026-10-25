@@ -66,7 +66,10 @@ pub enum EngineEvent {
         /// Label of the action that ran, if one was bound.
         action: Option<String>,
     },
-    ActionFailed { action: String, error: String },
+    ActionFailed {
+        action: String,
+        error: String,
+    },
 }
 
 pub type Observer = Arc<dyn Fn(EngineEvent) + Send + Sync>;
@@ -80,7 +83,12 @@ pub struct Engine {
 impl Engine {
     /// Start both threads. The engine stops when every sender for `frames`
     /// has been dropped.
-    pub fn spawn<F>(config: Arc<SharedConfig>, frames: Receiver<TouchFrame>, make_executor: F, observer: Observer) -> Engine
+    pub fn spawn<F>(
+        config: Arc<SharedConfig>,
+        frames: Receiver<TouchFrame>,
+        make_executor: F,
+        observer: Observer,
+    ) -> Engine
     where
         F: FnOnce() -> Box<dyn Executor> + Send + 'static,
     {
@@ -361,8 +369,10 @@ mod tests {
         assert_eq!(jobs.last(), Some(&Job::MouseButton(false)));
         let moved: i32 = jobs.iter().map(|j| if let Job::MouseMove(x, _) = j { *x } else { 0 }).sum();
         assert!(moved > 100, "cursor should travel right, got {moved}px");
-        assert!(events.iter().any(|e| matches!(e,
-            EngineEvent::Gesture { gesture: Gesture::DragStart { fingers: 3 }, action: Some(_), .. })));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            EngineEvent::Gesture { gesture: Gesture::DragStart { fingers: 3 }, action: Some(_), .. }
+        )));
     }
 
     #[test]

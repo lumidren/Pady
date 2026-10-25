@@ -405,11 +405,9 @@ mod tests {
 
     #[test]
     fn swipe_direction_uses_dominant_axis() {
-        for (dx, dy, dir) in [
-            (12.0, 3.0, Direction::Right),
-            (-12.0, -3.0, Direction::Left),
-            (2.0, 12.0, Direction::Down),
-        ] {
+        for (dx, dy, dir) in
+            [(12.0, 3.0, Direction::Right), (-12.0, -3.0, Direction::Left), (2.0, 12.0, Direction::Down)]
+        {
             let mut s = Script::new(settings());
             s.frame(0, 4, 0.0, 0.0).frame(10, 4, dx, dy);
             assert_eq!(s.out, vec![Gesture::Swipe { fingers: 4, direction: dir, step: 0 }]);
