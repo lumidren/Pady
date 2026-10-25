@@ -3,7 +3,6 @@ name = "pady-core"
 description = "Platform-independent gesture recognition, configuration and engine for Pady"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
 authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
