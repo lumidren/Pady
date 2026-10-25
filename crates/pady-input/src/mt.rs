@@ -27,6 +27,9 @@ pub struct AxisRange {
 /// recognizer is in millimetres, so a plausible guess beats raw units.
 pub const FALLBACK_WIDTH_MM: f32 = 100.0;
 
+/// Most finger slots tracked; a device claiming more gets this many.
+pub const MAX_SLOTS: usize = 64;
+
 /// `ABS_MT_TOOL_TYPE` value for a palm (`MT_TOOL_PALM` in the kernel).
 pub const MT_TOOL_PALM: i32 = 2;
 
@@ -137,7 +140,8 @@ impl MtTracker {
             }
         };
         MtTracker {
-            slots: vec![Slot::default(); slots.max(1)],
+            // The slot count comes from the device; real pads have 2-10.
+            slots: vec![Slot::default(); slots.clamp(1, MAX_SLOTS)],
             current: Some(0),
             x: Scale::new(x, rx),
             y: Scale::new(y, ry),
@@ -648,5 +652,41 @@ mod tests {
         let f = t.sync(1).unwrap();
         assert_eq!(f.finger_count(), 2);
         assert!(f.contacts[1].id >= SYNTHETIC_ID_BASE);
+    }
+
+    fn random_range(rng: &mut crate::Rng) -> AxisRange {
+        AxisRange { min: rng.i32(), max: rng.i32(), resolution: rng.i32() }
+    }
+
+    /// Axis ranges, slot counts and event values come from the device and
+    /// kernel: random streams of every call must never panic, the slot table
+    /// stays bounded, and frames hold finite positions.
+    #[test]
+    fn fuzzed_event_streams_never_panic() {
+        let mut rng = crate::Rng::new(0xD1B5_4A32_D192_ED03);
+        for round in 0..200u64 {
+            let slots = [0, 1, 2, 5, 10, 64, 1 << 20, usize::MAX][rng.below(8) as usize];
+            let mut t = MtTracker::new(slots, random_range(&mut rng), random_range(&mut rng));
+            assert!(t.slot_count() <= MAX_SLOTS);
+            assert!(t.width_mm().is_finite() && t.height_mm().is_finite());
+            for i in 0..500u64 {
+                match rng.below(10) {
+                    0 | 1 => t.slot(rng.below(80) as i32 - 8),
+                    2 => t.tracking_id(if rng.below(3) == 0 { -1 } else { rng.i32() }),
+                    3 | 4 => t.position_x(rng.i32()),
+                    5 | 6 => t.position_y(rng.i32()),
+                    7 => t.tool_type(rng.i32() % 4),
+                    8 => t.tool_key(rng.below(12) as u8, rng.below(2) == 0),
+                    _ if rng.below(20) == 0 => t.reset(),
+                    _ => t.tool_fingers(rng.below(10) as u8),
+                }
+                if rng.below(3) == 0 {
+                    if let Some(f) = t.sync(round * 1000 + i) {
+                        assert!(f.contacts.len() <= MAX_SLOTS + 8);
+                        assert!(f.contacts.iter().all(|c| c.x.is_finite() && c.y.is_finite()), "{f:?}");
+                    }
+                }
+            }
+        }
     }
 }

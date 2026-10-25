@@ -16,7 +16,7 @@ use pady_core::{now_ms, Contact, TouchFrame};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::mem::size_of;
+use std::mem::{offset_of, size_of};
 use std::sync::{Arc, Mutex};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Devices::HumanInterfaceDevice::*;
@@ -170,6 +170,9 @@ fn on_device_change(state: &mut State, handle: HANDLE, arrived: bool) {
     }
 }
 
+/// Where a HID record's reports start inside a `RAWINPUT` buffer (`bRawData`).
+const REPORTS_AT: usize = offset_of!(RAWINPUT, data) + offset_of!(RAWHID, bRawData);
+
 fn on_input(state: &mut State, input: HRAWINPUT) {
     let header = size_of::<RAWINPUTHEADER>() as u32;
     let mut size = 0u32;
@@ -187,7 +190,9 @@ fn on_input(state: &mut State, input: HRAWINPUT) {
         return;
     }
     let raw = unsafe { &*(ptr as *const RAWINPUT) };
-    if raw.header.dwType != RIM_TYPEHID.0 {
+    // The HID header (report size and count) must lie within what was read
+    // before it is touched; the reports after it are checked below.
+    if raw.header.dwType != RIM_TYPEHID.0 || (read as usize) < REPORTS_AT {
         return;
     }
     let key = raw.header.hDevice.0 as isize;
@@ -202,14 +207,12 @@ fn on_input(state: &mut State, input: HRAWINPUT) {
 
     let hid = unsafe { &raw.data.hid };
     let (report_size, count) = (hid.dwSizeHid as usize, hid.dwCount as usize);
-    let total = report_size * count;
-    // bRawData is a flexible array member that runs past the struct.
-    let data_ptr = hid.bRawData.as_ptr() as *mut u8;
-    let available = read as usize - (data_ptr as usize - ptr as usize);
-    if report_size == 0 || total > available {
+    let Some(total) = report_size.checked_mul(count) else { return };
+    if report_size == 0 || total > read as usize - REPORTS_AT {
         return;
     }
-    let data = unsafe { std::slice::from_raw_parts_mut(data_ptr, total) };
+    // bRawData is a flexible array member that runs past the struct.
+    let data = unsafe { std::slice::from_raw_parts_mut(ptr.cast::<u8>().add(REPORTS_AT), total) };
     for report in data.chunks_exact_mut(report_size) {
         if let Some(frame) = pad.parse(report) {
             if state.frames.send(frame).is_err() {
@@ -490,5 +493,21 @@ fn product_name(device: HANDLE) -> Option<String> {
         let end = name.iter().position(|&c| c == 0).unwrap_or(name.len());
         let s = String::from_utf16_lossy(&name[..end]).trim().to_string();
         (!s.is_empty()).then_some(s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bounds check starts the reports exactly where `bRawData` sits,
+    /// as the pointer arithmetic it replaced did.
+    #[test]
+    fn reports_start_at_braw_data() {
+        let raw = RAWINPUT::default();
+        let start = &raw as *const RAWINPUT as usize;
+        let reports = unsafe { raw.data.hid.bRawData.as_ptr() } as usize;
+        assert_eq!(reports - start, REPORTS_AT);
+        assert_eq!(REPORTS_AT, size_of::<RAWINPUTHEADER>() + 2 * size_of::<u32>());
     }
 }

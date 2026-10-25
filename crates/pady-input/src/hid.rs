@@ -27,10 +27,10 @@ pub struct AxisCaps {
 impl AxisCaps {
     /// Physical length of the axis in millimetres, if the descriptor says.
     pub fn length_mm(&self) -> Option<f32> {
-        let span = (self.physical_max - self.physical_min) as f32;
-        if span <= 0.0 {
+        if self.physical_max <= self.physical_min {
             return None;
         }
+        let span = span(self.physical_min, self.physical_max);
         let exp = decode_exponent(self.unit_exp);
         let mm_per_unit = match self.units & 0xF {
             1 => 10.0, // centimetre
@@ -44,9 +44,15 @@ impl AxisCaps {
 
     /// Map a raw logical value to millimetres along an axis of `length_mm`.
     pub fn to_mm(&self, value: i32, length_mm: f32) -> f32 {
-        let range = (self.logical_max - self.logical_min).max(1) as f32;
-        ((value - self.logical_min) as f32 / range).clamp(0.0, 1.0) * length_mm
+        let offset = (i64::from(value) - i64::from(self.logical_min)) as f32;
+        (offset / span(self.logical_min, self.logical_max)).clamp(0.0, 1.0) * length_mm
     }
+}
+
+/// Width of a descriptor range, at least 1. Computed in 64 bits: devices
+/// may describe ranges as wide as `i32::MIN..=i32::MAX`.
+fn span(min: i32, max: i32) -> f32 {
+    (i64::from(max) - i64::from(min)).max(1) as f32
 }
 
 /// HID stores the unit exponent as a signed nibble: 0..7 → 0..7, 8..F → -8..-1.
@@ -65,9 +71,9 @@ pub fn pad_size_mm(x: &AxisCaps, y: &AxisCaps) -> (f32, f32) {
     match (x.length_mm(), y.length_mm()) {
         (Some(w), Some(h)) => (w, h),
         _ => {
-            let lw = (x.logical_max - x.logical_min).max(1) as f32;
-            let lh = (y.logical_max - y.logical_min).max(1) as f32;
-            (100.0, 100.0 * lh / lw)
+            let aspect = span(y.logical_min, y.logical_max) / span(x.logical_min, x.logical_max);
+            // A nonsense descriptor still gets a pad of plausible proportions.
+            (100.0, (100.0 * aspect).clamp(20.0, 200.0))
         }
     }
 }
@@ -84,6 +90,9 @@ pub struct SlotReading {
     pub confident: bool,
 }
 
+/// Most contacts a frame may claim (see [`FrameAssembler::push`]).
+const MAX_CONTACTS: usize = 32;
+
 #[derive(Debug, Default)]
 pub struct FrameAssembler {
     expected: usize,
@@ -97,7 +106,9 @@ impl FrameAssembler {
     /// order. Returns the touching, confident fingers once a frame is whole.
     pub fn push(&mut self, contact_count: u32, slots: &[SlotReading]) -> Option<Vec<SlotReading>> {
         if contact_count > 0 {
-            self.expected = contact_count as usize;
+            // Real pads report at most 5-10 contacts; a bogus count must not
+            // keep a frame open (and growing) forever.
+            self.expected = (contact_count as usize).min(MAX_CONTACTS);
             self.seen = 0;
             self.touching.clear();
         } else if self.expected == 0 {
@@ -186,5 +197,47 @@ mod tests {
         let mut fa = FrameAssembler::default();
         let palm = SlotReading { confident: false, ..slot(2, true) };
         assert_eq!(fa.push(2, &[slot(1, true), palm]).unwrap().len(), 1);
+    }
+
+    fn random_axis(rng: &mut crate::Rng) -> AxisCaps {
+        AxisCaps {
+            logical_min: rng.i32(),
+            logical_max: rng.i32(),
+            physical_min: rng.i32(),
+            physical_max: rng.i32(),
+            units: rng.next() as u32,
+            unit_exp: rng.next() as u32,
+        }
+    }
+
+    /// Descriptors and reports come from the device: no values may panic,
+    /// sizes stay finite and positive, and frames stay bounded.
+    #[test]
+    fn fuzzed_descriptors_and_reports_never_panic() {
+        let mut rng = crate::Rng::new(0x9E37_79B9_7F4A_7C15);
+        for _ in 0..20_000 {
+            let (x, y) = (random_axis(&mut rng), random_axis(&mut rng));
+            let (w, h) = pad_size_mm(&x, &y);
+            assert!(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0, "{x:?} {y:?} gave {w}×{h}");
+            let mm = x.to_mm(rng.i32(), w);
+            assert!((0.0..=w).contains(&mm), "{mm} outside 0..={w}");
+        }
+        let mut fa = FrameAssembler::default();
+        for _ in 0..50_000 {
+            let slots: Vec<SlotReading> = (0..rng.below(12))
+                .map(|_| SlotReading {
+                    id: rng.next() as u32,
+                    x: rng.i32(),
+                    y: rng.i32(),
+                    tip: rng.below(2) == 0,
+                    confident: rng.below(4) > 0,
+                })
+                .collect();
+            let count = [0, 0, 0, 1, 2, 3, 5, 10, 1000, u32::MAX][rng.below(10) as usize];
+            if let Some(touching) = fa.push(count, &slots) {
+                assert!(touching.len() <= MAX_CONTACTS);
+            }
+            assert!(fa.touching.len() <= MAX_CONTACTS, "a bogus contact count kept a frame growing");
+        }
     }
 }

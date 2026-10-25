@@ -70,3 +70,36 @@ pub fn start(frames: Sender<TouchFrame>) -> Result<InputHandle, InputError> {
         Err(InputError::Unsupported)
     }
 }
+
+/// Deterministic random input for the parser fuzz tests (xorshift64*): the
+/// same cases on every run, with no dependencies.
+#[cfg(test)]
+pub(crate) struct Rng(u64);
+
+#[cfg(test)]
+impl Rng {
+    pub(crate) fn new(seed: u64) -> Self {
+        Rng(seed | 1)
+    }
+
+    pub(crate) fn next(&mut self) -> u64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+
+    pub(crate) fn below(&mut self, n: u64) -> u64 {
+        self.next() % n
+    }
+
+    /// Any `i32`, with the extremes over-represented.
+    pub(crate) fn i32(&mut self) -> i32 {
+        match self.below(8) {
+            0 => i32::MIN,
+            1 => i32::MAX,
+            2 => 0,
+            _ => self.next() as i32,
+        }
+    }
+}
