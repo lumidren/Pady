@@ -8,7 +8,7 @@
 use crossbeam_channel::Sender;
 use pady_actions::Conflict;
 use pady_core::engine::Observer;
-use pady_core::{Action, Config, Engine, EngineEvent, SharedConfig, TouchFrame};
+use pady_core::{Action, Config, Engine, EngineEvent, Level, SharedConfig, TouchFrame};
 use pady_input::{DeviceInfo, InputHandle};
 use serde::Serialize;
 use serde_json::json;
@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, State, WindowEvent, Wry};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WindowEvent, Wry};
 
 struct Pady {
     config: Arc<SharedConfig>,
@@ -170,8 +170,45 @@ fn load_config(path: &Path) -> Config {
     }
 }
 
-fn observer(app: AppHandle, live: Arc<AtomicBool>) -> Observer {
+/// Shows the volume/brightness pill near the bottom of the screen and hides
+/// it once levels stop arriving. The window can't take focus or clicks, so
+/// it never interrupts what the gesture was aimed at.
+struct Overlay {
+    app: AppHandle,
+    /// Bumped per level so only the newest hide timer acts.
+    shown: Arc<AtomicU64>,
+}
+
+impl Overlay {
+    const LINGER: Duration = Duration::from_millis(1300);
+
+    fn show(&self, level: &Level) {
+        let Some(window) = self.app.get_webview_window("overlay") else { return };
+        let _ = window.emit("pady://level", level);
+        if !window.is_visible().unwrap_or(false) {
+            if let (Ok(Some(monitor)), Ok(size)) = (window.primary_monitor(), window.outer_size()) {
+                let (area, scale) = (monitor.size(), monitor.scale_factor());
+                let x = monitor.position().x + (area.width as i32 - size.width as i32) / 2;
+                let y = monitor.position().y + area.height as i32 - size.height as i32 - (110.0 * scale) as i32;
+                let _ = window.set_position(PhysicalPosition::new(x, y));
+            }
+            let _ = window.set_ignore_cursor_events(true);
+            let _ = window.show();
+        }
+        let ticket = self.shown.fetch_add(1, Ordering::SeqCst) + 1;
+        let shown = self.shown.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Self::LINGER);
+            if shown.load(Ordering::SeqCst) == ticket {
+                let _ = window.hide();
+            }
+        });
+    }
+}
+
+fn observer(app: AppHandle, live: Arc<AtomicBool>, config: Arc<SharedConfig>) -> Observer {
     let last_frame = AtomicU64::new(0);
+    let overlay = Overlay { app: app.clone(), shown: Arc::new(AtomicU64::new(0)) };
     Arc::new(move |event| match event {
         EngineEvent::Frame(frame) => {
             if !live.load(Ordering::Relaxed) {
@@ -184,8 +221,14 @@ fn observer(app: AppHandle, live: Arc<AtomicBool>) -> Observer {
                 let _ = app.emit("pady://frame", &frame);
             }
         }
-        EngineEvent::Gesture { gesture, trigger, action } => {
-            let _ = app.emit("pady://gesture", json!({ "gesture": gesture, "trigger": trigger, "action": action }));
+        EngineEvent::Gesture { gesture, trigger, action, profile } => {
+            let payload = json!({ "gesture": gesture, "trigger": trigger, "action": action, "profile": profile });
+            let _ = app.emit("pady://gesture", payload);
+        }
+        EngineEvent::Level(level) => {
+            if config.get().settings.show_overlay {
+                overlay.show(&level);
+            }
         }
         EngineEvent::ActionFailed { action, error } => {
             let _ = app.emit("pady://action-failed", json!({ "action": action, "error": error }));
@@ -321,7 +364,7 @@ fn main() {
                 config.clone(),
                 frames_rx,
                 pady_actions::executor,
-                observer(app.handle().clone(), live.clone()),
+                observer(app.handle().clone(), live.clone(), config.clone()),
             );
 
             app.manage(Pady {

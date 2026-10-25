@@ -1,7 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The Pady window may call app commands and listen to events.",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "description": "The Pady windows may call app commands and listen to events.",
+  "windows": [
+    "main",
+    "overlay"
+  ],
+  "permissions": [
+    "core:default"
+  ]
 }

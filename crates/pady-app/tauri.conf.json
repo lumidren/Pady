@@ -18,6 +18,22 @@
         "minHeight": 560,
         "center": true,
         "visible": false
+      },
+      {
+        "label": "overlay",
+        "url": "overlay.html",
+        "title": "Pady overlay",
+        "width": 300,
+        "height": 90,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "focusable": false,
+        "resizable": false,
+        "shadow": false,
+        "visible": false
       }
     ],
     "security": {
@@ -26,7 +42,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "deb", "appimage"],
+    "targets": [
+      "nsis",
+      "deb",
+      "appimage"
+    ],
     "category": "Utility",
     "shortDescription": "Custom touchpad gestures",
     "longDescription": "Pady maps three-, four- and five-finger taps, holds, swipes and drags to keyboard shortcuts, volume, brightness, apps and links.",
