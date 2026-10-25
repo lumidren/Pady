@@ -59,6 +59,16 @@ CI runs the same checks on Windows and Ubuntu, and `node --check` on the UI scri
 - **Commits** follow [Conventional Commits](https://www.conventionalcommits.org) (`feat(core): …`, `fix(app): …`). Keep each commit focused.
 - **Comments** explain *why*, not what.
 - **New behaviour** should come with a test in `pady-core` where possible. The recognizer tests show how to script finger movements.
+- **Parsers** (config, triggers, shortcuts, HID and evdev input) have fuzz tests named `fuzzed_*`. If you add a parser, give it one: anything a device or a hand-edited file can say must never panic.
+
+## Measuring performance
+
+```bash
+cargo bench -p pady-core                                         # time and allocations per frame, gesture → action latency
+cargo run -p pady-actions --release --example time_actions       # how long volume, mute and brightness take (changes are undone)
+```
+
+An idle Pady should cost no CPU: the engine sleeps until a frame or timer is due, and the settings window only animates while something is happening. Avoid `infinite` CSS animations and `requestAnimationFrame` loops that keep running when nothing changes.
 
 ## Adding an action
 

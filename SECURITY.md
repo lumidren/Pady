@@ -13,3 +13,11 @@ Pady needs some system access to do its job. It keeps that access as narrow as p
 - **Administrator rights on Linux, only when asked.** *Fix permissions* runs a fixed script through `pkexec`. It writes Pady's udev rule and a `modules-load.d` file, reloads udev, and installs missing helper packages with the system package manager. The script lives in `crates/pady-actions/src/linux.rs` (`fix_permissions_script`).
 - **No network.** Pady doesn't talk to the internet. It has no telemetry, no update checks and no accounts. The only exceptions are actions you configure yourself, such as opening a link.
 - **Local files only.** Settings live in `%APPDATA%\Pady` or `~/.config/pady`, and logs in the app's local data folder. Logs contain gesture and device information, never what you type.
+
+## How Pady is hardened
+
+- **The settings window runs only the app's own files**, under a strict Content Security Policy (scripts from the app itself, no remote content). Each of Pady's commands needs a permission that only the main window has; the on-screen overlay can only listen for level updates.
+- **What devices report is bounded.** Raw Input records are size-checked before they're read, descriptor ranges are computed without overflow, and contact and slot counts are capped, so a broken or hostile device can't crash Pady or make it grow without limit.
+- **Hand-edited settings are kept in range**, and a single jump in finger position can't turn into a flood of repeated actions.
+- **Fuzz tests** feed random device descriptors and reports, multitouch event streams, configs, triggers, shortcuts and touch frames through every parser on each CI run (`cargo test`, tests named `fuzzed_*`).
+- **Dependencies** are checked with [`cargo audit`](https://rustsec.org) against the RustSec advisory database, and Dependabot keeps them current.

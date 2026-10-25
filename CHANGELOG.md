@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1 (2026-10-25)
+
+### Performance
+- **The open settings window no longer keeps the CPU busy while idle.** A card under the mouse pointer replayed its animation forever (about 19% of a CPU core); it now plays twice. The Live page and the tutorial's touchpad draw only while fingers are down, and the tutorial's welcome animation rests after three loops.
+- New measuring tools: `cargo bench -p pady-core` (cost per touch frame, gesture → action latency) and `cargo run -p pady-actions --release --example time_actions` (how long volume, mute and brightness take).
+
+### Security and robustness
+- Pady's commands now need a permission that only the main window has; the overlay window can only listen for level updates.
+- Stricter limits on what devices report: Raw Input records are size-checked before they're read, descriptor ranges no longer overflow, and absurd contact or slot counts are capped (a bogus device could otherwise make Pady grow without limit or exit at start-up).
+- Hand-edited settings are clamped to workable ranges and volume/brightness steps to ±100%, and a driver glitch can no longer turn one frame into millions of repeated steps.
+- Fuzz tests now feed random device reports, multitouch events, configs, triggers, shortcuts and frames through every parser on each CI run.
+
 ## 0.3.0 (2026-10-25)
 
 ### Added
