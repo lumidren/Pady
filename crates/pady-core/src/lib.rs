@@ -16,6 +16,7 @@ pub mod engine;
 pub mod frame;
 pub mod gesture;
 pub mod keys;
+pub mod presets;
 pub mod recognizer;
 pub mod trigger;
 
@@ -25,5 +26,6 @@ pub use engine::{Ack, ActionError, Engine, EngineEvent, Executor, Job, Level, Le
 pub use frame::{now_ms, Contact, TouchFrame};
 pub use gesture::{Direction, Gesture, PinchDirection};
 pub use keys::{Key, KeyCombo, Modifiers};
+pub use presets::{Preset, PRESETS};
 pub use recognizer::{Recognizer, RecognizerSettings};
 pub use trigger::Trigger;
