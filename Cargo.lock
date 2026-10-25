@@ -2527,6 +2527,7 @@ dependencies = [
  "pady-actions",
  "pady-core",
  "pady-input",
+ "pady-overlay",
  "serde",
  "serde_json",
  "tauri",

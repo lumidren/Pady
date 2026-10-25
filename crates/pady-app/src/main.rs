@@ -251,16 +251,16 @@ fn load_config(path: &Path) -> Config {
     }
 }
 
-/// Shows the volume/brightness pill near the bottom of the screen and hides
-/// it once levels stop arriving. The window can't take focus or clicks, so
-/// it never interrupts what the gesture was aimed at.
-struct Overlay {
+/// The WebView version of the volume/brightness pill, used where the native
+/// one (`pady-overlay`, Windows) isn't available. It shows near the bottom
+/// of the screen, can't take focus or clicks, and hides once levels stop.
+struct WebOverlay {
     app: AppHandle,
     /// Bumped per level so only the newest hide timer acts.
     shown: Arc<AtomicU64>,
 }
 
-impl Overlay {
+impl WebOverlay {
     const LINGER: Duration = Duration::from_millis(1300);
 
     fn show(&self, level: &Level) {
@@ -349,9 +349,14 @@ mod overlay_window {
     }
 }
 
-fn observer(app: AppHandle, live: Arc<AtomicBool>, config: Arc<SharedConfig>) -> Observer {
+fn observer(
+    app: AppHandle,
+    live: Arc<AtomicBool>,
+    config: Arc<SharedConfig>,
+    native_overlay: Option<pady_overlay::Overlay>,
+) -> Observer {
     let last_frame = AtomicU64::new(0);
-    let overlay = Overlay { app: app.clone(), shown: Arc::new(AtomicU64::new(0)) };
+    let web_overlay = WebOverlay { app: app.clone(), shown: Arc::new(AtomicU64::new(0)) };
     Arc::new(move |event| match event {
         EngineEvent::Frame(frame) => {
             if !live.load(Ordering::Relaxed) {
@@ -370,7 +375,10 @@ fn observer(app: AppHandle, live: Arc<AtomicBool>, config: Arc<SharedConfig>) ->
         }
         EngineEvent::Level(level) => {
             if config.get().settings.show_overlay {
-                overlay.show(&level);
+                match &native_overlay {
+                    Some(native) => native.show(level),
+                    None => web_overlay.show(&level),
+                }
             }
         }
         EngineEvent::ActionFailed { action, error } => {
@@ -560,6 +568,10 @@ fn main() {
             let config = Arc::new(SharedConfig::new(load_config(&config_path)));
             let live = Arc::new(AtomicBool::new(false));
 
+            // A native pill on Windows: no WebView kept alive just to show levels.
+            let native_overlay = pady_overlay::Overlay::spawn();
+            let web_overlay_needed = native_overlay.is_none();
+
             let (frames_tx, frames_rx) = crossbeam_channel::unbounded();
             let input = pady_input::start(frames_tx.clone()).map_err(|e| e.to_string());
             if let Err(e) = &input {
@@ -569,7 +581,7 @@ fn main() {
                 config.clone(),
                 frames_rx,
                 pady_actions::executor,
-                observer(app.handle().clone(), live.clone(), config.clone()),
+                observer(app.handle().clone(), live.clone(), config.clone(), native_overlay),
             );
 
             app.manage(Pady {
@@ -586,7 +598,8 @@ fn main() {
             // Windows are created only now (`create: false` in tauri.conf.json):
             // a fast page load would otherwise call get_state before `manage` ran.
             // The settings window waits until it's opened (see show_main).
-            for window in app.config().app.windows.iter().filter(|w| w.label != "main") {
+            let wanted = |label: &str| label != "main" && (label != "overlay" || web_overlay_needed);
+            for window in app.config().app.windows.iter().filter(|w| wanted(&w.label)) {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), window)?.build()?;
             }
 
