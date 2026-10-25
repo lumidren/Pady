@@ -8,7 +8,7 @@
 //!   `chrome.exe` works without a full path.
 
 use crate::Conflict;
-use pady_core::{Action, ActionError, Config, Direction, Executor, Key, KeyCombo, MediaKey, Trigger};
+use pady_core::{Action, ActionError, Config, Direction, Executor, Key, KeyCombo, Level, MediaKey, Trigger};
 use std::ffi::c_void;
 use std::mem::size_of;
 use std::os::windows::process::CommandExt;
@@ -69,13 +69,16 @@ impl Default for WindowsExecutor {
 }
 
 impl Executor for WindowsExecutor {
-    fn run(&mut self, action: &Action) -> Result<(), ActionError> {
+    fn run(&mut self, action: &Action) -> Result<Option<Level>, ActionError> {
         match action {
-            Action::None | Action::Drag => Ok(()),
+            Action::Volume { step } => return self.change_volume(*step).map(Some),
+            Action::Mute => return self.toggle_mute().map(Some),
+            Action::Brightness { step } => return self.change_brightness(*step).map(Some),
+            _ => {}
+        }
+        match action {
+            Action::None | Action::Drag | Action::Volume { .. } | Action::Mute | Action::Brightness { .. } => Ok(()),
             Action::Keys { combo } => send_combo(&combo.parse::<KeyCombo>()?),
-            Action::Volume { step } => self.change_volume(*step),
-            Action::Mute => self.toggle_mute(),
-            Action::Brightness { step } => self.change_brightness(*step),
             Action::Media { key } => tap_vk(media_vk(*key)),
             Action::OpenUrl { url, browser } => match browser.as_deref().filter(|b| !b.trim().is_empty()) {
                 Some(b) => shell_open(&browser_exe(b), Some(&quote_arg(url))),
@@ -95,6 +98,12 @@ impl Executor for WindowsExecutor {
             }
             Action::Lock => unsafe { LockWorkStation() }.map_err(Into::into),
         }
+        .map(|()| None)
+    }
+
+    fn foreground_app(&mut self) -> Option<String> {
+        let hwnd = unsafe { GetForegroundWindow() };
+        (!hwnd.0.is_null()).then(|| process_exe(hwnd)).flatten()
     }
 
     fn mouse_button(&mut self, down: bool) -> Result<(), ActionError> {
@@ -299,7 +308,7 @@ impl WindowsExecutor {
         }
     }
 
-    fn change_volume(&mut self, step: i32) -> Result<(), ActionError> {
+    fn change_volume(&mut self, step: i32) -> Result<Level, ActionError> {
         let vol = self.endpoint_volume()?;
         unsafe {
             let current = vol.GetMasterVolumeLevelScalar()? * 100.0;
@@ -308,20 +317,22 @@ impl WindowsExecutor {
                 * step.unsigned_abs().max(1) as f32)
                 .clamp(0.0, 100.0);
             vol.SetMasterVolumeLevelScalar(next / 100.0, std::ptr::null())?;
-            if step > 0 && vol.GetMute()?.as_bool() {
+            let mut muted = vol.GetMute()?.as_bool();
+            if step > 0 && muted {
                 vol.SetMute(false, std::ptr::null())?;
+                muted = false;
             }
+            Ok(Level::volume(next, muted))
         }
-        Ok(())
     }
 
-    fn toggle_mute(&mut self) -> Result<(), ActionError> {
+    fn toggle_mute(&mut self) -> Result<Level, ActionError> {
         let vol = self.endpoint_volume()?;
         unsafe {
-            let muted = vol.GetMute()?.as_bool();
-            vol.SetMute(!muted, std::ptr::null())?;
+            let muted = !vol.GetMute()?.as_bool();
+            vol.SetMute(muted, std::ptr::null())?;
+            Ok(Level::volume(vol.GetMasterVolumeLevelScalar()? * 100.0, muted))
         }
-        Ok(())
     }
 }
 
@@ -329,13 +340,12 @@ impl WindowsExecutor {
 // Brightness (WMI for built-in panels, DDC/CI for external monitors)
 
 impl WindowsExecutor {
-    fn change_brightness(&mut self, step: i32) -> Result<(), ActionError> {
+    fn change_brightness(&mut self, step: i32) -> Result<Level, ActionError> {
         match self.wmi_brightness(step) {
-            Ok(()) => Ok(()),
+            Ok(percent) => Ok(Level::brightness(percent as f32)),
             Err(wmi_err) => {
-                let changed = ddc_brightness(step);
-                if changed > 0 {
-                    Ok(())
+                if let Some(percent) = ddc_brightness(step) {
+                    Ok(Level::brightness(percent))
                 } else {
                     Err(format!(
                         "no display accepted a brightness change (WMI: {wmi_err}; DDC/CI: no compatible monitor)"
@@ -379,7 +389,8 @@ impl WindowsExecutor {
         Ok(self.wmi.as_ref().expect("just set"))
     }
 
-    fn wmi_brightness(&mut self, step: i32) -> Result<(), ActionError> {
+    /// Returns the new brightness in percent.
+    fn wmi_brightness(&mut self, step: i32) -> Result<u32, ActionError> {
         let recent = self.last_brightness.filter(|(_, at)| at.elapsed() < Duration::from_millis(1500)).map(|(v, _)| v);
         let wmi = self.wmi()?.clone();
         let current = match recent {
@@ -424,7 +435,7 @@ impl WindowsExecutor {
             )?;
         }
         self.last_brightness = Some((next, Instant::now()));
-        Ok(())
+        Ok(next)
     }
 }
 
@@ -443,8 +454,8 @@ fn wmi_first(wmi: &IWbemServices, query: &str) -> Result<IWbemClassObject, Actio
     }
 }
 
-/// Adjust every DDC/CI monitor; returns how many changed.
-fn ddc_brightness(step: i32) -> usize {
+/// Adjust every DDC/CI monitor; returns the new level of the last one changed.
+fn ddc_brightness(step: i32) -> Option<f32> {
     unsafe extern "system" fn collect(monitor: HMONITOR, _: HDC, _: *mut RECT, data: LPARAM) -> BOOL {
         let list = &mut *(data.0 as *mut Vec<HMONITOR>);
         list.push(monitor);
@@ -454,7 +465,7 @@ fn ddc_brightness(step: i32) -> usize {
     unsafe {
         let _ = EnumDisplayMonitors(None, None, Some(collect), LPARAM(&mut monitors as *mut _ as isize));
     }
-    let mut changed = 0;
+    let mut level = None;
     for monitor in monitors {
         unsafe {
             let mut count = 0u32;
@@ -473,13 +484,13 @@ fn ddc_brightness(step: i32) -> usize {
                 let span = (max - min) as f32;
                 let next = (cur as f32 + span * step as f32 / 100.0).round().clamp(min as f32, max as f32) as u32;
                 if SetMonitorBrightness(p.hPhysicalMonitor, next) != 0 {
-                    changed += 1;
+                    level = Some((next - min) as f32 * 100.0 / span);
                 }
             }
             let _ = DestroyPhysicalMonitors(&physical);
         }
     }
-    changed
+    level
 }
 
 // ---------------------------------------------------------------------------
