@@ -186,6 +186,7 @@
     else if (store.page === 'settings') renderSettings();
     else if (store.page === 'live') renderLive();
     else if (store.page === 'about') renderAbout();
+    if (tour.open) tourOnState();
   }
 
   /* =====================================================================
@@ -233,7 +234,7 @@
       cancel.focus();
       function done(v) {
         backdrop.remove(); modal.remove();
-        if (!$('.drawer', root)) setInert(false);
+        if (!$('.drawer', root) && !tour.open) setInert(false);
         if (prev && prev.focus) prev.focus();
         resolve(v);
       }
@@ -407,9 +408,11 @@
       const pts = fingerPoints(n, 60 + dx * 3, 39 + dy * 4);
       const trail = pts.map(([x, y]) => `<line x1="${x}" y1="${y}" x2="${x - dx * 15}" y2="${y - dy * 13}"/>`).join('');
       inner = `<g class="illo-move"><g class="illo-trail">${trail}</g><g class="illo-fingers">${fingerG(pts, r)}</g></g>`;
-    } else if (kind === 'tap') {
+    } else if (kind === 'tap' || kind === 'doubletap' || kind === 'tripletap') {
       const pts = fingerPoints(n, 60, 39);
       inner = pts.map(([x, y]) => `<circle class="illo-ripple" cx="${x}" cy="${y}" r="${r}"/>`).join('') + fingerG(pts, r);
+      // A small ×2 / ×3 tells the multi-taps apart even when they're not animating.
+      if (kind !== 'tap') inner += `<text class="illo-count" x="108" y="66" text-anchor="end">×${kind === 'doubletap' ? 2 : 3}</text>`;
     } else if (kind === 'hold') {
       inner = '<circle class="illo-ring-track" cx="60" cy="38" r="26"/><circle class="illo-ring" cx="60" cy="38" r="26" pathLength="100"/>' + fingerG(fingerPoints(n, 60, 39), r);
     } else if (kind === 'pinch') {
@@ -437,15 +440,17 @@
   // Finger angles (degrees, y down) for the pinch illustration: fingertips above, thumb below.
   const PINCH_ANGLES = { 3: [-140, -40, 95], 4: [-150, -95, -40, 100], 5: [-155, -112, -68, -25, 110] };
 
-  /** Illustration element; per-finger pinch travel is set through CSSOM (no inline style markup). */
-  function illoEl(kind, n, dir) {
-    const svg = frag(illoSVG(kind, n, dir));
-    $$('.illo-f[data-px]', svg).forEach((g) => {
+  /** Turn data-px/data-py travel vectors into CSS variables (through CSSOM, no inline style markup). */
+  function applyTravelVars(svg) {
+    $$('[data-px]', svg).forEach((g) => {
       g.style.setProperty('--px', g.dataset.px + 'px');
       g.style.setProperty('--py', g.dataset.py + 'px');
     });
     return svg;
   }
+
+  /** Illustration element for a gesture slot. */
+  const illoEl = (kind, n, dir) => applyTravelVars(frag(illoSVG(kind, n, dir)));
 
   /* =====================================================================
      7. Gestures page
@@ -613,9 +618,9 @@
     // Cards
     const dragOn = M.dragOn(cfg, n);
     const groups = [
-      { title: 'Tap, hold & drag', slots: ['tap', 'hold', 'drag'], cls: 'grid' },
+      { title: 'Taps & hold', slots: ['tap', 'doubletap', 'tripletap', 'hold'], cls: 'grid grid--4' },
       { title: 'Swipe', slots: ['swipe-up', 'swipe-down', 'swipe-left', 'swipe-right'], cls: 'grid grid--4', note: dragOn },
-      { title: 'Pinch', slots: ['pinch-in', 'pinch-out'], cls: 'grid grid--4' },
+      { title: 'Pinch & drag', slots: ['pinch-in', 'pinch-out', 'drag'], cls: 'grid grid--4' },
     ];
     let i = 0;
     gestUI.groups.replaceChildren(...groups.map((g) => {
@@ -984,6 +989,16 @@
                 : `Fires again every ${step} mm of travel, so one slide can scrub volume or brightness.`)),
             h('span', { class: 'switch' }, input, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' }))))));
       }
+    }
+
+    // Multi-taps delay single taps; say so on the taps of the same finger count.
+    const tapsWait = M.isMultiTap(ed.slot)
+      || (ed.slot.kind === 'tap' && [`doubletap:${ed.n}`, `tripletap:${ed.n}`].some((t) => M.bindingFor(store.app.config, t)
+        || profileList().some((p) => { const o = M.overrideFor(p, t); return o && o.action.type !== 'none'; })));
+    if (tapsWait) {
+      ed.body.append(h('section', { class: 'drawer-section' }, h('div', { class: 'about-type' }, ico('hold', 18), h('div', null,
+        'Binding a double or triple tap makes single taps wait a moment (the double-tap speed in Settings) to tell them apart.',
+        h('div', { class: 'help', style: { 'margin-top': '6px' } }, `Currently ${store.app.config.settings.multi_tap_ms ?? 300} ms.`)))));
     }
 
     // On All apps, say when a profile has its own setting for this slot.
@@ -1822,6 +1837,7 @@
     const now = performance.now();
     live.frame = f;
     live.frameTimes.push(now);
+    if (tour.open && tour.feel) feelFingers(f.contacts.length); // event-driven, not tied to animation frames
     for (const c of f.contacts) {
       let t = live.trails.get(c.id);
       if (!t) live.trails.set(c.id, (t = []));
@@ -1832,6 +1848,7 @@
   }
 
   function onGesture(p) {
+    tourGesture(p);
     const g = p.gesture || {};
     const now = new Date();
     const top = store.recent[0];
@@ -1862,6 +1879,8 @@
     switch (g.kind) {
       case 'swipe': return 'arrow-' + g.direction;
       case 'pinch': return g.direction === 'in' ? 'pinch-in' : 'pinch-out';
+      case 'double_tap': return 'tap2';
+      case 'triple_tap': return 'tap3';
       case 'hold': return 'hold';
       case 'drag_start': case 'drag_end': return 'drag';
       default: return 'tap';
@@ -1920,36 +1939,127 @@
   }
 
   /* Canvas renderer */
+
+  /** Theme colours for canvas drawing (re-read when the theme changes). */
+  function themeColors() {
+    const cs = getComputedStyle(document.documentElement);
+    const v = (n) => cs.getPropertyValue(n).trim();
+    return { finger: v('--finger'), glow: v('--finger-glow'), text: v('--text'), text3: v('--text-3'), border: v('--border-strong'), surface: v('--surface-solid') };
+  }
+
+  const TRAIL_MS = 420;
+
+  /**
+   * Draw the current contacts — fading trails, a centroid web and glowing
+   * fingertips — on a canvas sized to its CSS box. Shared by the Live page
+   * and the tutorial's mini touchpad. Returns how many fingers are down.
+   */
+  function paintTouches(cv, mm, colors, opts) {
+    const ctx = cv.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, H = cv.clientHeight;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    if (!mm || !W || !H || !colors) return 0;
+    const sx = W / mm.w, sy = H / mm.h;
+    const s = Math.min(sx, sy);
+    const now = performance.now();
+
+    // Drop trail points that have faded out.
+    for (const [id, pts] of live.trails) {
+      while (pts.length && now - pts[0].t > TRAIL_MS) pts.shift();
+      if (!pts.length) live.trails.delete(id);
+    }
+
+    // Trails
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = colors.finger;
+    for (const pts of live.trails.values()) {
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i];
+        const age = 1 - (now - b.t) / TRAIL_MS;
+        ctx.globalAlpha = Math.max(0, age) * 0.55;
+        ctx.lineWidth = Math.max(1, s * 3.2 * age);
+        ctx.beginPath();
+        ctx.moveTo(a.x * sx, a.y * sy);
+        ctx.lineTo(b.x * sx, b.y * sy);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    const contacts = (live.frame && live.frame.contacts) || [];
+
+    // Centroid web for multi-finger contact
+    if (contacts.length >= 2) {
+      const cx = contacts.reduce((t, c) => t + c.x, 0) / contacts.length * sx;
+      const cy = contacts.reduce((t, c) => t + c.y, 0) / contacts.length * sy;
+      ctx.strokeStyle = colors.finger;
+      ctx.globalAlpha = 0.22;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      for (const c of contacts) { ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(c.x * sx, c.y * sy); ctx.stroke(); }
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fillStyle = colors.finger; ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // Fingers
+    const r = Math.max(opts && opts.small ? 6 : 9, s * 4.6);
+    for (const c of contacts) {
+      const x = c.x * sx, y = c.y * sy;
+      const glow = ctx.createRadialGradient(x, y, r * 0.4, x, y, r * 2.8);
+      glow.addColorStop(0, colors.glow);
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath(); ctx.arc(x, y, r * 2.8, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = colors.finger;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      const shine = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, 0, x, y, r);
+      shine.addColorStop(0, 'rgba(255,255,255,0.65)');
+      shine.addColorStop(0.6, 'rgba(255,255,255,0.08)');
+      shine.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = shine;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+
+      if (opts && opts.labels) {
+        ctx.fillStyle = colors.text3;
+        ctx.font = '600 10px ' + getComputedStyle(document.body).fontFamily;
+        ctx.textAlign = 'left';
+        ctx.fillText('#' + c.id, x + r + 5, y - r * 0.6);
+      }
+    }
+    return contacts.length;
+  }
+
   const liveView = (function () {
     let raf = 0;
     let running = false;
     let colors = null;
     let lastCount = -1;
     let lastRateUpdate = 0;
-    const TRAIL_MS = 420;
 
-    function readColors() {
-      const cs = getComputedStyle(document.documentElement);
-      const v = (n) => cs.getPropertyValue(n).trim();
-      colors = { finger: v('--finger'), glow: v('--finger-glow'), text: v('--text'), text3: v('--text-3'), border: v('--border-strong'), surface: v('--surface-solid') };
-    }
+    function readColors() { colors = themeColors(); }
 
     function start() {
       if (running) return;
       running = true;
       readColors();
       liveUI.sizeDirty = true;
-      call('set_live', { live: true }, { quiet: true }).catch(() => {});
+      wantLive('page', true);
       raf = requestAnimationFrame(draw);
     }
     function stop() {
       if (!running) return;
       running = false;
       cancelAnimationFrame(raf);
-      call('set_live', { live: false }, { quiet: true }).catch(() => {});
+      wantLive('page', false);
     }
-    function pause() { if (running) { cancelAnimationFrame(raf); call('set_live', { live: false }, { quiet: true }).catch(() => {}); } }
-    function resume() { if (running) { call('set_live', { live: true }, { quiet: true }).catch(() => {}); raf = requestAnimationFrame(draw); } }
+    // Hidden window: stop drawing (syncLive() pauses the stream itself).
+    function pause() { if (running) cancelAnimationFrame(raf); }
+    function resume() { if (running) { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); } }
 
     function draw() {
       if (!running) return;
@@ -1963,86 +2073,15 @@
         cv.height = Math.round(cv.clientHeight * dpr);
         if (liveUI.mm) liveUI.pad.style.setProperty('--grid', (cv.clientWidth / liveUI.mm.w) * 5 + 'px');
       }
-      const ctx = cv.getContext('2d');
-      const W = cv.clientWidth, H = cv.clientHeight;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, W, H);
-      if (!liveUI.mm || !W) return;
-      const sx = W / liveUI.mm.w, sy = H / liveUI.mm.h;
-      const s = Math.min(sx, sy);
+      const count = paintTouches(cv, liveUI.mm, colors, { labels: true });
       const now = performance.now();
 
-      // Drop trail points that have faded out.
-      for (const [id, pts] of live.trails) {
-        while (pts.length && now - pts[0].t > TRAIL_MS) pts.shift();
-        if (!pts.length) live.trails.delete(id);
-      }
-
-      // Trails
-      ctx.lineCap = 'round';
-      for (const pts of live.trails.values()) {
-        for (let i = 1; i < pts.length; i++) {
-          const a = pts[i - 1], b = pts[i];
-          const age = 1 - (now - b.t) / TRAIL_MS;
-          ctx.strokeStyle = colors.finger;
-          ctx.globalAlpha = Math.max(0, age) * 0.55;
-          ctx.lineWidth = Math.max(1, s * 3.2 * age);
-          ctx.beginPath();
-          ctx.moveTo(a.x * sx, a.y * sy);
-          ctx.lineTo(b.x * sx, b.y * sy);
-          ctx.stroke();
-        }
-      }
-      ctx.globalAlpha = 1;
-
-      const contacts = (live.frame && live.frame.contacts) || [];
-
-      // Centroid web for multi-finger contact
-      if (contacts.length >= 2) {
-        const cx = contacts.reduce((t, c) => t + c.x, 0) / contacts.length * sx;
-        const cy = contacts.reduce((t, c) => t + c.y, 0) / contacts.length * sy;
-        ctx.strokeStyle = colors.finger;
-        ctx.globalAlpha = 0.22;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([3, 4]);
-        for (const c of contacts) { ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(c.x * sx, c.y * sy); ctx.stroke(); }
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 0.6;
-        ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fillStyle = colors.finger; ctx.fill();
-        ctx.globalAlpha = 1;
-      }
-
-      // Fingers
-      const r = Math.max(9, s * 4.6);
-      for (const c of contacts) {
-        const x = c.x * sx, y = c.y * sy;
-        const glow = ctx.createRadialGradient(x, y, r * 0.4, x, y, r * 2.8);
-        glow.addColorStop(0, colors.glow);
-        glow.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = glow;
-        ctx.beginPath(); ctx.arc(x, y, r * 2.8, 0, Math.PI * 2); ctx.fill();
-
-        ctx.fillStyle = colors.finger;
-        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-        const shine = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, 0, x, y, r);
-        shine.addColorStop(0, 'rgba(255,255,255,0.65)');
-        shine.addColorStop(0.6, 'rgba(255,255,255,0.08)');
-        shine.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = shine;
-        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-
-        ctx.fillStyle = colors.text3;
-        ctx.font = '600 10px ' + getComputedStyle(document.body).fontFamily;
-        ctx.textAlign = 'left';
-        ctx.fillText('#' + c.id, x + r + 5, y - r * 0.6);
-      }
-
       // Readouts (touch the DOM only when values change)
-      if (contacts.length !== lastCount) {
-        lastCount = contacts.length;
-        liveUI.stats.fingers.textContent = String(contacts.length);
-        liveUI.stats.fingers.classList.toggle('is-active', contacts.length >= 3);
-        liveUI.pad.classList.toggle('has-touch', contacts.length > 0 || live.trails.size > 0 || store.recent.length > 0);
+      if (count !== lastCount) {
+        lastCount = count;
+        liveUI.stats.fingers.textContent = String(count);
+        liveUI.stats.fingers.classList.toggle('is-active', count >= 3);
+        liveUI.pad.classList.toggle('has-touch', count > 0 || live.trails.size > 0 || store.recent.length > 0);
       }
       if (now - lastRateUpdate > 500) {
         lastRateUpdate = now;
@@ -2054,6 +2093,25 @@
     return { start, stop, pause, resume, readColors };
   })();
 
+  /*
+   * set_live is reference-counted: the Live page and the tutorial's mini
+   * touchpad both want frames, and a hidden window wants none. The backend
+   * also gets a `false` at start-up, in case a previous window (destroyed on
+   * close) left the stream on.
+   */
+  const liveWanted = new Set();
+  let liveSent = null;
+  function wantLive(key, on) {
+    if (on) liveWanted.add(key); else liveWanted.delete(key);
+    syncLive();
+  }
+  function syncLive() {
+    const want = liveWanted.size > 0 && !document.hidden;
+    if (want === liveSent) return;
+    liveSent = want;
+    call('set_live', { live: want }, { quiet: true }).catch(() => { liveSent = null; });
+  }
+
   /* =====================================================================
      10. Settings page
      ===================================================================== */
@@ -2061,6 +2119,7 @@
   const SLIDERS = [
     { group: 'recog', key: 'tap_max_ms', name: 'Tap speed', min: 100, max: 400, step: 10, fmt: (v) => [v, 'ms'], help: 'Fingers must lift within this time to count as a tap. Lower feels snappier and avoids accidental taps.' },
     { group: 'recog', key: 'tap_slop_mm', name: 'Tap tolerance', min: 1, max: 10, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'mm'], help: 'How far fingers may drift during a tap before it stops being one.' },
+    { group: 'recog', key: 'multi_tap_ms', name: 'Double-tap speed', min: 150, max: 600, step: 10, fmt: (v) => [v, 'ms'], help: 'The longest gap between taps that still counts as a double or triple tap. Single taps wait this long when a double or triple tap is bound.' },
     { group: 'recog', key: 'swipe_threshold_mm', name: 'Swipe distance', min: 4, max: 30, step: 1, fmt: (v) => [Number(v).toFixed(0), 'mm'], help: 'Travel needed before a swipe — or a drag — is recognised.' },
     { group: 'recog', key: 'swipe_step_mm', name: 'Repeat spacing', min: 3, max: 20, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'mm'], help: 'Extra travel (or pinch) between repeats for gestures that keep firing, like a volume scrub or zoom.' },
     { group: 'recog', key: 'pinch_threshold_mm', name: 'Pinch distance', min: 3, max: 20, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'mm'], help: 'How much your fingers must spread apart or close together before a pinch is recognised.' },
@@ -2069,12 +2128,15 @@
     { group: 'drag', key: 'drag_acceleration', name: 'Drag acceleration', min: 0, max: 3, step: 0.1, fmt: (v) => (Number(v) === 0 ? ['Linear', ''] : [Number(v).toFixed(1), '×']), help: 'How much faster quick flicks move the cursor. 0 keeps movement linear.' },
     { group: 'drag', key: 'drag_release_ms', name: 'Drag release delay', min: 0, max: 1000, step: 25, fmt: (v) => (Number(v) === 0 ? ['Instant', ''] : [v, 'ms']), help: 'Keeps the button held briefly after lifting, so you can reposition your fingers and continue the drag.' },
   ];
-  const INT_KEYS = new Set(['tap_max_ms', 'hold_ms', 'drag_release_ms']);
+  const INT_KEYS = new Set(['tap_max_ms', 'multi_tap_ms', 'hold_ms', 'drag_release_ms']);
   // Fallbacks if the backend's settings predate a field (same values as pady-core's defaults).
   const SETTING_DEFAULTS = {
-    tap_max_ms: 220, tap_slop_mm: 4, swipe_threshold_mm: 10, swipe_step_mm: 7, pinch_threshold_mm: 8,
-    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: true,
+    tap_max_ms: 220, tap_slop_mm: 4, multi_tap_ms: 300, swipe_threshold_mm: 10, swipe_step_mm: 7, pinch_threshold_mm: 8,
+    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: true, pause_in_fullscreen: true,
   };
+  // Starter-set icons by preset id (unknown ids get a generic one).
+  const PRESET_ICONS = { recommended: 'sparkle', macos: 'command', media: 'play-pause', productivity: 'taskview', minimal: 'minimal' };
+  const presetIcon = (id) => PRESET_ICONS[id] || 'layers';
 
   const setUI = { built: false, pending: {}, timer: 0, inputs: {} };
 
@@ -2117,29 +2179,42 @@
     setUI.path = h('code', { class: 'path selectable' });
     setUI.devices = h('div');
 
-    // Saved right away, together with any slider change still waiting for its debounce.
-    setUI.overlay = h('input', { type: 'checkbox', role: 'switch', 'aria-labelledby': 'overlay-title', 'aria-describedby': 'overlay-sub' });
-    setUI.overlay.addEventListener('change', () => {
-      setUI.pending.show_overlay = setUI.overlay.checked;
-      clearTimeout(setUI.timer);
-      flushSettings();
-    });
+    /* Boolean settings saved right away, together with any slider change
+       still waiting for its debounce. */
+    setUI.toggles = {};
+    const settingToggle = (key, title, sub) => {
+      const input = h('input', { type: 'checkbox', role: 'switch', 'aria-labelledby': `${key}-title`, 'aria-describedby': `${key}-sub` });
+      input.addEventListener('change', () => {
+        setUI.pending[key] = input.checked;
+        clearTimeout(setUI.timer);
+        flushSettings();
+      });
+      setUI.toggles[key] = input;
+      return h('label', { class: 'row', style: { cursor: 'pointer' }, 'data-setting': key },
+        h('div', { class: 'row-text' },
+          h('div', { class: 'row-title', id: `${key}-title` }, title),
+          h('div', { class: 'row-sub', id: `${key}-sub` }, sub)),
+        h('span', { class: 'switch' }, input, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' }))));
+    };
+    setUI.presets = h('div', { class: 'preset-list' });
 
     page.append(
       setUI.banners,
       h('div', { class: 'settings-grid' },
-        panel('gestures', 'Recognition', 'Timing and distances for taps, holds, swipes and pinches', SLIDERS.filter((d) => d.group === 'recog').map(sliderEl)),
-        h('div', { style: { display: 'flex', 'flex-direction': 'column', gap: '16px' } },
+        h('div', { class: 'settings-col' },
+          panel('gestures', 'Recognition', 'Timing and distances for taps, holds, swipes and pinches', SLIDERS.filter((d) => d.group === 'recog').map(sliderEl)),
+          setUI.presetsPanel = panel('sparkle', 'Starter sets', 'Swap all your All-apps gestures for a ready-made set', setUI.presets)),
+        h('div', { class: 'settings-col' },
           panel('drag', 'Drag', 'How multi-finger drag moves the pointer', SLIDERS.filter((d) => d.group === 'drag').map(sliderEl)),
           panel('power', 'General', 'Start-up, feedback and configuration',
             h('label', { class: 'row', style: { cursor: 'pointer' } },
               h('div', { class: 'row-text' }, setUI.autostartTitle, h('div', { class: 'row-sub' }, 'Runs quietly in the tray after you sign in.')),
               h('span', { class: 'switch' }, setUI.autostart, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' })))),
-            h('label', { class: 'row', style: { cursor: 'pointer' } },
-              h('div', { class: 'row-text' },
-                h('div', { class: 'row-title', id: 'overlay-title' }, 'Show volume & brightness overlay'),
-                h('div', { class: 'row-sub', id: 'overlay-sub' }, 'A small level pill near the bottom of the screen while a gesture changes them.')),
-              h('span', { class: 'switch' }, setUI.overlay, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' })))),
+            settingToggle('show_overlay', 'Show volume & brightness overlay', 'A small level pill near the bottom of the screen while a gesture changes them.'),
+            setUI.pauseRow = settingToggle('pause_in_fullscreen', 'Pause in full-screen games', 'Pady ignores gestures while a game runs in exclusive full screen.'),
+            h('div', { class: 'row' },
+              h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Tutorial'), h('div', { class: 'row-sub' }, 'A quick, hands-on tour of the basics.')),
+              h('button', { class: 'btn btn--sm', type: 'button', onClick: () => openTutorial({ firstRun: false }) }, ico('graduation', 14), 'Show tutorial')),
             h('div', { class: 'row', style: { 'flex-wrap': 'wrap' } },
               h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Configuration file'), h('div', { class: 'row-sub' }, 'Edit by hand if you like — changes apply instantly.'), setUI.path)),
             h('div', { class: 'row', style: { 'border-top': '0', 'padding-top': '0', gap: '8px' } },
@@ -2169,7 +2244,11 @@
       setUI.inputs[d.key].input.value = v;
       paintSlider(d, v);
     }
-    if (!('show_overlay' in setUI.pending)) setUI.overlay.checked = (cfg.show_overlay ?? SETTING_DEFAULTS.show_overlay) !== false;
+    for (const [key, input] of Object.entries(setUI.toggles)) {
+      if (!(key in setUI.pending)) input.checked = (cfg[key] ?? SETTING_DEFAULTS[key]) !== false;
+    }
+    setUI.pauseRow.hidden = platform() !== 'windows'; // exclusive full screen is a Windows thing
+    renderPresetList();
     setUI.autostart.checked = !!s.autostart;
     setUI.autostartTitle.textContent = `Start with ${osName()}`;
     setUI.path.textContent = s.config_path || '';
@@ -2198,6 +2277,40 @@
         h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, `${osName()} touchpad gestures`), h('div', { class: 'row-sub' }, 'Set 3- and 4-finger gestures to “Nothing” so they don’t fight with Pady.')),
         h('button', { class: 'btn btn--sm', type: 'button', onClick: openTouchpadSettings }, ico('external', 14), 'Open')));
     }
+  }
+
+  /** Starter sets from AppState.presets (the panel hides if the backend has none). */
+  function renderPresetList() {
+    const presets = store.app.presets || [];
+    setUI.presetsPanel.hidden = !presets.length;
+    setUI.presets.replaceChildren(...presets.map((p) => h('div', { class: 'row preset-row' },
+      h('span', { class: 'panel-icon' }, ico(presetIcon(p.id), 16)),
+      h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, p.name), h('div', { class: 'row-sub' }, p.description)),
+      h('button', { class: 'btn btn--sm', type: 'button', 'aria-label': `Use the ${p.name} starter set`, onClick: (e) => usePreset(p, e.currentTarget) }, 'Use'))));
+  }
+
+  async function usePreset(p, btn) {
+    const ok = await confirmDialog({
+      title: `Use “${p.name}”?`,
+      text: 'Your All-apps gestures will be replaced with this set. Settings and per-app profiles stay as they are.',
+      confirm: `Use ${p.name}`,
+    });
+    if (!ok) return;
+    btn.disabled = true;
+    btn.classList.add('is-busy');
+    try {
+      applyState(await call('apply_preset', { id: p.id }, { errorTitle: 'Couldn’t switch starter sets' }));
+      toast({ title: `Now using “${p.name}”`, text: 'Your gestures are on the Gestures page.' });
+    } catch (_) { /* toast shown */ } finally {
+      btn.disabled = false;
+      btn.classList.remove('is-busy');
+    }
+  }
+
+  function flushPendingSettings() {
+    if (!Object.keys(setUI.pending).length) return;
+    clearTimeout(setUI.timer);
+    flushSettings();
   }
 
   async function flushSettings() {
@@ -2253,16 +2366,22 @@
      11. About page
      ===================================================================== */
 
+  /** A copy of the sidebar logo at `size` px, with its own gradient id. */
+  function brandLogo(size, gradId) {
+    const logo = $('.brand-mark svg').cloneNode(true);
+    logo.setAttribute('width', String(size));
+    logo.setAttribute('height', String(size));
+    $$('[id]', logo).forEach((n) => n.removeAttribute('id'));
+    const grad = logo.querySelector('linearGradient');
+    if (grad) { grad.id = gradId; logo.querySelector('rect').setAttribute('fill', `url(#${gradId})`); }
+    return logo;
+  }
+
   function renderAbout() {
     const page = $('#page-about');
     const s = store.app;
     const linux = platform() === 'linux';
-    const logo = $('.brand-mark svg').cloneNode(true);
-    logo.setAttribute('width', '72'); logo.setAttribute('height', '72');
-    $$('[id]', logo).forEach((n) => n.removeAttribute('id'));
-    // Re-point the cloned gradient to a unique id.
-    const grad = logo.querySelector('linearGradient');
-    if (grad) { grad.id = 'brand-g-about'; logo.querySelector('rect').setAttribute('fill', 'url(#brand-g-about)'); }
+    const logo = brandLogo(72, 'brand-g-about');
 
     const step = (iconName, title, text) => h('div', { class: 'flow-step' }, h('span', { class: 'panel-icon' }, ico(iconName, 16)), h('h4', null, title), h('p', null, text));
     const arrow = () => h('div', { class: 'flow-arrow', 'aria-hidden': 'true' }, ico('arrow-right', 18));
@@ -2275,6 +2394,7 @@
           h('h2', null, 'Pady', h('span', { class: 'badge badge--accent' }, 'v' + s.version)),
           h('p', null, 'Pady turns multi-finger touchpad gestures into actions: scrub the volume with a four-finger slide, play or pause with a three-finger tap, pinch to zoom, drag windows without pressing, or jump to an app or website with a single touch — and per-app profiles let the same gesture do something different in, say, your browser. It runs quietly in the tray and reads your touchpad directly, so it works in every app.'),
           h('div', { class: 'about-links' },
+            h('button', { class: 'btn btn--sm btn--primary', type: 'button', onClick: () => openTutorial({ firstRun: false }) }, ico('graduation', 14), 'Show the tutorial'),
             h('span', { class: 'link-text selectable' }, ico('github', 14), 'github.com/lumidren/Pady'),
             h('span', { class: 'link-text' }, ico(linux ? 'terminal' : 'desktop', 14), linux ? 'Linux' : 'Windows')))),
       h('section', { class: 'panel', style: { 'margin-bottom': '16px' } },
@@ -2292,10 +2412,523 @@
             ? tip('Avoid double actions.', 'Desktop environments like GNOME use 3- and 4-finger swipes; disable them or bind other finger counts in Pady.')
             : tip('Avoid double actions.', 'In Settings → Bluetooth & devices → Touchpad, set three- and four-finger gestures to “Nothing”.'),
           tip('Scrub, don’t repeat.', 'Turn on “Keep firing while sliding” for volume or brightness, then slide further for bigger changes. Pinches work the same way for zoom.'),
+          tip('Tap twice, or three times.', 'Double and triple taps give each finger count more actions. Single taps then wait a beat; set how long with Double-tap speed in Settings.'),
           tip('One gesture, many jobs.', 'Add a profile on the Gestures page — e.g. make four-finger swipes switch tabs only while your browser is in front.'),
           tip('Drag claims swipes.', 'When 3-finger drag is on, 3-finger swipes are ignored — use 4 fingers for swipes.'),
           tip('Watch it think.', 'The Live page shows every contact and gesture, which makes tuning Settings much easier.'),
           tip('Plain text config.', 'Everything is stored in config.toml; edits made by hand apply instantly.'))));
+  }
+
+  /* =====================================================================
+     11b. Tutorial — full-window first-run wizard
+     ---------------------------------------------------------------------
+     Shown at start-up while settings.onboarded is false; finishing or
+     skipping saves onboarded = true. "Show the tutorial" (About, Settings)
+     reopens it without touching the flag.
+     ===================================================================== */
+
+  const tour = { open: false };
+
+  /** The steps; "Starter set" only appears when the backend offers presets. */
+  function tourSteps() {
+    const steps = [
+      { id: 'welcome', name: 'Welcome' },
+      { id: 'touchpad', name: 'Your touchpad' },
+      { id: 'os', name: platform() === 'linux' ? 'Your desktop' : 'Windows gestures' },
+    ];
+    if ((store.app.presets || []).length) steps.push({ id: 'preset', name: 'Starter set' });
+    steps.push({ id: 'practice', name: 'Try it' }, { id: 'done', name: 'Done' });
+    return steps;
+  }
+
+  /** OS gesture clashes (permission problems are Fix permissions' job, not this step's). */
+  const osConflicts = () => (store.app.conflicts || []).filter((c) => !c.can_fix);
+
+  function openTutorial(opts) {
+    if (tour.open || !store.app) return;
+    if (editor) closeEditor();
+    if (profEd) closeProfileEditor();
+    const firstRun = !!(opts && opts.firstRun);
+    Object.assign(tour, {
+      open: true, firstRun, steps: tourSteps(), index: 0, visited: 0, dir: 1,
+      prevFocus: document.activeElement,
+      // First run starts from the defaults, so "Recommended" is the honest preselection;
+      // a reopened tour starts on "Keep my gestures" so nothing is replaced by accident.
+      picked: firstRun ? 'recommended' : 'keep', applied: null, applying: null, confirmed: firstRun,
+      tasks: null, pad: null, poll: 0, cur: null, osSig: '',
+    });
+    tour.live = h('div', { class: 'sr-only', 'aria-live': 'polite' });
+    tour.progress = h('ol', { class: 'tour-progress' });
+    tour.stage = h('div', { class: 'tour-stage' });
+    tour.backBtn = h('button', { class: 'btn btn--ghost', type: 'button', onClick: () => goTour(tour.index - 1) }, ico('arrow-left', 15), 'Back');
+    tour.nextBtn = h('button', { class: 'btn btn--primary tour-next', type: 'button', onClick: tourNext });
+    tour.count = h('span', { class: 'tour-count' });
+    tour.el = h('div', { class: 'tour', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'tour-title' },
+      h('div', { class: 'tour-glow', 'aria-hidden': 'true' }),
+      h('header', { class: 'tour-top' },
+        h('div', { class: 'tour-brand' }, brandLogo(26, 'brand-g-tour'), h('span', { class: 'tour-brand-word' }, 'Pady'),
+          h('span', { class: 'badge badge--accent' }, firstRun ? 'Setup' : 'Tutorial')),
+        h('nav', { class: 'tour-nav', 'aria-label': 'Tutorial steps' }, tour.progress),
+        h('button', { class: 'btn btn--ghost btn--sm tour-skip', type: 'button', onClick: () => closeTutorial(false) }, firstRun ? 'Skip setup' : 'Close')),
+      tour.stage,
+      h('footer', { class: 'tour-foot' }, tour.backBtn, tour.count, tour.nextBtn),
+      tour.live);
+    tour.el.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') trapTab(e, tour.el);
+      else if (e.key === 'Escape' && !$('.modal')) { e.preventDefault(); closeTutorial(false); }
+    });
+    $('#overlay-root').append(tour.el);
+    setInert(true);
+    renderTour();
+  }
+
+  function goTour(i) {
+    if (!tour.open || i < 0 || i >= tour.steps.length || i === tour.index) return;
+    tour.dir = i > tour.index ? 1 : -1;
+    tour.index = i;
+    renderTour();
+  }
+
+  function tourNext() {
+    if (tour.index === tour.steps.length - 1) closeTutorial(true);
+    else goTour(tour.index + 1);
+  }
+
+  function renderTour() {
+    leaveTourStep();
+    const step = tour.steps[tour.index];
+    tour.visited = Math.max(tour.visited, tour.index);
+    const view = TOUR[step.id];
+    tour.cur = view;
+    tour.stage.replaceChildren(h('section', { class: 'tour-step' + (tour.dir < 0 ? ' is-back' : ''), 'data-step': step.id }, view.render()));
+    tour.stage.scrollTop = 0;
+    tour.backBtn.disabled = tour.index === 0;
+    tour.backBtn.classList.toggle('is-invisible', tour.index === 0);
+    tour.count.textContent = `${tour.index + 1} of ${tour.steps.length}`;
+    renderTourProgress();
+    if (view.enter) view.enter();
+    refreshTourChrome();
+    tour.live.textContent = `Step ${tour.index + 1} of ${tour.steps.length}: ${step.name}`;
+    ((view.focus && view.focus()) || tour.nextBtn).focus({ preventScroll: true });
+  }
+
+  function leaveTourStep() {
+    clearInterval(tour.poll);
+    tour.poll = 0;
+    if (tour.pad) { tour.pad.stop(); tour.pad = null; }
+    tour.feel = null;
+    tour.cur = null;
+  }
+
+  /** Progress dots; visited steps can be revisited by clicking them. */
+  function renderTourProgress() {
+    tour.progress.replaceChildren(...tour.steps.map((s, i) => h('li', {
+      class: 'tour-dot ' + (i === tour.index ? 'is-current' : i < tour.index ? 'is-done' : 'is-todo'), 'data-step': s.id,
+    }, h('button', {
+      type: 'button', class: 'tour-dot-btn', disabled: i > tour.visited, title: s.name,
+      'aria-current': i === tour.index ? 'step' : null,
+      'aria-label': `Step ${i + 1}: ${s.name}`,
+      onClick: () => goTour(i),
+    }, h('span', { class: 'tour-dot-label' }, s.name)))));
+  }
+
+  /** Bits of chrome that depend on live state: the OS step's dot and the Next label. */
+  function refreshTourChrome() {
+    if (!tour.open) return;
+    const step = tour.steps[tour.index];
+    const osDot = $('.tour-dot[data-step="os"]', tour.progress);
+    if (osDot) osDot.classList.toggle('is-ok', !osConflicts().length && tour.visited >= tour.steps.findIndex((s) => s.id === 'os'));
+    let label = 'Next', iconName = 'arrow-right';
+    if (step.id === 'welcome') label = 'Let’s set it up';
+    else if (step.id === 'os' && osConflicts().length) label = 'Skip for now';
+    else if (step.id === 'practice' && tour.tasks && tour.tasks.some((t) => !t.done)) label = 'Skip for now';
+    else if (step.id === 'done') { label = 'Start using Pady'; iconName = 'check'; }
+    if (tour.nextBtn.dataset.label !== label) {
+      tour.nextBtn.dataset.label = label;
+      tour.nextBtn.replaceChildren(label, ico(iconName, 15));
+    }
+  }
+
+  /** applyState() hook: let the open step react to new state (devices, conflicts). */
+  function tourOnState() {
+    if (!tour.open) return;
+    if (tour.cur && tour.cur.update) tour.cur.update();
+    refreshTourChrome();
+  }
+
+  /** Re-read the state every 2 s while a step waits on the OS (quietly; errors just retry). */
+  function startTourPoll() {
+    clearInterval(tour.poll);
+    tour.poll = setInterval(() => {
+      if (!document.hidden) api.invoke('get_state').then(applyState, () => {});
+    }, 2000);
+  }
+
+  async function closeTutorial(finished) {
+    if (!tour.open) return;
+    leaveTourStep();
+    tour.open = false;
+    const { el, firstRun, prevFocus } = tour;
+    el.classList.add('is-closing');
+    setTimeout(() => el.remove(), reducedMotion() ? 0 : 280);
+    setInert(false);
+    const target = prevFocus && prevFocus.isConnected && prevFocus !== document.body ? prevFocus : $('.nav-item[aria-current="page"]');
+    if (target && target.focus) target.focus({ preventScroll: true });
+    if (finished) toast({ title: 'You’re all set', text: 'Your gestures work everywhere, even with this window closed.' });
+    if (firstRun) {
+      try {
+        const config = clone(store.app.config);
+        config.settings.onboarded = true;
+        applyState(await call('save_config', { config }, { errorTitle: 'Couldn’t save that the tutorial is done' }));
+      } catch (_) { /* toast shown; the tutorial simply shows again next time */ }
+    }
+  }
+
+  /* ---------- Step views: render() → content, enter()/update() optional ---------- */
+
+  const TOUR = {
+    welcome: {
+      render() {
+        return [
+          heroEl(),
+          h('h1', { class: 'tour-title', id: 'tour-title' }, tour.firstRun ? 'Welcome to Pady' : 'Pady in a minute'),
+          h('p', { class: 'tour-lead' }, 'Pady turns three-, four- and five-finger touchpad gestures into the things you do all day — media keys, volume, shortcuts, apps and more.'),
+          h('p', { class: 'tour-note' }, ico('hold', 14), 'Takes about a minute, and you can change everything later.'),
+        ];
+      },
+    },
+
+    touchpad: {
+      render() {
+        const s = store.app;
+        const dev = s.devices && s.devices[0];
+        tour.hadDevice = !!dev;
+        if (dev) {
+          tour.felt = 0;
+          tour.feel = h('div', { class: 'tour-feel', role: 'status' }, ico('gestures', 15), 'Rest three fingers on your touchpad to say hello.');
+          tour.pad = createMiniPad({});
+          return [
+            h('h1', { class: 'tour-title', id: 'tour-title' }, 'Found your touchpad'),
+            h('p', { class: 'tour-lead' }, 'Pady reads it directly, so your gestures work in every app.'),
+            h('div', { class: 'tour-device' },
+              h('span', { class: 'tour-device-icon' }, ico('touchpad', 20)),
+              h('div', { class: 'tour-device-text' },
+                h('div', { class: 'tour-device-name' }, dev.name),
+                h('div', { class: 'tour-device-sub' }, `${fmtNum(dev.width_mm, 0)} × ${fmtNum(dev.height_mm, 0)} mm · up to ${dev.max_contacts} fingers`)),
+              h('span', { class: 'badge tour-ok-badge' }, ico('check', 12), 'Ready')),
+            tour.pad.el,
+            tour.feel,
+          ];
+        }
+        const canFix = (s.conflicts || []).some((c) => c.can_fix);
+        return [
+          h('h1', { class: 'tour-title', id: 'tour-title' }, 'Let’s find your touchpad'),
+          h('p', { class: 'tour-lead' }, 'Pady can’t read a touchpad yet. That’s usually quick to fix.'),
+          h('div', { class: 'tour-alert' }, ico('warning', 18), h('div', { class: 'tour-alert-body' },
+            h('div', { class: 'tour-alert-title' }, 'No touchpad detected'),
+            h('div', { class: 'tour-alert-text selectable' }, s.input_error || 'Make sure your touchpad is switched on and uses a precision driver.'),
+            h('div', { class: 'tour-actions' },
+              canFix ? fixPermissionsButton() : null,
+              platform() !== 'linux' ? h('button', { class: 'btn btn--sm', type: 'button', onClick: openTouchpadSettings }, ico('external', 14), 'Open touchpad settings') : null,
+              h('button', { class: 'btn btn--sm btn--ghost', type: 'button', onClick: () => api.invoke('get_state').then(applyState, () => {}) }, ico('reset', 14), 'Check again')))),
+          h('p', { class: 'tour-note' }, ico('info', 14), 'You can keep going and fix this later; Pady keeps checking.'),
+        ];
+      },
+      enter() { if (tour.pad) tour.pad.start(); else startTourPoll(); },
+      update() { if (!!(store.app.devices || []).length !== tour.hadDevice) renderTour(); },
+    },
+
+    os: {
+      render() {
+        const linux = platform() === 'linux';
+        tour.osSig = '';
+        tour.osStatus = h('div', { class: 'tour-status', role: 'status' });
+        const body = [
+          h('h1', { class: 'tour-title', id: 'tour-title' }, linux ? 'Check your desktop’s gestures' : 'Stop Windows reacting too'),
+          h('p', { class: 'tour-lead' }, linux
+            ? 'Some desktops have touchpad gestures of their own. If both react, one swipe does two things.'
+            : 'Windows has its own three- and four-finger gestures. If both react, one swipe does two things.'),
+        ];
+        if (!linux) {
+          body.push(h('ol', { class: 'tour-steps' },
+            h('li', null, h('span', null, 'Open ', h('strong', null, 'Touchpad settings'), '.'),
+              h('button', { class: 'btn btn--sm', type: 'button', onClick: openTouchpadSettings }, ico('external', 14), 'Open touchpad settings')),
+            h('li', null, h('span', null, 'Expand ', h('strong', null, 'Three-finger gestures'), ' and set ', h('strong', null, 'Swipes'), ' and ', h('strong', null, 'Taps'), ' to ', h('strong', null, '“Nothing”'), '.')),
+            h('li', null, h('span', null, 'Do the same under ', h('strong', null, 'Four-finger gestures'), '.'))));
+        }
+        body.push(tour.osStatus);
+        return body;
+      },
+      enter() { this.update(); startTourPoll(); },
+      update() {
+        const linux = platform() === 'linux';
+        const list = osConflicts();
+        const sig = JSON.stringify(list);
+        if (sig === tour.osSig) return; // unchanged: keep focus and animations where they are
+        const wasWaiting = tour.osSig !== '' && tour.osSig !== '[]';
+        tour.osSig = sig;
+        const ok = !list.length;
+        tour.osStatus.className = 'tour-status ' + (ok ? 'is-ok' : 'is-wait') + (ok && wasWaiting ? ' is-fresh' : '');
+        if (ok) {
+          tour.osStatus.replaceChildren(
+            h('span', { class: 'tour-status-icon' }, ico('check', 16)),
+            h('div', null,
+              h('div', { class: 'tour-status-title' }, 'All clear'),
+              h('div', { class: 'tour-status-text' }, linux ? 'Your desktop won’t get in the way of your gestures.' : 'Windows will leave these gestures to Pady.')));
+          if (wasWaiting) tour.live.textContent = 'All clear.';
+        } else {
+          tour.osStatus.replaceChildren(
+            h('span', { class: 'tour-status-icon' }, h('span', { class: 'tour-pulse' })),
+            h('div', { class: 'tour-status-body' },
+              h('div', { class: 'tour-status-title' }, linux ? 'Worth a look' : 'Waiting for the change…'),
+              h('ul', { class: 'tour-status-list' }, list.map((c) => h('li', null,
+                h('span', null, c.message),
+                linux ? h('span', { class: 'tour-status-fix' }, c.fix) : null,
+                linux && c.can_open_settings ? h('button', { class: 'btn btn--sm', type: 'button', onClick: openTouchpadSettings }, ico('external', 14), 'Open settings') : null))),
+              h('div', { class: 'tour-status-text' }, linux
+                ? 'You can skip this and come back to it later.'
+                : 'Pady checks again every 2 seconds. You can also skip this and do it later.')));
+        }
+      },
+    },
+
+    preset: {
+      render() {
+        const options = (tour.firstRun ? [] : [{ id: 'keep', name: 'Keep my gestures', description: 'Change nothing and carry on with what you have now.' }])
+          .concat(store.app.presets || []);
+        tour.presetGroup = h('div', { class: 'tour-presets', role: 'radiogroup', 'aria-label': 'Starter sets' });
+        options.forEach((p) => tour.presetGroup.append(h('button', {
+          class: 'tour-preset', type: 'button', role: 'radio', 'data-id': p.id, 'aria-checked': String(tour.picked === p.id),
+          onClick: () => pickTourPreset(p.id),
+        },
+        h('span', { class: 'tour-preset-icon' }, ico(p.id === 'keep' ? 'layers' : presetIcon(p.id), 18)),
+        h('span', { class: 'tour-preset-name' }, p.name, p.id === 'recommended' ? h('span', { class: 'badge badge--accent' }, 'Best start') : null),
+        h('span', { class: 'tour-preset-desc' }, p.description),
+        h('span', { class: 'tour-preset-check', 'aria-hidden': 'true' }, ico('check', 13)))));
+        // Arrow keys only move focus here; Enter / Space / click apply (applying replaces bindings).
+        roving(tour.presetGroup, '.tour-preset', () => {});
+        tour.presetStatus = h('p', { class: 'tour-note', role: 'status' }, ico('info', 14), tour.firstRun
+          ? 'Recommended is what you have now. Pick another set to switch — you can fine-tune any gesture later.'
+          : 'Picking a set replaces your All-apps gestures. Settings and per-app profiles stay as they are.');
+        return [
+          h('h1', { class: 'tour-title', id: 'tour-title' }, 'Pick a starter set'),
+          h('p', { class: 'tour-lead' }, 'Choose how your gestures start out.'),
+          tour.presetGroup,
+          tour.presetStatus,
+        ];
+      },
+      focus() { return $('.tour-preset[aria-checked="true"]', tour.presetGroup) || $('.tour-preset', tour.presetGroup); },
+    },
+
+    practice: {
+      render() {
+        tour.tasks = M.practiceTasks(store.app.config).map((t) => Object.assign({ done: false }, t));
+        const hasDevice = !!(store.app.devices || []).length;
+        tour.pad = hasDevice ? createMiniPad({}) : null;
+        tour.taskList = h('ol', { class: 'tour-tasks' }, tour.tasks.map(taskEl));
+        tour.taskCount = h('div', { class: 'tour-task-count' });
+        tour.celebrate = h('div', { class: 'tour-celebrate', hidden: true },
+          h('span', { class: 'tour-sparks', 'aria-hidden': 'true' }, Array.from({ length: 8 }, () => h('i'))),
+          ico('sparkle', 16), 'Nice — you’ve got the hang of it!');
+        return [
+          h('h1', { class: 'tour-title', id: 'tour-title' }, 'Try it out'),
+          h('p', { class: 'tour-lead' }, 'Do each gesture on your touchpad. They tick off as Pady recognises them.'),
+          h('div', { class: 'tour-try' },
+            tour.pad ? tour.pad.el : h('div', { class: 'tour-alert' }, ico('warning', 18), h('div', null, 'No touchpad detected, so there’s nothing to practise on yet. You can skip this step.')),
+            h('div', { class: 'tour-try-side' }, tour.taskList, tour.taskCount, tour.celebrate)),
+          h('p', { class: 'tour-note tour-note--warn' }, ico('zap', 14), 'These really run: music may start or the volume may change.'),
+        ];
+      },
+      enter() { if (tour.pad) tour.pad.start(); updateTaskCount(); },
+    },
+
+    done: {
+      render() {
+        const linux = platform() === 'linux';
+        const tip = (iconName, title, text) => h('div', { class: 'tour-tip' },
+          h('span', { class: 'panel-icon' }, ico(iconName, 16)),
+          h('div', null, h('div', { class: 'tour-tip-title' }, title), h('div', { class: 'tour-tip-text' }, text)));
+        return [
+          h('div', { class: 'tour-done-mark', 'aria-hidden': 'true' }, frag(DONE_SVG)),
+          h('h1', { class: 'tour-title', id: 'tour-title' }, 'You’re all set'),
+          h('p', { class: 'tour-lead' }, 'Pady now works quietly in the background. A few things to try next:'),
+          h('div', { class: 'tour-tips' },
+            tip('live', 'Watch it think', 'The Live page shows every finger and gesture, which makes tuning timing easy.'),
+            tip('profile', 'Make it per-app', 'Profiles give a gesture a different job in specific apps, like switching browser tabs.'),
+            tip('tray', 'It lives in the tray', linux
+              ? 'Close this window and Pady keeps running from the system tray.'
+              : 'Close this window and Pady keeps running from the notification area.')),
+        ];
+      },
+    },
+  };
+
+  /* ---------- Step helpers ---------- */
+
+  function feelFingers(n) {
+    if (!tour.feel) return;
+    tour.felt = Math.max(tour.felt, n);
+    if (tour.felt >= 3) {
+      if (!tour.feel.classList.contains('is-ok')) {
+        tour.feel.className = 'tour-feel is-ok';
+        tour.feel.replaceChildren(ico('check', 15), 'Hello! Pady can feel your fingers.');
+      }
+    } else if (n > 0) {
+      tour.feel.replaceChildren(ico('gestures', 15), `${cap(M.NUMBER_WORDS[n] || String(n))} finger${n === 1 ? '' : 's'} — try three.`);
+    }
+  }
+
+  async function pickTourPreset(id) {
+    if (tour.applying) return;
+    const prev = tour.picked;
+    if (id === 'keep' || id === tour.applied) { tour.picked = id; syncTourPresets(); return; }
+    if (!tour.confirmed) {
+      const ok = await confirmDialog({
+        title: 'Replace your All-apps gestures?',
+        text: 'Picking a starter set replaces your current All-apps gestures. Settings and per-app profiles stay as they are.',
+        confirm: 'Replace them',
+      });
+      if (!ok || !tour.open) return;
+      tour.confirmed = true;
+    }
+    tour.applying = id;
+    tour.picked = id;
+    syncTourPresets();
+    try {
+      const state = await call('apply_preset', { id }, { errorTitle: 'Couldn’t apply the starter set' });
+      applyState(state);
+      tour.applied = id;
+      if (!tour.open || !tour.presetStatus) return;
+      const p = (store.app.presets || []).find((x) => x.id === id);
+      const n = (state.config.binding || []).length;
+      tour.presetStatus.replaceChildren(ico('check', 14), `${p ? p.name : 'Starter set'} is ready — ${n} gesture${n === 1 ? '' : 's'} set up.`);
+      tour.presetStatus.classList.add('is-ok');
+      const card = $(`.tour-preset[data-id="${id}"]`, tour.presetGroup);
+      if (card) { card.classList.remove('is-applied'); void card.offsetWidth; card.classList.add('is-applied'); }
+    } catch (_) {
+      tour.picked = prev;
+    } finally {
+      tour.applying = null;
+      if (tour.open && tour.presetGroup) syncTourPresets();
+    }
+  }
+
+  function syncTourPresets() {
+    $$('.tour-preset', tour.presetGroup).forEach((b) => {
+      b.setAttribute('aria-checked', String(b.dataset.id === tour.picked));
+      b.classList.toggle('is-busy', b.dataset.id === tour.applying);
+    });
+  }
+
+  function taskEl(t, i) {
+    return h('li', { class: 'tour-task', 'data-trigger': t.trigger },
+      h('span', { class: 'tour-task-check', 'aria-hidden': 'true' }, h('span', { class: 'tour-task-num' }, String(i + 1)), ico('check', 14)),
+      h('span', { class: 'tour-task-main' },
+        h('span', { class: 'tour-task-text' }, M.triggerInstruction(t.trigger)),
+        t.binding ? chipEl(t.binding.action) : h('span', { class: 'tour-task-unbound' }, 'Nothing bound yet — just try it')),
+      h('span', { class: 'sr-only tour-task-state' }, 'not done yet'));
+  }
+
+  function updateTaskCount() {
+    if (!tour.tasks || !tour.taskCount) return;
+    const done = tour.tasks.filter((t) => t.done).length;
+    tour.taskCount.textContent = `${done} of ${tour.tasks.length} done`;
+  }
+
+  /** onGesture() hook: tick off practice tasks. */
+  function tourGesture(p) {
+    if (!tour.open || !tour.tasks || !p || !p.trigger || tour.steps[tour.index].id !== 'practice') return;
+    const t = tour.tasks.find((x) => !x.done && x.trigger === p.trigger);
+    if (!t) return;
+    t.done = true;
+    const li = $(`.tour-task[data-trigger="${t.trigger}"]`, tour.taskList);
+    if (li) { li.classList.add('is-done'); $('.tour-task-state', li).textContent = 'done'; }
+    updateTaskCount();
+    const all = tour.tasks.every((x) => x.done);
+    tour.live.textContent = all ? 'All done. Nice work!' : `Done: ${M.triggerInstruction(t.trigger)}.`;
+    if (all) tour.celebrate.hidden = false;
+    refreshTourChrome();
+  }
+
+  /* ---------- Welcome illustration: tap → swipe up → pinch out, on a loop ---------- */
+
+  function heroSVG() {
+    const finger = (x, y, r, px, py) => `<g class="hero-f"${px != null ? ` data-px="${px.toFixed(2)}" data-py="${py.toFixed(2)}"` : ''}>`
+      + `<circle class="illo-halo" cx="${x}" cy="${y}" r="${(r * 1.9).toFixed(1)}"/><circle class="illo-finger" cx="${x}" cy="${y}" r="${r}"/></g>`;
+    const a = [[148, 116], [180, 106], [212, 116]];
+    const actA = `<g class="hero-act hero-act-a">${a.map(([x, y]) => `<circle class="illo-ripple hero-ripple" cx="${x}" cy="${y}" r="11"/>`).join('')}${a.map(([x, y]) => finger(x, y, 11)).join('')}</g>`;
+    const b = [[136, 132], [164, 123], [196, 123], [224, 132]];
+    const actB = `<g class="hero-act hero-act-b"><g class="hero-swipe">${b.map(([x, y]) => `<line class="hero-trail" x1="${x}" y1="${y}" x2="${x}" y2="${y + 30}"/>`).join('')}${b.map(([x, y]) => finger(x, y, 10)).join('')}</g></g>`;
+    const c = [-150, -95, -40, 100].map((deg) => {
+      const r = (deg * Math.PI) / 180;
+      return { x0: 180 + Math.cos(r) * 19, y0: 108 + Math.sin(r) * 16, x1: 180 + Math.cos(r) * 58, y1: 108 + Math.sin(r) * 46 };
+    });
+    const actC = `<g class="hero-act hero-act-c"><ellipse class="illo-pinch-ring hero-ring" cx="180" cy="108" rx="66" ry="53"/>${c.map((p) => finger(p.x0.toFixed(1), p.y0.toFixed(1), 10, p.x1 - p.x0, p.y1 - p.y0)).join('')}</g>`;
+    return `<svg class="hero-svg" viewBox="0 0 360 210" focusable="false"><rect class="hero-pad" x="14" y="10" width="332" height="190" rx="26"/>${actA}${actB}${actC}</svg>`;
+  }
+
+  function heroEl() {
+    return h('div', { class: 'tour-hero', 'aria-hidden': 'true' },
+      applyTravelVars(frag(heroSVG())),
+      h('div', { class: 'tour-hero-chips' },
+        h('span', { class: 'chip hero-chip hero-chip-a' }, ico('play-pause', 15), 'Play / pause'),
+        h('span', { class: 'chip hero-chip hero-chip-b' }, ico('volume', 15), 'Volume +4%'),
+        h('span', { class: 'chip hero-chip hero-chip-c' }, ico('zoom-in', 15), 'Zoom in')));
+  }
+
+  const DONE_SVG = '<svg class="done-svg" viewBox="0 0 96 96" focusable="false">'
+    + '<g class="done-sparks"><circle cx="48" cy="6" r="3"/><circle cx="84" cy="22" r="2.5"/><circle cx="90" cy="60" r="3"/><circle cx="64" cy="90" r="2.5"/><circle cx="24" cy="88" r="3"/><circle cx="6" cy="56" r="2.5"/><circle cx="12" cy="20" r="3"/></g>'
+    + '<circle class="done-disc" cx="48" cy="48" r="34"/>'
+    + '<circle class="done-ring" cx="48" cy="48" r="34" pathLength="100"/>'
+    + '<path class="done-check" d="M33 49.5 43.5 60 64 38" pathLength="100"/></svg>';
+
+  /**
+   * A small live touchpad (canvas) for the tutorial, drawn with the same
+   * painter as the Live page. It asks for the frame stream while running.
+   */
+  function createMiniPad(opts) {
+    const dev = store.app.devices && store.app.devices[0];
+    const mm = { w: (dev && dev.width_mm) || 105, h: (dev && dev.height_mm) || 68 };
+    const canvas = h('canvas', { 'aria-hidden': 'true' });
+    const el = h('div', { class: 'mini-pad', role: 'img', 'aria-label': 'Live view of your touchpad' },
+      canvas, h('div', { class: 'mini-pad-hint' }, ico('gestures', 18), 'Your fingers show up here'));
+    el.style.aspectRatio = `${mm.w} / ${mm.h}`;
+    el.style.setProperty('--aspect', String(mm.w / mm.h));
+    let raf = 0, running = false, dirty = true, colors = null, last = -1;
+    const ro = new ResizeObserver(() => { dirty = true; });
+    function frame() {
+      if (!running) return;
+      raf = requestAnimationFrame(frame);
+      if (dirty) {
+        dirty = false;
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.round(canvas.clientWidth * dpr);
+        canvas.height = Math.round(canvas.clientHeight * dpr);
+      }
+      const n = paintTouches(canvas, mm, colors, { small: true });
+      if (n !== last) {
+        last = n;
+        el.classList.toggle('has-touch', n > 0);
+        if (opts.onCount) opts.onCount(n);
+      }
+    }
+    return {
+      el,
+      start() {
+        if (running) return;
+        running = true;
+        colors = themeColors();
+        ro.observe(el);
+        wantLive('tour', true);
+        raf = requestAnimationFrame(frame);
+      },
+      stop() {
+        running = false;
+        cancelAnimationFrame(raf);
+        ro.disconnect();
+        wantLive('tour', false);
+      },
+    };
   }
 
   /* =====================================================================
@@ -2314,13 +2947,16 @@
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (store.page !== 'live') return;
-    if (document.hidden) liveView.pause(); else liveView.resume();
+    syncLive();
+    if (document.hidden) { liveView.pause(); flushPendingSettings(); } else liveView.resume();
   });
+  // The backend destroys this window when it's closed (and builds a new one
+  // on open), so nothing may wait for later: send a debounced save right away.
+  window.addEventListener('pagehide', flushPendingSettings);
 
   window.addEventListener('hashchange', () => {
     const page = location.hash.replace('#', '');
-    if (store.app && page !== store.page && PAGES.includes(page) && !editor && !profEd) route(page);
+    if (store.app && page !== store.page && PAGES.includes(page) && !editor && !profEd && !tour.open) route(page);
   });
 
   // Theme switches change canvas colours.
@@ -2331,11 +2967,15 @@
     listenAll();
     const initial = (location.hash || '').replace('#', '');
     try {
+      // Everything comes from get_state: the window is rebuilt from scratch each time it opens.
       const state = await call('get_state', null, { errorTitle: 'Couldn’t load Pady’s state' });
       store.app = state;
       renderShell();
       $('#boot').remove();
+      syncLive(); // tells the backend "no frames" unless a page below asks for them
       route(PAGES.includes(initial) ? initial : 'gestures');
+      // `=== false`: a backend without the field never shows the tutorial.
+      if (state.config.settings.onboarded === false) openTutorial({ firstRun: true });
     } catch (e) {
       $('#boot').replaceChildren(h('div', { class: 'empty' },
         h('div', { class: 'empty-icon' }, ico('warning', 28)),
