@@ -1,0 +1,22 @@
+[package]
+name = "pady-cli"
+description = "Command-line companion for Pady: list touchpads, watch gestures live, run headless"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "pady-cli"
+path = "src/main.rs"
+
+[dependencies]
+pady-core.workspace = true
+pady-input.workspace = true
+pady-actions.workspace = true
+crossbeam-channel.workspace = true
+log.workspace = true
+env_logger.workspace = true
+toml.workspace = true
+serde.workspace = true
