@@ -1,0 +1,53 @@
+name: Bug report
+description: Something doesn't work the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping make Pady better! The output of `pady-cli doctor` answers most of our first questions.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Pady version
+      description: Shown on the About page.
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Ubuntu / Debian / Mint
+        - Fedora
+        - Arch
+        - Other Linux
+    validations:
+      required: true
+  - type: input
+    id: desktop
+    attributes:
+      label: Linux desktop (if Linux)
+      placeholder: GNOME 46 on Wayland, KDE Plasma 6 on X11, …
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `pady-cli doctor`
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Log excerpt
+      description: |
+        Windows: `%LOCALAPPDATA%\com.lumidren.pady\logs\pady.log`
+        Linux: `~/.local/share/com.lumidren.pady/logs/pady.log`
+      render: text
