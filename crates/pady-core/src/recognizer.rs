@@ -6,15 +6,16 @@
 //! ```text
 //!            ┌──── fingers lift quickly, barely moved ───▶ Tap
 //!  Pending ──┼──── fingers rest without moving ──────────▶ Hold      ─▶ Consumed
+//!            ├──── fingers spread or close, pinch bound ─▶ Pinching  (step 0, 1, 2…)
 //!            ├──── fingers travel, drag enabled ─────────▶ Dragging  (start/move/end)
 //!            └──── fingers travel ───────────────────────▶ Swiping   (step 0, 1, 2…)
 //! ```
 //!
-//! Movement is measured from contacts that are present in consecutive frames,
-//! so a finger landing or lifting never looks like a jump of the centroid.
+//! Movement and spread are measured from contacts that are present in
+//! consecutive frames, so a finger landing or lifting never looks like a jump.
 
 use crate::frame::{Contact, TouchFrame};
-use crate::gesture::{Direction, Gesture};
+use crate::gesture::{Direction, Gesture, PinchDirection};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RecognizerSettings {
@@ -24,10 +25,15 @@ pub struct RecognizerSettings {
     pub tap_slop_mm: f32,
     pub swipe_threshold_mm: f32,
     pub swipe_step_mm: f32,
+    /// Change in finger spread before a pinch is recognised.
+    pub pinch_threshold_mm: f32,
     pub hold_ms: u64,
     pub drag_release_ms: u64,
     /// Indexed by finger count: does movement with this many fingers drag?
     pub drag_fingers: [bool; 6],
+    /// Indexed by finger count: is a pinch bound? Pinches are only looked
+    /// for when one is, so a sloppy swipe can never be mistaken for one.
+    pub pinch_fingers: [bool; 6],
 }
 
 impl Default for RecognizerSettings {
@@ -47,6 +53,7 @@ enum Phase {
     Idle,
     Pending,
     Swiping { axis: Axis, progress: f32, step: u32 },
+    Pinching { progress: f32, step: u32 },
     Dragging { lifted_at: Option<u64> },
     Consumed,
 }
@@ -68,6 +75,8 @@ pub struct Recognizer {
     prev: Vec<Contact>,
     /// Movement accumulated since `anchor_time` with the current finger count.
     travel: (f32, f32),
+    /// Change in finger spread since `anchor_time` (negative = closing).
+    spread: f32,
     anchor_time: u64,
 }
 
@@ -84,6 +93,7 @@ impl Recognizer {
             max_wander: 0.0,
             prev: Vec::new(),
             travel: (0.0, 0.0),
+            spread: 0.0,
             anchor_time: 0,
         }
     }
@@ -119,6 +129,7 @@ impl Recognizer {
         let t = frame.time_ms;
         let n = frame.finger_count();
         let (dx, dy) = shared_delta(&self.prev, &frame.contacts);
+        let dspread = spread_delta(&self.prev, &frame.contacts);
 
         if n == 0 {
             self.on_lift(t, &mut out);
@@ -151,6 +162,7 @@ impl Recognizer {
                 } else {
                     self.travel.0 += dx;
                     self.travel.1 += dy;
+                    self.spread += dspread;
                 }
                 self.check_motion(&mut out);
                 self.check_hold(t, &mut out);
@@ -172,6 +184,21 @@ impl Recognizer {
                         progress -= size * progress.signum();
                     }
                     self.phase = Phase::Swiping { axis, progress, step };
+                }
+            }
+            Phase::Pinching { mut progress, mut step } => {
+                if n != self.fingers {
+                    self.phase = Phase::Consumed;
+                } else {
+                    progress += dspread;
+                    let size = self.settings.swipe_step_mm;
+                    while progress.abs() >= size {
+                        step += 1;
+                        let direction = PinchDirection::from_change(progress);
+                        out.push(Gesture::Pinch { fingers: self.fingers, direction, step });
+                        progress -= size * progress.signum();
+                    }
+                    self.phase = Phase::Pinching { progress, step };
                 }
             }
             Phase::Dragging { .. } => {
@@ -224,6 +251,7 @@ impl Recognizer {
 
     fn anchor(&mut self, t: u64) {
         self.travel = (0.0, 0.0);
+        self.spread = 0.0;
         self.anchor_time = t;
     }
 
@@ -239,7 +267,18 @@ impl Recognizer {
     fn check_motion(&mut self, out: &mut Vec<Gesture>) {
         let n = self.fingers;
         let (tx, ty) = self.travel;
-        if n < self.settings.min_fingers || tx.hypot(ty) < self.settings.swipe_threshold_mm {
+        if n < self.settings.min_fingers {
+            return;
+        }
+        let travel = tx.hypot(ty);
+        let pinch_bound = self.settings.pinch_fingers.get(n as usize).copied().unwrap_or(false);
+        if pinch_bound && self.spread.abs() >= self.settings.pinch_threshold_mm && self.spread.abs() > travel {
+            self.fired = true;
+            out.push(Gesture::Pinch { fingers: n, direction: PinchDirection::from_change(self.spread), step: 0 });
+            self.phase = Phase::Pinching { progress: 0.0, step: 0 };
+            return;
+        }
+        if travel < self.settings.swipe_threshold_mm {
             return;
         }
         self.fired = true;
@@ -261,7 +300,7 @@ impl Recognizer {
         if self.fired || n < s.min_fingers || t.saturating_sub(self.anchor_time) < s.hold_ms {
             return;
         }
-        if self.travel.0.hypot(self.travel.1) <= s.tap_slop_mm {
+        if self.travel.0.hypot(self.travel.1) <= s.tap_slop_mm && self.spread.abs() <= s.tap_slop_mm {
             out.push(Gesture::Hold { fingers: n });
             self.fired = true;
             self.phase = Phase::Consumed;
@@ -301,6 +340,23 @@ fn axis_direction(axis: Axis, progress: f32) -> Direction {
     }
 }
 
+/// Change in how spread out the fingers present in both frames are: the
+/// mean distance from their centroid now, minus the same measure before.
+fn spread_delta(prev: &[Contact], cur: &[Contact]) -> f32 {
+    let pairs: Vec<(&Contact, &Contact)> =
+        cur.iter().filter_map(|c| prev.iter().find(|p| p.id == c.id).map(|p| (p, c))).collect();
+    if pairs.len() < 2 {
+        return 0.0;
+    }
+    let spread = |pts: &mut dyn Iterator<Item = &Contact>| {
+        let pts: Vec<&Contact> = pts.collect();
+        let n = pts.len() as f32;
+        let (cx, cy) = (pts.iter().map(|c| c.x).sum::<f32>() / n, pts.iter().map(|c| c.y).sum::<f32>() / n);
+        pts.iter().map(|c| (c.x - cx).hypot(c.y - cy)).sum::<f32>() / n
+    };
+    spread(&mut pairs.iter().map(|(_, c)| *c)) - spread(&mut pairs.iter().map(|(p, _)| *p))
+}
+
 /// Mean movement of fingers present in both frames.
 fn shared_delta(prev: &[Contact], cur: &[Contact]) -> (f32, f32) {
     let (mut sx, mut sy, mut k) = (0.0, 0.0, 0u32);
@@ -332,6 +388,8 @@ mod tests {
             hold_ms: 500,
             drag_release_ms: 0,
             drag_fingers: [false; 6],
+            pinch_threshold_mm: 8.0,
+            pinch_fingers: [false; 6],
         }
     }
 
@@ -347,6 +405,14 @@ mod tests {
         }
         fn frame(&mut self, t: u64, n: u32, x: f32, y: f32) -> &mut Self {
             let contacts = (0..n).map(|i| Contact { id: i, x: 20.0 + i as f32 * 15.0 + x, y: 30.0 + y }).collect();
+            let frame = TouchFrame { time_ms: t, contacts, width_mm: 100.0, height_mm: 60.0 };
+            self.out.extend(self.rec.update(&frame));
+            self
+        }
+        /// `n` fingers in a row centred at x = 50, `gap` mm apart.
+        fn spread(&mut self, t: u64, n: u32, gap: f32) -> &mut Self {
+            let mid = (n as f32 - 1.0) / 2.0;
+            let contacts = (0..n).map(|i| Contact { id: i, x: 50.0 + (i as f32 - mid) * gap, y: 30.0 }).collect();
             let frame = TouchFrame { time_ms: t, contacts, width_mm: 100.0, height_mm: 60.0 };
             self.out.extend(self.rec.update(&frame));
             self
@@ -542,5 +608,71 @@ mod tests {
         let mut s = Script::new(cfg);
         s.frame(0, 4, 0.0, 0.0).frame(10, 4, -12.0, 0.0);
         assert_eq!(s.out, vec![Gesture::Swipe { fingers: 4, direction: Direction::Left, step: 0 }]);
+    }
+
+    fn pinch_settings() -> RecognizerSettings {
+        let mut s = settings();
+        s.pinch_fingers[3] = true;
+        s
+    }
+
+    #[test]
+    fn pinch_out_and_in() {
+        // Three fingers in a row: spread = 2/3 of the gap, so 15 → 28 mm is +8.7 mm.
+        let mut s = Script::new(pinch_settings());
+        s.spread(0, 3, 15.0).spread(10, 3, 28.0);
+        assert_eq!(s.out, vec![Gesture::Pinch { fingers: 3, direction: PinchDirection::Out, step: 0 }]);
+
+        let mut s = Script::new(pinch_settings());
+        s.spread(0, 3, 28.0).spread(10, 3, 15.0);
+        assert_eq!(s.out, vec![Gesture::Pinch { fingers: 3, direction: PinchDirection::In, step: 0 }]);
+        s.lift(30);
+        assert_eq!(s.out.len(), 1, "lift after a pinch is not a tap");
+    }
+
+    #[test]
+    fn pinch_keeps_stepping_and_reverses() {
+        let mut s = Script::new(pinch_settings());
+        // Commit (+8.7), then +10 more spread (two 5 mm steps), then back -10.
+        s.spread(0, 3, 15.0).spread(10, 3, 28.0).spread(20, 3, 43.0).spread(30, 3, 28.0);
+        let steps: Vec<_> = s
+            .out
+            .iter()
+            .map(|g| match g {
+                Gesture::Pinch { direction, step, .. } => (*direction, *step),
+                other => panic!("unexpected {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            steps,
+            vec![
+                (PinchDirection::Out, 0),
+                (PinchDirection::Out, 1),
+                (PinchDirection::Out, 2),
+                (PinchDirection::In, 3),
+                (PinchDirection::In, 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn pinch_needs_a_binding() {
+        let mut s = Script::new(settings());
+        s.spread(0, 3, 15.0).spread(10, 3, 28.0).spread(20, 3, 40.0);
+        assert!(s.out.is_empty(), "unbound pinches are ignored: {:?}", s.out);
+    }
+
+    #[test]
+    fn swipes_still_work_when_pinch_is_bound() {
+        let mut s = Script::new(pinch_settings());
+        s.frame(0, 3, 0.0, 0.0).frame(10, 3, 0.0, -12.0);
+        assert_eq!(s.out, vec![Gesture::Swipe { fingers: 3, direction: Direction::Up, step: 0 }]);
+    }
+
+    #[test]
+    fn pinching_fingers_do_not_hold() {
+        let mut s = Script::new(settings());
+        s.spread(0, 3, 15.0).spread(300, 3, 22.0).tick(700);
+        assert!(s.out.is_empty(), "spread changed by more than the slop: {:?}", s.out);
     }
 }
