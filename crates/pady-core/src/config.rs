@@ -1,5 +1,5 @@
 use crate::action::{Action, MediaKey};
-use crate::gesture::Direction;
+use crate::gesture::{Direction, PinchDirection};
 use crate::recognizer::RecognizerSettings;
 use crate::trigger::Trigger;
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,8 @@ pub struct Settings {
     pub swipe_threshold_mm: f32,
     /// Extra travel per repeat for bindings with `repeat = true`.
     pub swipe_step_mm: f32,
+    /// Change in finger spread before a pinch is recognised.
+    pub pinch_threshold_mm: f32,
     /// Fingers resting this long without moving count as a hold.
     pub hold_ms: u64,
     /// Cursor pixels per millimetre of finger travel while dragging.
@@ -30,6 +32,8 @@ pub struct Settings {
     /// Keep the mouse button held this long after lifting, so a drag can be
     /// continued by putting the fingers back down (0 = release immediately).
     pub drag_release_ms: u64,
+    /// Show a small on-screen level while volume or brightness changes.
+    pub show_overlay: bool,
 }
 
 impl Default for Settings {
@@ -40,10 +44,12 @@ impl Default for Settings {
             tap_slop_mm: 4.0,
             swipe_threshold_mm: 10.0,
             swipe_step_mm: 7.0,
+            pinch_threshold_mm: 8.0,
             hold_ms: 600,
             drag_speed: 9.0,
             drag_acceleration: 1.0,
             drag_release_ms: 350,
+            show_overlay: true,
         }
     }
 }
@@ -58,12 +64,44 @@ pub struct Binding {
     pub repeat: bool,
 }
 
+/// Bindings that apply only while one of `apps` is in front. They override
+/// the global bindings trigger by trigger; a binding with action `none`
+/// switches that gesture off in these apps.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Profile {
+    pub name: String,
+    /// Executable names such as `chrome.exe` or `code` (case and `.exe` don't matter).
+    #[serde(default)]
+    pub apps: Vec<String>,
+    #[serde(default, rename = "binding")]
+    pub bindings: Vec<Binding>,
+}
+
+impl Profile {
+    pub fn matches(&self, app: &str) -> bool {
+        let app = app_key(app);
+        !app.is_empty() && self.apps.iter().any(|a| app_key(a) == app)
+    }
+
+    fn binding(&self, trigger: Trigger) -> Option<&Binding> {
+        self.bindings.iter().find(|b| b.trigger == trigger)
+    }
+}
+
+/// `C:\Apps\Code.EXE` / `code.exe` / `Code` → `code`
+fn app_key(app: &str) -> String {
+    let base = app.trim().trim_matches('"').rsplit(['\\', '/']).next().unwrap_or("").to_ascii_lowercase();
+    base.strip_suffix(".exe").map(str::to_string).unwrap_or(base)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub settings: Settings,
     #[serde(default, rename = "binding")]
     pub bindings: Vec<Binding>,
+    #[serde(default, rename = "profile", skip_serializing_if = "Vec::is_empty")]
+    pub profiles: Vec<Profile>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -78,18 +116,25 @@ pub enum ConfigError {
     NoConfigDir,
 }
 
-const HEADER: &str = "\
-# Pady configuration.
+const HEADER: &str = r#"# Pady configuration.
 #
-# Triggers:  tap:N  hold:N  swipe:N:up|down|left|right  drag:N   (N = 3..5 fingers)
+# Triggers:  tap:N  hold:N  swipe:N:up|down|left|right  pinch:N:in|out  drag:N   (N = 3..5)
 # Actions:   none | keys{combo} | volume{step} | mute | brightness{step}
 #            media{key = play_pause|next|previous|stop|volume_up|volume_down|mute}
 #            open_url{url, browser?} | launch{program, args?} | focus_or_launch{program, args?}
 #            run{command} | lock | drag
 #
+# Per-app profiles override bindings while an app is in front:
+#   [[profile]]
+#   name = "Browser"
+#   apps = ["chrome.exe", "msedge.exe"]
+#   [[profile.binding]]
+#   trigger = "swipe:4:left"
+#   action = { type = "keys", combo = "ctrl+shift+tab" }
+#
 # Edit this file by hand or from the Pady window; changes apply instantly.
 
-";
+"#;
 
 impl Default for Config {
     fn default() -> Self {
@@ -105,7 +150,10 @@ impl Default for Config {
                 b(Trigger::Swipe(4, Direction::Left), Action::Brightness { step: -10 }, true),
                 b(Trigger::Tap(4), Action::Keys { combo: "win+d".into() }, false),
                 b(Trigger::Hold(4), Action::Lock, false),
+                b(Trigger::Pinch(4, PinchDirection::Out), Action::Keys { combo: "ctrl+equal".into() }, true),
+                b(Trigger::Pinch(4, PinchDirection::In), Action::Keys { combo: "ctrl+minus".into() }, true),
             ],
+            profiles: Vec::new(),
         }
     }
 }
@@ -159,6 +207,22 @@ impl Config {
         self.bindings.iter().find(|b| b.trigger == trigger && !b.action.is_none())
     }
 
+    /// The first profile for `app`, if any.
+    pub fn profile_for(&self, app: &str) -> Option<&Profile> {
+        self.profiles.iter().find(|p| p.matches(app))
+    }
+
+    /// The binding that applies to `trigger` while `app` is in front, and
+    /// the profile it came from. `None` if unbound or switched off there.
+    pub fn resolve(&self, trigger: Trigger, app: Option<&str>) -> Option<(&Binding, Option<&Profile>)> {
+        if let Some(profile) = app.and_then(|a| self.profile_for(a)) {
+            if let Some(b) = profile.binding(trigger) {
+                return (!b.action.is_none()).then_some((b, Some(profile)));
+            }
+        }
+        self.binding(trigger).map(|b| (b, None))
+    }
+
     /// Replace (or remove, for `Action::None`) the binding for a trigger.
     pub fn set_binding(&mut self, trigger: Trigger, action: Action, repeat: bool) {
         self.bindings.retain(|b| b.trigger != trigger);
@@ -169,18 +233,20 @@ impl Config {
 
     /// Drop duplicate triggers (last one wins, like CSS) and nonsense pairs
     /// such as a drag action on a tap.
+    ///
+    /// Profiles keep `none` bindings (they switch a gesture off) but not
+    /// drags: whether movement drags is decided before the app is known.
     pub fn normalize(&mut self) {
-        let mut seen = Vec::new();
-        let mut kept: Vec<Binding> = Vec::new();
-        for b in self.bindings.drain(..).rev() {
-            let valid = matches!(b.trigger, Trigger::Drag(_)) == matches!(b.action, Action::Drag);
-            if valid && !b.action.is_none() && !seen.contains(&b.trigger) {
-                seen.push(b.trigger);
-                kept.push(b);
-            }
+        self.bindings = dedupe(std::mem::take(&mut self.bindings), |b| {
+            !b.action.is_none() && matches!(b.trigger, Trigger::Drag(_)) == matches!(b.action, Action::Drag)
+        });
+        for p in &mut self.profiles {
+            p.name = p.name.trim().to_string();
+            p.apps.retain(|a| !a.trim().is_empty());
+            p.bindings = dedupe(std::mem::take(&mut p.bindings), |b| {
+                !matches!(b.trigger, Trigger::Drag(_)) && !matches!(b.action, Action::Drag)
+            });
         }
-        kept.reverse();
-        self.bindings = kept;
     }
 
     /// Finger counts whose movement is a drag rather than a swipe. A drag
@@ -197,16 +263,31 @@ impl Config {
         out
     }
 
-    /// Swipe bindings that will never fire because a drag owns that finger count.
+    /// Finger counts with a pinch bound anywhere (globally or in a profile).
+    pub fn pinch_fingers(&self) -> [bool; 6] {
+        let mut out = [false; 6];
+        let all = self.bindings.iter().chain(self.profiles.iter().flat_map(|p| &p.bindings));
+        for b in all.filter(|b| !b.action.is_none()) {
+            if let Trigger::Pinch(n, _) = b.trigger {
+                if let Some(slot) = out.get_mut(n as usize) {
+                    *slot = true;
+                }
+            }
+        }
+        out
+    }
+
+    /// Swipe bindings (global or in a profile) that will never fire because
+    /// a drag owns that finger count.
     pub fn shadowed_bindings(&self) -> Vec<Trigger> {
         let drag = self.drag_fingers();
-        self.bindings
-            .iter()
-            .filter_map(|b| match b.trigger {
-                Trigger::Swipe(n, _) if drag[n as usize] => Some(b.trigger),
-                _ => None,
-            })
-            .collect()
+        let mut out: Vec<Trigger> = Vec::new();
+        for b in self.bindings.iter().chain(self.profiles.iter().flat_map(|p| &p.bindings)) {
+            if matches!(b.trigger, Trigger::Swipe(n, _) if drag[n as usize]) && !out.contains(&b.trigger) {
+                out.push(b.trigger);
+            }
+        }
+        out
     }
 
     pub fn recognizer_settings(&self) -> RecognizerSettings {
@@ -217,11 +298,28 @@ impl Config {
             tap_slop_mm: s.tap_slop_mm,
             swipe_threshold_mm: s.swipe_threshold_mm,
             swipe_step_mm: s.swipe_step_mm.max(1.0),
+            pinch_threshold_mm: s.pinch_threshold_mm.max(1.0),
             hold_ms: s.hold_ms,
             drag_release_ms: s.drag_release_ms,
             drag_fingers: self.drag_fingers(),
+            pinch_fingers: self.pinch_fingers(),
         }
     }
+}
+
+/// Keep bindings passing `keep`, dropping earlier duplicates of a trigger
+/// (the last one wins, like CSS).
+fn dedupe(bindings: Vec<Binding>, keep: impl Fn(&Binding) -> bool) -> Vec<Binding> {
+    let mut seen = Vec::new();
+    let mut kept: Vec<Binding> = Vec::new();
+    for b in bindings.into_iter().rev() {
+        if keep(&b) && !seen.contains(&b.trigger) {
+            seen.push(b.trigger);
+            kept.push(b);
+        }
+    }
+    kept.reverse();
+    kept
 }
 
 /// Config shared between the engine and the UI. Readers cache a copy and
@@ -346,6 +444,82 @@ mod tests {
         changed.save(&path).unwrap();
         assert_eq!(Config::load(&path).unwrap(), changed);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    const WITH_PROFILE: &str = r#"
+        [[binding]]
+        trigger = "swipe:4:left"
+        action = { type = "keys", combo = "alt+left" }
+
+        [[binding]]
+        trigger = "tap:4"
+        action = { type = "mute" }
+
+        [[profile]]
+        name = "Browser"
+        apps = ["Chrome.EXE", "firefox"]
+
+        [[profile.binding]]
+        trigger = "swipe:4:left"
+        action = { type = "keys", combo = "ctrl+shift+tab" }
+
+        [[profile.binding]]
+        trigger = "tap:4"
+        action = { type = "none" }
+
+        [[profile.binding]]
+        trigger = "pinch:5:in"
+        action = { type = "keys", combo = "ctrl+minus" }
+        repeat = true
+    "#;
+
+    #[test]
+    fn profiles_override_and_disable_per_app() {
+        let cfg = Config::from_toml(WITH_PROFILE).unwrap();
+        let left = Trigger::Swipe(4, Direction::Left);
+
+        let (b, p) = cfg.resolve(left, Some(r"C:\Program Files\Google\Chrome\chrome.exe")).unwrap();
+        assert_eq!(b.action, Action::Keys { combo: "ctrl+shift+tab".into() });
+        assert_eq!(p.unwrap().name, "Browser");
+
+        let (b, p) = cfg.resolve(left, Some("code.exe")).unwrap();
+        assert_eq!(b.action, Action::Keys { combo: "alt+left".into() });
+        assert!(p.is_none(), "other apps use the global binding");
+        assert!(cfg.resolve(left, None).is_some());
+
+        assert!(cfg.resolve(Trigger::Tap(4), Some("firefox.exe")).is_none(), "none switches it off");
+        assert!(cfg.resolve(Trigger::Tap(4), Some("notepad")).is_some());
+    }
+
+    #[test]
+    fn profiles_round_trip_and_enable_pinch_detection() {
+        let cfg = Config::from_toml(WITH_PROFILE).unwrap();
+        let text = cfg.to_toml().unwrap();
+        assert!(text.contains("[[profile.binding]]"), "{text}");
+        assert_eq!(Config::from_toml(&text).unwrap(), cfg);
+        assert!(cfg.pinch_fingers()[5]);
+        assert!(!cfg.pinch_fingers()[3]);
+    }
+
+    #[test]
+    fn profiles_cannot_drag() {
+        let mut cfg = Config::default();
+        cfg.profiles.push(Profile {
+            name: " Game ".into(),
+            apps: vec!["game.exe".into(), " ".into()],
+            bindings: vec![Binding { trigger: Trigger::Drag(4), action: Action::Drag, repeat: false }],
+        });
+        cfg.normalize();
+        assert_eq!(cfg.profiles[0].name, "Game");
+        assert_eq!(cfg.profiles[0].apps, vec!["game.exe".to_string()]);
+        assert!(cfg.profiles[0].bindings.is_empty());
+    }
+
+    #[test]
+    fn app_keys_ignore_path_case_and_extension() {
+        assert_eq!(app_key(r"C:\Apps\Code.EXE"), "code");
+        assert_eq!(app_key("/usr/bin/firefox"), "firefox");
+        assert_eq!(app_key("\"Spotify.exe\""), "spotify");
     }
 
     #[test]
