@@ -12,13 +12,18 @@ use pady_core::{Action, Config, Engine, EngineEvent, Level, SharedConfig, TouchF
 use pady_input::{DeviceInfo, InputHandle};
 use serde::Serialize;
 use serde_json::json;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WindowEvent, Wry};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, State, WindowEvent, Wry};
+
+/// Must match `identifier` in tauri.conf.json: the log lives beside the
+/// WebView data, so "Delete the application data" on uninstall removes it.
+const IDENTIFIER: &str = "com.lumidren.pady";
 
 struct Pady {
     config: Arc<SharedConfig>,
@@ -58,8 +63,20 @@ impl Pady {
             Ok(input) => (input.devices(), None),
             Err(e) => (Vec::new(), Some(e.clone())),
         };
+        let mut conflicts = pady_actions::conflicts(&config);
+        if cfg!(target_os = "linux") && input_error.as_deref().is_some_and(|e| e.starts_with("permission denied")) {
+            conflicts.insert(
+                0,
+                Conflict {
+                    message: "Pady isn't allowed to read your touchpad yet.".into(),
+                    fix: "Click Fix permissions and enter your password once.".into(),
+                    can_open_settings: false,
+                    can_fix: true,
+                },
+            );
+        }
         AppState {
-            conflicts: pady_actions::conflicts(&config),
+            conflicts,
             shadowed: config.shadowed_bindings().iter().map(ToString::to_string).collect(),
             autostart: pady_actions::autostart_enabled(),
             config_path: self.config_path.display().to_string(),
@@ -148,6 +165,30 @@ fn open_config_folder(pady: State<Pady>) -> Result<(), String> {
 #[tauri::command]
 fn open_touchpad_settings() -> Result<(), String> {
     pady_actions::open_touchpad_settings().map_err(|e| e.to_string())
+}
+
+/// Install the system permissions Pady needs (Linux: one password prompt),
+/// then try the touchpad again straight away.
+#[tauri::command]
+async fn fix_permissions(app: AppHandle) -> Result<AppState, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        pady_actions::fix_permissions().map_err(|e| e.to_string())?;
+        // Give udev a moment to apply the new access rights.
+        std::thread::sleep(Duration::from_millis(500));
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let pady = app.state::<Pady>();
+    if lock(&pady.input).is_err() {
+        if let Ok(input) = pady_input::start(pady.frames.clone()) {
+            log::info!("touchpad readable after fixing permissions");
+            *lock(&pady.input) = Ok(input);
+        }
+    }
+    let state = pady.snapshot();
+    let _ = app.emit("pady://state", &state);
+    Ok(state)
 }
 
 /// Wait for the user to switch to another app and return its executable
@@ -359,8 +400,52 @@ fn build_tray(app: &AppHandle) -> tauri::Result<CheckMenuItem<Wry>> {
     Ok(toggle)
 }
 
+/// Log to a file as well as stderr (a release build has no console), so
+/// support questions come with a trail. Panics are logged too. The file is
+/// rotated once it passes 1 MB.
+fn init_logging() {
+    let dir = dirs::data_local_dir().map(|d| d.join(IDENTIFIER).join("logs"));
+    let file = dir.as_ref().and_then(|dir| {
+        std::fs::create_dir_all(dir).ok()?;
+        let path = dir.join("pady.log");
+        if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1_000_000) {
+            let _ = std::fs::rename(&path, dir.join("pady.old.log"));
+        }
+        std::fs::OpenOptions::new().create(true).append(true).open(path).ok()
+    });
+    let mut builder = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    if let Some(file) = file {
+        builder.target(env_logger::Target::Pipe(Box::new(Tee(file))));
+    }
+    builder.init();
+
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!("panic: {info}");
+        default_hook(info);
+    }));
+    if let Some(dir) = dir {
+        log::info!("Pady {} starting; logging to {}", env!("CARGO_PKG_VERSION"), dir.display());
+    }
+}
+
+/// Copies log output to stderr and the log file.
+struct Tee(std::fs::File);
+
+impl Write for Tee {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let _ = std::io::stderr().write_all(buf);
+        self.0.write_all(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    init_logging();
     let start_hidden = std::env::args().any(|a| a == "--hidden");
 
     tauri::Builder::default()
@@ -378,6 +463,7 @@ fn main() {
             open_config_folder,
             open_touchpad_settings,
             detect_app,
+            fix_permissions,
         ])
         .setup(move |app| {
             let config_path = Config::default_path()?;
@@ -425,6 +511,15 @@ fn main() {
                 window.state::<Pady>().live.store(false, Ordering::Relaxed);
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Pady");
+        .build(tauri::generate_context!())
+        .expect("error while building Pady")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                // Quitting mid-drag must not leave the mouse button pressed system-wide.
+                if let Some(pady) = app.try_state::<Pady>() {
+                    pady.engine.release_mouse(Duration::from_millis(300));
+                }
+                log::info!("Pady exiting");
+            }
+        });
 }

@@ -23,5 +23,6 @@ serde_json.workspace = true
 crossbeam-channel.workspace = true
 log.workspace = true
 env_logger.workspace = true
+dirs.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-single-instance = "2"
