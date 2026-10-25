@@ -8,7 +8,8 @@
 //! pady-cli app              print the app in front as you switch, for per-app profiles
 //! pady-cli doctor           check that everything Pady needs is in place
 //! pady-cli fix-permissions  Linux: install the udev rule Pady needs (asks for a password)
-//! pady-cli config [path|show|reset]
+//! pady-cli presets          list starter presets
+//! pady-cli config [path|show|reset|preset <id>]
 //! ```
 
 use crossbeam_channel::unbounded;
@@ -32,6 +33,8 @@ USAGE:
     pady-cli config path      Print the config file location
     pady-cli config show      Print the active config
     pady-cli config reset     Overwrite the config with defaults
+    pady-cli presets          List starter presets
+    pady-cli config preset <id>  Replace your All-apps bindings with a preset
 
 Set RUST_LOG=debug for more detail.";
 
@@ -50,6 +53,8 @@ fn main() -> ExitCode {
         ["config", "path"] | ["config"] => config_path(),
         ["config", "show"] => config_show(),
         ["config", "reset"] => config_reset(),
+        ["presets"] => list_presets(),
+        ["config", "preset", id] => apply_preset(id),
         [] | ["help"] | ["-h"] | ["--help"] => {
             println!("{USAGE}");
             Ok(())
@@ -278,6 +283,28 @@ fn config_path() -> CliResult {
 fn config_show() -> CliResult {
     let (_, cfg) = load_config()?;
     print!("{}", cfg.to_toml().map_err(|e| e.to_string())?);
+    Ok(())
+}
+
+fn list_presets() -> CliResult {
+    for p in pady_core::PRESETS {
+        println!(
+            "{:<14} {}
+{:<14} {}
+",
+            p.id, p.name, "", p.description
+        );
+    }
+    Ok(())
+}
+
+fn apply_preset(id: &str) -> CliResult {
+    let (path, mut cfg) = load_config()?;
+    if !cfg.apply_preset(id) {
+        return Err(format!("unknown preset `{id}`; see pady-cli presets"));
+    }
+    cfg.save(&path).map_err(|e| e.to_string())?;
+    println!("applied the {id} preset to {}", path.display());
     Ok(())
 }
 
