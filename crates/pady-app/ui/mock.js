@@ -20,6 +20,8 @@
  *   ?brightfail       brightness actions emit pady://action-failed
  *   ?detectnull       detect_app times out (resolves null)
  *   ?nopermission     Linux without access to the touchpad (shows Fix permissions)
+ *   ?onboarding       start with settings.onboarded = false (shows the tutorial); the
+ *                     virtual hand then loops the tutorial's practice gestures
  *   ?slow             add 600ms latency to every command
  */
 (function () {
@@ -34,13 +36,14 @@
   const clone = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
 
   const DEFAULT_SETTINGS = {
-    enabled: true, tap_max_ms: 220, tap_slop_mm: 4.0, swipe_threshold_mm: 10.0, swipe_step_mm: 7.0,
+    enabled: true, tap_max_ms: 220, tap_slop_mm: 4.0, multi_tap_ms: 300, swipe_threshold_mm: 10.0, swipe_step_mm: 7.0,
     pinch_threshold_mm: 8.0, hold_ms: 600, drag_speed: 9.0, drag_acceleration: 1.0, drag_release_ms: 350,
-    show_overlay: true,
+    show_overlay: true, pause_in_fullscreen: true, onboarded: false,
   };
   const DEFAULT_BINDINGS = [
     { trigger: 'drag:3', action: { type: 'drag' } },
     { trigger: 'tap:3', action: { type: 'media', key: 'play_pause' } },
+    { trigger: 'doubletap:3', action: { type: 'media', key: 'next' } },
     { trigger: 'swipe:4:up', action: { type: 'volume', step: 4 }, repeat: true },
     { trigger: 'swipe:4:down', action: { type: 'volume', step: -4 }, repeat: true },
     { trigger: 'swipe:4:right', action: { type: 'brightness', step: 10 }, repeat: true },
@@ -60,6 +63,62 @@
       { trigger: 'hold:4', action: { type: 'none' } },
     ],
   };
+  // Starter sets for apply_preset (the real backend owns these; plausible stand-ins here).
+  const keys = (combo) => ({ type: 'keys', combo });
+  // Mirrors crates/pady-core/src/presets.rs (names, descriptions and bindings).
+  const SHORTCUT = linux
+    ? { taskView: 'win', showDesktop: 'win+d', desktopLeft: 'win+pageup', desktopRight: 'win+pagedown', screenshot: 'printscreen' }
+    : { taskView: 'win+tab', showDesktop: 'win+d', desktopLeft: 'win+ctrl+left', desktopRight: 'win+ctrl+right', screenshot: 'win+shift+s' };
+  const DRAG = { trigger: 'drag:3', action: { type: 'drag' } };
+  const ZOOM = [
+    { trigger: 'pinch:4:out', action: keys('ctrl+equal'), repeat: true },
+    { trigger: 'pinch:4:in', action: keys('ctrl+minus'), repeat: true },
+  ];
+  const PRESETS = [
+    { id: 'recommended', name: 'Recommended', description: 'Three-finger drag, taps for play/pause and next track, four-finger swipes for volume and brightness, pinch to zoom.', binding: DEFAULT_BINDINGS },
+    {
+      id: 'macos', name: 'Like a Mac', description: 'Feels like a MacBook trackpad: three-finger drag, four-finger swipes between desktops and to task view, pinch to zoom.',
+      binding: [
+        DRAG,
+        { trigger: 'swipe:4:up', action: keys(SHORTCUT.taskView) },
+        { trigger: 'swipe:4:down', action: keys(SHORTCUT.showDesktop) },
+        { trigger: 'swipe:4:left', action: keys(SHORTCUT.desktopRight) },
+        { trigger: 'swipe:4:right', action: keys(SHORTCUT.desktopLeft) },
+        { trigger: 'tap:3', action: { type: 'media', key: 'play_pause' } },
+        ...ZOOM,
+      ],
+    },
+    {
+      id: 'media', name: 'Media', description: 'Built for music and video: taps control playback, four-finger swipes scrub the volume and skip tracks.',
+      binding: [
+        DRAG,
+        { trigger: 'tap:3', action: { type: 'media', key: 'play_pause' } },
+        { trigger: 'doubletap:3', action: { type: 'media', key: 'next' } },
+        { trigger: 'tripletap:3', action: { type: 'media', key: 'previous' } },
+        { trigger: 'swipe:4:up', action: { type: 'volume', step: 4 }, repeat: true },
+        { trigger: 'swipe:4:down', action: { type: 'volume', step: -4 }, repeat: true },
+        { trigger: 'swipe:4:left', action: { type: 'media', key: 'previous' } },
+        { trigger: 'swipe:4:right', action: { type: 'media', key: 'next' } },
+        { trigger: 'tap:4', action: { type: 'mute' } },
+      ],
+    },
+    {
+      id: 'productivity', name: 'Productivity', description: 'Window and desktop management: task view, show desktop, switching desktops, quick screenshots and lock.',
+      binding: [
+        DRAG,
+        { trigger: 'swipe:4:left', action: keys(SHORTCUT.desktopRight) },
+        { trigger: 'swipe:4:right', action: keys(SHORTCUT.desktopLeft) },
+        { trigger: 'swipe:4:up', action: keys(SHORTCUT.taskView) },
+        { trigger: 'swipe:4:down', action: keys(SHORTCUT.showDesktop) },
+        { trigger: 'tap:4', action: keys(SHORTCUT.screenshot) },
+        { trigger: 'hold:4', action: { type: 'lock' } },
+        { trigger: 'tap:3', action: { type: 'media', key: 'play_pause' } },
+        ...ZOOM,
+      ],
+    },
+    { id: 'minimal', name: 'Minimal', description: 'Just three-finger drag. Start small and add your own.', binding: [DRAG] },
+  ];
+
   // The pretend app in front cycles through these (one of them is in the sample profile).
   const FOREGROUND = linux ? ['code', 'google-chrome', 'nautilus'] : ['Code.exe', 'chrome.exe', 'explorer.exe'];
 
@@ -67,7 +126,8 @@
   const noPermission = q.has('nopermission');
   const state = {
     config: {
-      settings: clone(DEFAULT_SETTINGS),
+      // The preview skips the tutorial unless ?onboarding asks for it.
+      settings: Object.assign(clone(DEFAULT_SETTINGS), { onboarded: !q.has('onboarding') }),
       // The preview starts with a few extras so the "shadowed" badge, an
       // open_url chip and a per-app profile are visible out of the box.
       binding: clone(DEFAULT_BINDINGS).concat([
@@ -102,6 +162,7 @@
     config_path: linux ? '/home/me/.config/pady/config.toml' : 'C:\\Users\\me\\AppData\\Roaming\\Pady\\config.toml',
     platform,
     version: '0.2.0',
+    presets: PRESETS.map(({ id, name, description }) => ({ id, name, description })),
   };
 
   /* ---------- Validation / normalisation (mirrors pady-core) ---------- */
@@ -136,8 +197,8 @@
   /** Canonical trigger string; forgiving about case and spaces like the Rust parser. */
   function checkTrigger(t) {
     const canon = String(t).split(':').map((p) => p.trim().toLowerCase()).join(':');
-    const ok = /^(tap|hold|drag):[345]$|^swipe:[345]:(up|down|left|right)$|^pinch:[345]:(in|out)$/.test(canon);
-    if (!ok) throw `invalid trigger \`${t}\` (expected e.g. tap:3, hold:4, swipe:3:up, pinch:4:in, drag:3)`;
+    const ok = /^(tap|doubletap|tripletap|hold|drag):[345]$|^swipe:[345]:(up|down|left|right)$|^pinch:[345]:(in|out)$/.test(canon);
+    if (!ok) throw `invalid trigger \`${t}\` (expected e.g. tap:3, doubletap:3, hold:4, swipe:3:up, pinch:4:in, drag:3)`;
     return canon;
   }
   const fingersOf = (trigger) => Number(trigger.split(':')[1]);
@@ -196,13 +257,13 @@
     if (profiles.length) cfg.profile = profiles; else delete cfg.profile;
 
     const s = Object.assign(clone(DEFAULT_SETTINGS), cfg.settings || {});
-    for (const k of ['tap_max_ms', 'hold_ms', 'drag_release_ms']) {
+    for (const k of ['tap_max_ms', 'multi_tap_ms', 'hold_ms', 'drag_release_ms']) {
       if (!Number.isInteger(s[k]) || s[k] < 0) throw `invalid value for \`${k}\`: expected u64`;
     }
     for (const k of ['tap_slop_mm', 'swipe_threshold_mm', 'swipe_step_mm', 'pinch_threshold_mm', 'drag_speed', 'drag_acceleration']) {
       if (typeof s[k] !== 'number' || !Number.isFinite(s[k])) throw `invalid value for \`${k}\`: expected f32`;
     }
-    for (const k of ['enabled', 'show_overlay']) {
+    for (const k of ['enabled', 'show_overlay', 'pause_in_fullscreen', 'onboarded']) {
       if (typeof s[k] !== 'boolean') throw `invalid type for \`${k}\`: expected a boolean`;
     }
     cfg.settings = s;
@@ -329,7 +390,18 @@
     set_enabled: ({ enabled }) => { state.config.settings.enabled = !!enabled; return snapshot(); },
     set_autostart: ({ enabled }) => { state.autostart = !!enabled; return snapshot(); },
     reset_config: () => {
+      // Like the backend: fresh gestures and settings, but the tutorial stays done.
+      const onboarded = state.config.settings.onboarded;
       state.config = { settings: clone(DEFAULT_SETTINGS), binding: clone(DEFAULT_BINDINGS) };
+      state.config.settings.onboarded = onboarded;
+      recompute();
+      return snapshot();
+    },
+    // Replace the All-apps bindings with a starter set; settings and profiles stay.
+    apply_preset: ({ id }) => {
+      const preset = PRESETS.find((p) => p.id === id);
+      if (!preset) throw `unknown preset \`${id}\``;
+      state.config = normalize(Object.assign(clone(state.config), { binding: clone(preset.binding) }));
       recompute();
       return snapshot();
     },
@@ -388,12 +460,14 @@
    */
 
   const PAD_W = 105, PAD_H = 68;
-  const SCRIPT = [
+  const SCRIPT_ALL = [
     { kind: 'idle', dur: 700 },
     { kind: 'point', n: 1, dur: 1500 },
     { kind: 'idle', dur: 500 },
     { kind: 'tap', n: 3, dur: 140 },
     { kind: 'idle', dur: 1100 },
+    { kind: 'multitap', n: 3, count: 2, dur: 0 },
+    { kind: 'idle', dur: 900 },
     { kind: 'swipe', n: 4, dir: 'up', dur: 1200 },
     { kind: 'idle', dur: 800 },
     { kind: 'pinch', n: 4, dir: 'out', dur: 1300 },
@@ -413,8 +487,32 @@
     { kind: 'swipe', n: 4, dir: 'right', dur: 1200 },
     { kind: 'idle', dur: 700 },
     { kind: 'tap', n: 5, dur: 150 },
+    { kind: 'idle', dur: 900 },
+    { kind: 'multitap', n: 3, count: 3, dur: 0 },
     { kind: 'idle', dur: 1300 },
   ];
+  // With ?onboarding the hand loops the tutorial's practice gestures quickly,
+  // so the "Try it" ticks can be watched (tap, swipe, drag, pinch first).
+  const SCRIPT_PRACTICE = [
+    { kind: 'idle', dur: 900 },
+    { kind: 'tap', n: 3, dur: 140 },
+    { kind: 'idle', dur: 900 },
+    { kind: 'swipe', n: 4, dir: 'up', dur: 1100 },
+    { kind: 'idle', dur: 700 },
+    { kind: 'drag', n: 3, dur: 1500 },
+    { kind: 'idle', dur: 700 },
+    { kind: 'pinch', n: 4, dir: 'out', dur: 1200 },
+    { kind: 'idle', dur: 700 },
+    { kind: 'multitap', n: 3, count: 2, dur: 0 },
+    { kind: 'idle', dur: 800 },
+    { kind: 'hold', n: 4, dur: 0 },
+    { kind: 'idle', dur: 700 },
+    { kind: 'swipe', n: 4, dir: 'down', dur: 1100 },
+    { kind: 'idle', dur: 700 },
+    { kind: 'tap', n: 4, dur: 150 },
+    { kind: 'idle', dur: 1200 },
+  ];
+  const SCRIPT = q.has('onboarding') ? SCRIPT_PRACTICE : SCRIPT_ALL;
 
   const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -458,10 +556,31 @@
   let lastContactCount = 0;
   let contactBase = 0;
 
+  /** Is a double/triple tap bound for n fingers anywhere (globally or in a profile)? */
+  function tapBound(kind, n) {
+    return allBindings().some((b) => b.trigger === `${kind}:${n}` && b.action.type !== 'none');
+  }
+
+  /**
+   * A run of `count` quick taps ended. Like the recognizer: with a double or
+   * triple tap bound for that finger count, it waits `multi_tap_ms` to see
+   * whether more taps follow before reporting what it saw.
+   */
+  function endTaps(n, count) {
+    const dbl = tapBound('doubletap', n), tpl = tapBound('tripletap', n);
+    const kinds = count >= 3 && tpl ? ['triple_tap']
+      : count >= 2 && dbl ? ['double_tap'].concat(count >= 3 ? ['tap'] : [])
+        : Array.from({ length: count }, () => 'tap');
+    const report = () => kinds.forEach((kind) => fire({ kind, fingers: n }));
+    if (dbl || tpl) setTimeout(report, state.config.settings.multi_tap_ms);
+    else report();
+  }
+
   function startSegment(now) {
     const s = SCRIPT[segIndex % SCRIPT.length];
     seg = Object.assign({}, s, { fired: false, dragging: false, steps: 0, seed: Math.random() * 10 });
     if (s.kind === 'hold') seg.dur = state.config.settings.hold_ms + 450;
+    if (s.kind === 'multitap') seg.dur = s.count * 240 + 40; // 110 ms down, 130 ms up per tap
     // A swipe with a drag-owned finger count is a drag in reality.
     if (s.kind === 'swipe' && dragFingers().has(s.n)) { seg.kind = 'drag'; seg.dir = s.dir; }
     // ...and a drag without a drag binding is recognised as a swipe.
@@ -472,6 +591,8 @@
   function triggerOf(g) {
     switch (g.kind) {
       case 'tap': case 'hold': return `${g.kind}:${g.fingers}`;
+      case 'double_tap': return `doubletap:${g.fingers}`;
+      case 'triple_tap': return `tripletap:${g.fingers}`;
       case 'swipe': case 'pinch': return `${g.kind}:${g.fingers}:${g.direction}`;
       case 'drag_start': return `drag:${g.fingers}`;
       default: return null;
@@ -509,6 +630,7 @@
         return [{ x: 28 + e * 50 + Math.sin(e * Math.PI) * 4, y: 48 - e * 26 + Math.sin(e * Math.PI * 2) * 5 }];
       }
       case 'tap': return hand(seg.n, 54, 36, now, seg.seed);
+      case 'multitap': return t % 240 < 110 ? hand(seg.n, 54, 36, now, seg.seed) : [];
       case 'hold': {
         if (t >= S.hold_ms && !seg.fired) { seg.fired = true; fire({ kind: 'hold', fingers: seg.n }); }
         return p < 0.97 ? hand(seg.n, 54, 37, now, seg.seed) : [];
@@ -567,7 +689,8 @@
     const now = performance.now();
     if (!seg) startSegment(now);
     if (now - segStart >= seg.dur) {
-      if (seg.kind === 'tap') fire({ kind: 'tap', fingers: seg.n });
+      if (seg.kind === 'tap') endTaps(seg.n, 1);
+      if (seg.kind === 'multitap') endTaps(seg.n, seg.count);
       if (seg.dragging && !seg.ended) fire({ kind: 'drag_end' });
       segIndex++;
       startSegment(now);
