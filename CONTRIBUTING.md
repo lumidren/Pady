@@ -42,6 +42,7 @@ Open `crates/pady-app/ui/index.html` directly in a browser. Without the Tauri ba
 | `?nopermission` | A Linux machine without touchpad access |
 | `?noconflicts`, `?noprofiles` | A clean configuration |
 | `?theme=light` | The light theme |
+| `?still` | No simulated gestures, for still screenshots |
 
 To refresh the README screenshots after UI changes, run `node scripts/screenshots.mjs`. It drives headless Chrome or Edge against the mock and writes 2× PNGs to `docs/screenshots`.
 

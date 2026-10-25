@@ -23,6 +23,7 @@
  *   ?onboarding       start with settings.onboarded = false (shows the tutorial); the
  *                     virtual hand then loops the tutorial's practice gestures
  *   ?slow             add 600ms latency to every command
+ *   ?still            the virtual hand rests (for static screenshots)
  */
 (function () {
   'use strict';
@@ -513,6 +514,7 @@
     { kind: 'idle', dur: 1200 },
   ];
   const SCRIPT = q.has('onboarding') ? SCRIPT_PRACTICE : SCRIPT_ALL;
+  const still = q.has('still');
 
   const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -685,7 +687,7 @@
   }
 
   function tick() {
-    if (state.devices.length === 0) return; // nothing to touch
+    if (still || state.devices.length === 0) return; // nothing to touch
     const now = performance.now();
     if (!seg) startSegment(now);
     if (now - segStart >= seg.dur) {
