@@ -1,0 +1,140 @@
+/* =========================================================================
+   Pady — volume / brightness overlay (transparent 300×90 window)
+   The pill and its shadow must fit inside the window: 260×50 pill, 20px of
+   room above and below, shadow reaching at most 20px down.
+   ========================================================================= */
+
+:root {
+  --font: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, -apple-system, Ubuntu, Cantarell, sans-serif;
+  /* The window is transparent and nothing behind it can be blurred, so the
+     pill is nearly opaque to stay readable on any wallpaper. */
+  --pill-bg: rgba(22, 23, 31, 0.92);
+  --pill-border: rgba(255, 255, 255, 0.1);
+  --pill-shine: rgba(255, 255, 255, 0.07);
+  --text: #f1f1f7;
+  --text-2: rgba(241, 241, 247, 0.55);
+  --track: rgba(255, 255, 255, 0.13);
+  --fill-a: #6d6bff;
+  --fill-b: #b14ef0;
+  --fill-glow: rgba(141, 125, 255, 0.55);
+  --icon: #c7c0ff;
+  --shadow: 0 8px 22px -10px rgba(0, 0, 0, 0.65), 0 2px 6px -2px rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --pill-bg: rgba(251, 251, 253, 0.95);
+    --pill-border: rgba(20, 22, 40, 0.1);
+    --pill-shine: rgba(255, 255, 255, 0.9);
+    --text: #14151d;
+    --text-2: rgba(20, 21, 29, 0.5);
+    --track: rgba(20, 22, 40, 0.1);
+    --fill-a: #5b4cf0;
+    --fill-b: #9d4ce8;
+    --fill-glow: rgba(91, 76, 240, 0.35);
+    --icon: #5141e6;
+    --shadow: 0 8px 22px -10px rgba(20, 22, 40, 0.38), 0 2px 6px -2px rgba(20, 22, 40, 0.16);
+  }
+}
+
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;           /* never scrollbars in the tiny window */
+  background: transparent;
+}
+body {
+  font-family: var(--font);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+  pointer-events: none;       /* clicks pass through (Rust also ignores cursor events) */
+}
+[hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.stage { position: fixed; inset: 0; display: grid; place-items: center; }
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-sizing: border-box;
+  width: 260px;
+  height: 50px;
+  padding: 0 18px 0 16px;
+  border-radius: 25px;
+  background: linear-gradient(180deg, var(--pill-shine), transparent 55%), var(--pill-bg);
+  border: 1px solid var(--pill-border);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transform: translateY(6px) scale(0.94);
+  transition: opacity 0.2s ease, transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.pill.is-on { opacity: 1; transform: none; }
+/* Leaving is quick so the pill is gone before Rust hides the window. */
+.pill.is-leaving { transition-duration: 0.15s, 0.2s; transform: translateY(3px) scale(0.97); }
+
+.pill-icon { flex: none; width: 24px; height: 24px; color: var(--icon); display: grid; place-items: center; }
+.pill-icon svg { width: 24px; height: 24px; overflow: visible; }
+.pill-icon .wave { transition: opacity 0.2s ease; }
+.pill-icon[data-level="0"] .w1, .pill-icon[data-level="0"] .w2, .pill-icon[data-level="1"] .w2 { opacity: 0.22; }
+.pill-icon .rays { transform-origin: 12px 12px; transition: transform 0.2s ease, opacity 0.2s ease; }
+.pill.is-muted .pill-icon { color: var(--text-2); }
+
+.pill-track { position: relative; flex: 1; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.pill-fill {
+  position: absolute; inset: 0 auto 0 0; width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--fill-a), var(--fill-b));
+  box-shadow: 0 0 10px var(--fill-glow);
+  transition: width 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.2s, opacity 0.2s;
+}
+.pill.no-anim .pill-fill { transition: none; }
+.pill.is-muted .pill-fill { background: var(--text-2); box-shadow: none; opacity: 0.6; }
+
+.pill-value {
+  flex: none; min-width: 44px; text-align: right;
+  font-size: 17px; font-weight: 650; letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.pill-unit { font-size: 12px; font-weight: 600; color: var(--text-2); margin-left: 1px; }
+.pill.is-muted .pill-value { color: var(--text-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .pill, .pill.is-leaving { transform: none; transition: opacity 0.12s linear; }
+  .pill-fill, .pill-icon .wave, .pill-icon .rays { transition: none; }
+}
+
+/* ---------- Browser preview only (overlay.html?demo, or no Tauri) ---------- */
+.demo body {
+  background:
+    radial-gradient(700px 420px at 20% 15%, rgba(99, 102, 241, 0.55), transparent 60%),
+    radial-gradient(600px 380px at 85% 90%, rgba(192, 38, 211, 0.4), transparent 60%),
+    linear-gradient(160deg, #1d2140, #0e0f18);
+}
+@media (prefers-color-scheme: light) {
+  .demo body {
+    background:
+      radial-gradient(700px 420px at 20% 15%, rgba(129, 140, 248, 0.55), transparent 60%),
+      radial-gradient(600px 380px at 85% 90%, rgba(244, 114, 182, 0.35), transparent 60%),
+      linear-gradient(160deg, #e6e9ff, #f8f0ff);
+  }
+}
+.demo .stage {
+  position: absolute; inset: auto; left: 50%; top: 50%;
+  width: 300px; height: 90px; transform: translate(-50%, -50%);
+  outline: 1px dashed rgba(255, 255, 255, 0.35); outline-offset: 0;
+}
+.demo-caption {
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  margin: 12px 0 0; white-space: nowrap;
+  font-size: 12px; color: rgba(255, 255, 255, 0.7);
+}
+@media (prefers-color-scheme: light) {
+  .demo .stage { outline-color: rgba(20, 22, 40, 0.3); }
+  .demo-caption { color: rgba(20, 22, 40, 0.6); }
+}

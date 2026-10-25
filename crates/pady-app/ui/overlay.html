@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- No color-scheme meta on purpose: a "dark" scheme can make the webview paint an
+       opaque dark canvas behind a transparent window. Colours come from overlay.css. -->
+  <title>Pady overlay</title>
+  <link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+  <div class="stage">
+    <div class="pill" id="pill" role="status" aria-live="polite" aria-atomic="true">
+      <span class="pill-icon" id="pill-icon" aria-hidden="true"></span>
+      <span class="pill-track" aria-hidden="true"><span class="pill-fill" id="pill-fill"></span></span>
+      <span class="pill-value" aria-hidden="true"><span id="pill-num">0</span><span class="pill-unit">%</span></span>
+      <span class="sr-only" id="pill-label"></span>
+    </div>
+    <p class="demo-caption" id="demo-caption" hidden>Overlay preview · the dashed box is the 300 × 90 window</p>
+  </div>
+  <script src="overlay.js"></script>
+</body>
+</html>
