@@ -1,0 +1,17 @@
+[package]
+name = "pady-core"
+description = "Platform-independent gesture recognition, configuration and engine for Pady"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true
+crossbeam-channel.workspace = true
+log.workspace = true
+thiserror.workspace = true
+dirs.workspace = true
