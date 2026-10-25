@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 const PERMISSION_HINT: &str =
-    "add your user to the 'input' group: sudo usermod -aG input $USER, then log out and back in";
+    "click Fix permissions in Pady or run pady-cli fix-permissions (or add your user to the 'input' group: sudo usermod -aG input $USER, then log out and back in)";
 
 const RESCAN_INTERVAL: Duration = Duration::from_secs(3);
 
