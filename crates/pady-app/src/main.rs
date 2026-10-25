@@ -138,7 +138,10 @@ fn set_enabled(app: AppHandle, pady: State<Pady>, enabled: bool) -> Result<AppSt
 
 #[tauri::command]
 fn reset_config(app: AppHandle, pady: State<Pady>) -> Result<AppState, String> {
-    pady.apply(&app, Config::default())
+    // Resetting gestures shouldn't replay the first-run tutorial.
+    let mut config = Config::default();
+    config.settings.onboarded = pady.config.get().settings.onboarded;
+    pady.apply(&app, config)
 }
 
 /// Replace the All-apps bindings with a starter preset's.
