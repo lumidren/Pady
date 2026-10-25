@@ -1,6 +1,7 @@
 /*
  * Pady — domain model shared by the UI: gesture slots, action catalogue,
- * key-combo grammar (mirrors pady-core/src/keys.rs), labels and presets.
+ * key-combo grammar (mirrors pady-core/src/keys.rs), labels, presets and
+ * per-app profile helpers (mirrors pady-core/src/config.rs).
  * Pure functions only; no DOM access.
  */
 (function () {
@@ -19,10 +20,15 @@
     { id: 'swipe-down', kind: 'swipe', dir: 'down', name: 'Swipe down', hint: 'Slide downward' },
     { id: 'swipe-left', kind: 'swipe', dir: 'left', name: 'Swipe left', hint: 'Slide to the left' },
     { id: 'swipe-right', kind: 'swipe', dir: 'right', name: 'Swipe right', hint: 'Slide to the right' },
+    { id: 'pinch-in', kind: 'pinch', dir: 'in', name: 'Pinch in', hint: 'Bring fingers together' },
+    { id: 'pinch-out', kind: 'pinch', dir: 'out', name: 'Pinch out', hint: 'Spread fingers apart' },
     { id: 'drag', kind: 'drag', name: 'Drag', hint: 'Move a window or selection' },
   ];
 
-  M.triggerOf = (slot, n) => (slot.kind === 'swipe' ? `swipe:${n}:${slot.dir}` : `${slot.kind}:${n}`);
+  M.triggerOf = (slot, n) => (slot.dir ? `${slot.kind}:${n}:${slot.dir}` : `${slot.kind}:${n}`);
+
+  /** Swipes and pinches can keep firing while the fingers keep moving (`repeat`). */
+  M.isContinuous = (slot) => !!slot && (slot.kind === 'swipe' || slot.kind === 'pinch');
 
   M.parseTrigger = function (t) {
     const [kind, n, dir] = String(t || '').split(':');
@@ -47,6 +53,7 @@
       case 'tap': return `${f}tap`;
       case 'hold': return `${f}hold`;
       case 'swipe': return `${f}swipe ${g.direction}`;
+      case 'pinch': return `${f}pinch ${g.direction}`;
       case 'drag_start': return `${f}drag`;
       case 'drag_end': return 'Drag released';
       default: return g.kind;
@@ -265,16 +272,20 @@
 
   /* ---------------- Presets ---------------- */
 
-  M.presetsFor = function (slot, platform) {
+  M.presetsFor = function (slot, platform, fingers) {
     const linux = platform === 'linux';
     if (slot.kind === 'drag') {
       return [
-        { id: 'drag', label: 'Three-finger drag', icon: 'drag', action: { type: 'drag' } },
+        { id: 'drag', label: fingers ? `${fingers}-finger drag` : 'Drag', icon: 'drag', action: { type: 'drag' } },
         { id: 'off', label: 'Off', icon: 'none', action: { type: 'none' } },
       ];
     }
     const k = (combo) => ({ type: 'keys', combo });
-    return [
+    const zoom = [
+      { id: 'zoom-in', label: 'Zoom in', icon: 'zoom-in', action: k('ctrl+equal'), repeat: true },
+      { id: 'zoom-out', label: 'Zoom out', icon: 'zoom-out', action: k('ctrl+minus'), repeat: true },
+    ];
+    const common = [
       { id: 'vol-up', label: 'Volume up', icon: 'volume', action: { type: 'volume', step: 4 }, repeat: true },
       { id: 'vol-down', label: 'Volume down', icon: 'volume-down', action: { type: 'volume', step: -4 }, repeat: true },
       { id: 'bri-up', label: 'Brightness up', icon: 'sun', action: { type: 'brightness', step: 10 }, repeat: true },
@@ -293,6 +304,8 @@
       { id: 'chrome', label: 'Open Chrome', icon: 'browser', action: { type: 'focus_or_launch', program: linux ? 'google-chrome' : 'chrome.exe' } },
       { id: 'youtube', label: 'Open YouTube', icon: 'youtube', action: { type: 'open_url', url: 'https://youtube.com', browser: 'chrome' } },
     ];
+    // Zoom leads for pinches (the obvious use); elsewhere it sits after the media keys.
+    return slot.kind === 'pinch' ? zoom.concat(common) : common.slice(0, 8).concat(zoom, common.slice(8));
   };
 
   /* ---------------- Config helpers ---------------- */
@@ -300,6 +313,53 @@
   M.bindingFor = (config, trigger) => (config.binding || []).find((b) => b.trigger === trigger) || null;
 
   M.dragOn = (config, n) => (config.binding || []).some((b) => b.trigger === `drag:${n}` && b.action.type === 'drag');
+
+  /* ---------------- Per-app profiles ---------------- */
+
+  /** The profile list; the `profile` key may be absent. */
+  M.profiles = (config) => (config && Array.isArray(config.profile) ? config.profile : []);
+
+  /** A profile's own binding for a trigger (may be `{type: 'none'}` = off in that app). */
+  M.overrideFor = (profile, trigger) => ((profile && profile.binding) || []).find((b) => b.trigger === trigger) || null;
+
+  /** Same normalisation as pady-core: `C:\Apps\Code.EXE` / `code.exe` / `Code` → `code`. */
+  M.appKey = function (app) {
+    const base = String(app || '').trim().replace(/^"+|"+$/g, '').split(/[\\/]/).pop().toLowerCase();
+    return base.endsWith('.exe') ? base.slice(0, -4) : base;
+  };
+
+  /** Clean a typed app name: trim and drop surrounding quotes, keep what the user wrote otherwise. */
+  M.cleanApp = (app) => String(app || '').trim().replace(/^"+|"+$/g, '').trim();
+
+  /** Profiles (other than `skipIndex`) that already list an app, matched like the backend does. */
+  M.profilesWithApp = function (config, app, skipIndex) {
+    const key = M.appKey(app);
+    return M.profiles(config)
+      .map((p, index) => ({ p, index }))
+      .filter(({ p, index }) => index !== skipIndex && key && (p.apps || []).some((a) => M.appKey(a) === key));
+  };
+
+  /** Names of profiles that override a trigger (including "off"). */
+  M.overridingProfiles = (config, trigger) => M.profiles(config).filter((p) => M.overrideFor(p, trigger)).map((p) => p.name);
+
+  /**
+   * A copy of config with one profile's binding for `trigger` changed:
+   *   mode 'inherit' removes the override, 'off' stores `{type: 'none'}`,
+   *   'custom' stores `action` (with `repeat` when true).
+   */
+  M.withProfileBinding = function (config, index, trigger, mode, action, repeat) {
+    const next = JSON.parse(JSON.stringify(config));
+    const p = M.profiles(next)[index];
+    if (!p) return next;
+    p.binding = (p.binding || []).filter((b) => b.trigger !== trigger);
+    if (mode === 'off') p.binding.push({ trigger, action: { type: 'none' } });
+    else if (mode === 'custom' && action && action.type !== 'none') {
+      const b = { trigger, action: M.clean(action) };
+      if (repeat) b.repeat = true;
+      p.binding.push(b);
+    }
+    return next;
+  };
 
   /** A copy of config with the trigger's binding replaced (or removed for `none`). */
   M.withBinding = function (config, trigger, action, repeat) {
