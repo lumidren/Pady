@@ -644,30 +644,26 @@ pub fn conflicts(config: &Config) -> Vec<Conflict> {
             matches!(b.trigger, Trigger::Drag(n) if n == fingers)
                 || Direction::ALL.iter().any(|&d| b.trigger == Trigger::Swipe(fingers, d))
         });
-        if uses_motion && enabled(slide) {
-            out.push(Conflict {
-                message: format!(
-                    "Windows also reacts to {word}-finger swipes, so it will switch apps or desktops while Pady works."
-                ),
-                fix: format!(
-                    "Open Touchpad settings › {}-finger gestures and set Swipes to \"Nothing\".",
-                    capitalize(word)
-                ),
-                can_open_settings: true,
-            });
-        }
-        if config.binding(Trigger::Tap(fingers)).is_some() && enabled(tap) {
-            out.push(Conflict {
-                message: format!("Windows also reacts to {word}-finger taps."),
-                fix: format!(
-                    "Open Touchpad settings › {}-finger gestures and set Taps to \"Nothing\".",
-                    capitalize(word)
-                ),
-                can_open_settings: true,
-            });
-        }
+        let swipes = uses_motion && enabled(slide);
+        let taps = config.binding(Trigger::Tap(fingers)).is_some() && enabled(tap);
+        out.extend(touchpad_conflict(word, swipes, taps));
     }
     out
+}
+
+/// One conflict per finger count, naming whichever of swipes/taps clash.
+fn touchpad_conflict(word: &str, swipes: bool, taps: bool) -> Option<Conflict> {
+    let (what, setting) = match (swipes, taps) {
+        (true, true) => ("swipes and taps", "Swipes and Taps"),
+        (true, false) => ("swipes", "Swipes"),
+        (false, true) => ("taps", "Taps"),
+        (false, false) => return None,
+    };
+    Some(Conflict {
+        message: format!("Windows also reacts to {word}-finger {what}."),
+        fix: format!("In Touchpad settings › {}-finger gestures, set {setting} to \"Nothing\".", capitalize(word)),
+        can_open_settings: true,
+    })
 }
 
 fn capitalize(s: &str) -> String {
@@ -732,6 +728,15 @@ mod tests {
     fn arguments_with_spaces_are_quoted() {
         assert_eq!(join_args(&["--new-window".into(), "a b".into()]).unwrap(), "--new-window \"a b\"");
         assert_eq!(join_args(&[]), None);
+    }
+
+    #[test]
+    fn touchpad_conflicts_merge_per_finger_count() {
+        assert_eq!(touchpad_conflict("three", false, false), None);
+        let c = touchpad_conflict("three", true, true).unwrap();
+        assert_eq!(c.message, "Windows also reacts to three-finger swipes and taps.");
+        assert!(c.fix.contains("Three-finger gestures, set Swipes and Taps"));
+        assert!(touchpad_conflict("four", false, true).unwrap().message.ends_with("four-finger taps."));
     }
 
     #[test]
