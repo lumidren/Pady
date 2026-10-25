@@ -1,0 +1,31 @@
+[package]
+name = "pady-input"
+description = "Touchpad backends for Pady: Windows Raw Input (precision touchpads) and Linux evdev"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pady-core.workspace = true
+serde.workspace = true
+crossbeam-channel.workspace = true
+log.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies.windows]
+workspace = true
+features = [
+    "Win32_Foundation",
+    "Win32_Devices_HumanInterfaceDevice",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Input",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev.workspace = true
