@@ -10,6 +10,7 @@
  *   6. Gesture illustrations
  *   7. Gestures page
  *   8. Binding editor (drawer) + shortcut recorder
+ *  8b. Profile editor (drawer)
  *   9. Live page
  *  10. Settings page
  *  11. About page
@@ -148,11 +149,34 @@
     app: null,          // latest AppState from the backend
     page: 'gestures',
     fingers: 4,         // selected tab on the Gestures page
+    profile: null,      // { index, name } of the profile shown on the Gestures page; null = All apps
     recent: [],         // gesture feed (newest first)
     seq: 0,
   };
   const platform = () => (store.app ? store.app.platform : 'windows');
   const osName = () => (platform() === 'linux' ? 'Linux' : 'Windows');
+  const profileList = () => M.profiles(store.app && store.app.config);
+
+  /**
+   * Find a profile again after the config changed: same index and name if it
+   * is still there, otherwise by name (profiles can be reordered or removed
+   * from the tray or by editing the file). -1 when it's gone.
+   */
+  function findProfileIndex(ref) {
+    const list = profileList();
+    if (!ref) return -1;
+    if (list[ref.index] && list[ref.index].name === ref.name) return ref.index;
+    return list.findIndex((p) => p.name === ref.name);
+  }
+
+  /** The profile being viewed on the Gestures page, or null for All apps. */
+  function viewProfile() {
+    const i = findProfileIndex(store.profile);
+    if (i < 0) { store.profile = null; return null; }
+    const profile = profileList()[i];
+    store.profile = { index: i, name: profile.name };
+    return { index: i, profile };
+  }
 
   function applyState(state) {
     if (!state || !state.config) return;
@@ -221,6 +245,54 @@
     app.inert = on;
     if (on) app.setAttribute('aria-hidden', 'true'); else app.removeAttribute('aria-hidden');
   }
+
+  /** Keep Tab focus inside a dialog. */
+  function trapTab(e, root) {
+    const focusables = $$('button, input, select, textarea, [tabindex]', root)
+      .filter((el) => !el.disabled && el.tabIndex >= 0 && el.offsetParent !== null);
+    if (!focusables.length) return;
+    const first = focusables[0], last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+
+  /**
+   * Side drawer shell shared by the binding and profile editors: backdrop,
+   * header (icon, title, subtitle, close), scrolling body, footer. Makes the
+   * app inert while open. Returns { el, close() }.
+   */
+  function mountDrawer({ headIcon, title, sub, body, after, foot, onClose, onKey }) {
+    const root = $('#overlay-root');
+    const backdrop = h('div', { class: 'backdrop', onClick: () => onClose() });
+    const el = h('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'drawer-title' },
+      h('header', { class: 'drawer-head' },
+        headIcon,
+        h('div', { class: 'drawer-titles' },
+          h('h2', { id: 'drawer-title' }, title),
+          sub ? h('div', { class: 'sub' }, sub) : null),
+        h('button', { class: 'btn btn--ghost btn--icon', type: 'button', 'aria-label': 'Close', onClick: () => onClose() }, ico('x', 18))),
+      body,
+      after || null,
+      h('footer', { class: 'drawer-foot' }, foot));
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') trapTab(e, el);
+      else if (onKey) onKey(e);
+    });
+    root.append(backdrop, el);
+    setInert(true);
+    return {
+      el,
+      close() {
+        el.classList.add('is-closing');
+        backdrop.classList.add('is-closing');
+        setTimeout(() => { el.remove(); backdrop.remove(); }, reducedMotion() ? 0 : 220);
+        setInert(false);
+      },
+    };
+  }
+
+  const ping = (el) => { if (el) { el.classList.remove('is-ping'); void el.offsetWidth; el.classList.add('is-ping'); } };
+  const profileBadge = (name) => h('span', { class: 'badge badge--profile', title: `Per-app profile: ${name}` }, ico('profile', 12), h('span', { class: 'badge-text' }, name));
 
   const saveFlag = (function () {
     let timer;
@@ -340,11 +412,39 @@
       inner = pts.map(([x, y]) => `<circle class="illo-ripple" cx="${x}" cy="${y}" r="${r}"/>`).join('') + fingerG(pts, r);
     } else if (kind === 'hold') {
       inner = '<circle class="illo-ring-track" cx="60" cy="38" r="26"/><circle class="illo-ring" cx="60" cy="38" r="26" pathLength="100"/>' + fingerG(fingerPoints(n, 60, 39), r);
+    } else if (kind === 'pinch') {
+      // Fingertips on an arc with the thumb below; they travel to the dashed ring.
+      const angles = PINCH_ANGLES[n] || PINCH_ANGLES[4];
+      const [r0, r1] = dir === 'in' ? [24, 11] : [11, 24];
+      const at = (deg, rad) => [60 + Math.cos((deg * Math.PI) / 180) * rad, 38 + Math.sin((deg * Math.PI) / 180) * rad * 0.82];
+      const f = (v) => v.toFixed(2);
+      const ringR = dir === 'in' ? r1 + 6 : r1 + 4;
+      let guides = '', fingers = '';
+      angles.forEach((deg) => {
+        const [x0, y0] = at(deg, r0), [x1, y1] = at(deg, r1);
+        guides += `<line x1="${f(x0)}" y1="${f(y0)}" x2="${f(x1)}" y2="${f(y1)}"/>`;
+        // data-px/py = travel vector, turned into CSS variables by illoEl().
+        fingers += `<g class="illo-f" data-px="${f(x1 - x0)}" data-py="${f(y1 - y0)}"><circle class="illo-halo" cx="${f(x0)}" cy="${f(y0)}" r="${r * 1.8}"/><circle class="illo-finger" cx="${f(x0)}" cy="${f(y0)}" r="${r - 0.6}"/></g>`;
+      });
+      inner = `<ellipse class="illo-pinch-ring" cx="60" cy="38" rx="${ringR}" ry="${f(ringR * 0.82)}"/><g class="illo-guide">${guides}</g><g class="illo-fingers">${fingers}</g>`;
     } else {
       const pts = fingerPoints(n, 60, 37);
       inner = `<g class="illo-move"><rect class="illo-window" x="36" y="17" width="48" height="34" rx="5"/><rect class="illo-window-bar" x="36.5" y="17.5" width="47" height="8" rx="4.5"/>${fingerG(pts, r - 0.6)}</g>`;
     }
     return `<svg class="illo illo--${kind}${dir ? ' illo--' + dir : ''}" viewBox="0 0 120 76" aria-hidden="true" focusable="false"><rect class="illo-pad" x="2" y="2" width="116" height="72" rx="12"/>${inner}</svg>`;
+  }
+
+  // Finger angles (degrees, y down) for the pinch illustration: fingertips above, thumb below.
+  const PINCH_ANGLES = { 3: [-140, -40, 95], 4: [-150, -95, -40, 100], 5: [-155, -112, -68, -25, 110] };
+
+  /** Illustration element; per-finger pinch travel is set through CSSOM (no inline style markup). */
+  function illoEl(kind, n, dir) {
+    const svg = frag(illoSVG(kind, n, dir));
+    $$('.illo-f[data-px]', svg).forEach((g) => {
+      g.style.setProperty('--px', g.dataset.px + 'px');
+      g.style.setProperty('--py', g.dataset.py + 'px');
+    });
+    return svg;
   }
 
   /* =====================================================================
@@ -365,10 +465,70 @@
     });
     gestUI.syncRoving = roving(gestUI.seg, '.seg-btn', (el) => pickFingers(Number(el.dataset.n)));
     gestUI.summary = h('span', { class: 'summary' });
+    gestUI.scope = h('div', { class: 'scope-bar' });
+    gestUI.strip = h('div', { class: 'profile-strip', hidden: true });
     gestUI.groups = h('div');
-    page.append(gestUI.banners, h('div', { class: 'gest-toolbar' }, gestUI.seg, gestUI.summary), gestUI.groups);
+    page.append(gestUI.banners, gestUI.scope, gestUI.strip, h('div', { class: 'gest-toolbar' }, gestUI.seg, gestUI.summary), gestUI.groups);
     new ResizeObserver(positionSegIndicator).observe(gestUI.seg);
     gestUI.built = true;
+  }
+
+  /* ---------- Profile switcher ("All apps" + one pill per profile) ---------- */
+
+  function renderScope(view) {
+    const list = profileList();
+    // Rebuilding drops focus, so remember which pill had it.
+    const focused = gestUI.scope.contains(document.activeElement) ? document.activeElement.dataset.scope : null;
+    const group = h('div', { class: 'scope-group', role: 'radiogroup', 'aria-label': 'Show gestures for' });
+    const pill = (key, iconName, label, extra, title) => h('button', {
+      class: 'scope-btn', type: 'button', role: 'radio', 'data-scope': key, title,
+      'aria-checked': String(key === (view ? String(view.index) : 'all')),
+      onClick: () => pickScope(key),
+    }, ico(iconName, 15), h('span', { class: 'scope-name' }, label), extra);
+    group.append(pill('all', 'layers', 'All apps', null, 'Gestures everywhere, unless a profile changes them'));
+    list.forEach((p, i) => {
+      const count = (p.binding || []).length;
+      group.append(pill(String(i), 'profile', p.name || 'Untitled',
+        count ? h('span', { class: 'scope-count', 'aria-label': `${count} override${count === 1 ? '' : 's'}` }, String(count)) : null,
+        `${p.name}: ${(p.apps || []).join(', ') || 'no apps yet'}`));
+    });
+    roving(group, '.scope-btn', (el) => pickScope(el.dataset.scope));
+    gestUI.scope.replaceChildren(...[
+      group,
+      h('button', { class: 'btn btn--sm btn--ghost scope-new', type: 'button', onClick: () => openProfileEditor(null) }, ico('plus', 14), 'New profile'),
+      list.length ? null : h('span', { class: 'scope-hint' }, 'Give specific apps their own gestures'),
+    ].filter(Boolean)); // replaceChildren() would print "null"
+    if (focused) { const el = $(`.scope-btn[data-scope="${focused}"]`, group); if (el) el.focus(); }
+  }
+
+  function pickScope(key) {
+    const list = profileList();
+    const next = key === 'all' || !list[Number(key)] ? null : { index: Number(key), name: list[Number(key)].name };
+    const same = next ? !!store.profile && store.profile.index === next.index : !store.profile;
+    if (same) return;
+    store.profile = next;
+    renderGestures(true);
+  }
+
+  /** The strip under the switcher that says which apps the viewed profile covers. */
+  function renderStrip(view) {
+    gestUI.strip.hidden = !view;
+    if (!view) { gestUI.strip.replaceChildren(); return; }
+    const p = view.profile;
+    const n = (p.binding || []).length;
+    const apps = p.apps || [];
+    gestUI.strip.replaceChildren(
+      h('span', { class: 'panel-icon' }, ico('profile', 16)),
+      h('div', { class: 'profile-strip-main' },
+        h('div', { class: 'profile-strip-title' },
+          h('strong', null, p.name || 'Untitled profile'),
+          h('span', { class: 'profile-strip-sub' }, `${n} override${n === 1 ? '' : 's'} · everything else follows All apps`)),
+        apps.length
+          ? h('div', { class: 'app-chips', role: 'list', 'aria-label': 'Apps in this profile' },
+            h('span', { class: 'app-chips-label' }, 'While in front:'),
+            apps.map((a) => h('span', { class: 'app-chip', role: 'listitem' }, a)))
+          : h('div', { class: 'profile-strip-warn' }, ico('warning', 13), 'No apps yet, so this profile never applies.')),
+      h('button', { class: 'btn btn--sm', type: 'button', onClick: () => openProfileEditor(view.index) }, ico('pencil', 14), 'Edit profile'));
   }
 
   function pickFingers(n) {
@@ -393,13 +553,22 @@
     const s = store.app;
     const cfg = s.config;
     const n = store.fingers;
+    const view = viewProfile();
+
+    renderScope(view);
+    renderStrip(view);
+    if (store.page === 'gestures') {
+      $('#page-sub').textContent = view
+        ? `Changes for ${view.profile.name || 'this profile'}. Everything else follows All apps.`
+        : $('#page-gestures').dataset.sub;
+    }
 
     // Banners: conflicts + paused
     gestUI.banners.replaceChildren();
     if (!cfg.settings.enabled) {
       gestUI.banners.append(h('div', { class: 'banner banner--info' }, ico('power', 18),
         h('div', { class: 'banner-body' }, h('span', { class: 'banner-title' }, 'Pady is paused'),
-          h('span', { class: 'banner-text' }, 'Gestures are still recognised, but no actions run until you turn Pady back on.')),
+          h('span', { class: 'banner-text' }, 'Gestures do nothing until you turn Pady back on.')),
         h('div', { class: 'banner-actions' }, h('button', { class: 'btn btn--sm btn--primary', type: 'button', onClick: () => { $('#master-switch').click(); } }, 'Turn on'))));
     }
     // One banner here, however many conflicts; Settings lists them all.
@@ -416,34 +585,44 @@
           canOpen ? h('button', { class: 'btn btn--sm', type: 'button', onClick: openTouchpadSettings }, ico('external', 14), 'Open settings') : null)));
     }
 
-    // Segmented control
+    // Segmented control: counts are bindings (All apps) or overrides (profile view).
     $$('.seg-btn', gestUI.seg).forEach((btn) => {
       const bn = Number(btn.dataset.n);
-      const count = cfg.binding.filter((b) => M.parseTrigger(b.trigger).fingers === bn).length;
+      const list = view ? (view.profile.binding || []) : cfg.binding;
+      const count = list.filter((b) => M.parseTrigger(b.trigger).fingers === bn).length;
       btn.setAttribute('aria-checked', String(bn === n));
       $('.seg-count', btn).textContent = count;
-      btn.setAttribute('aria-label', `${bn} fingers, ${count} gesture${count === 1 ? '' : 's'} set`);
+      btn.setAttribute('aria-label', view
+        ? `${bn} fingers, ${count} override${count === 1 ? '' : 's'}`
+        : `${bn} fingers, ${count} gesture${count === 1 ? '' : 's'} set`);
     });
     gestUI.syncRoving();
     requestAnimationFrame(positionSegIndicator);
 
-    const bound = M.SLOTS.filter((sl) => M.bindingFor(cfg, M.triggerOf(sl, n))).length;
-    gestUI.summary.textContent = `${bound} of ${M.SLOTS.length} gestures set for ${n} fingers`;
+    if (view) {
+      // Drag is always global, so a profile can change one slot fewer.
+      const changed = M.SLOTS.filter((sl) => M.overrideFor(view.profile, M.triggerOf(sl, n))).length;
+      gestUI.summary.textContent = `${changed} of ${M.SLOTS.length - 1} gestures changed for ${n} fingers`;
+    } else {
+      const bound = M.SLOTS.filter((sl) => M.bindingFor(cfg, M.triggerOf(sl, n))).length;
+      gestUI.summary.textContent = `${bound} of ${M.SLOTS.length} gestures set for ${n} fingers`;
+    }
 
     // Cards
     const dragOn = M.dragOn(cfg, n);
     const groups = [
       { title: 'Tap, hold & drag', slots: ['tap', 'hold', 'drag'], cls: 'grid' },
       { title: 'Swipe', slots: ['swipe-up', 'swipe-down', 'swipe-left', 'swipe-right'], cls: 'grid grid--4', note: dragOn },
+      { title: 'Pinch', slots: ['pinch-in', 'pinch-out'], cls: 'grid grid--4' },
     ];
     let i = 0;
     gestUI.groups.replaceChildren(...groups.map((g) => {
       const grid = h('div', { class: g.cls });
-      g.slots.forEach((id) => grid.append(cardEl(M.SLOTS.find((x) => x.id === id), n, i++, intro, dragOn)));
+      g.slots.forEach((id) => grid.append(cardEl(M.SLOTS.find((x) => x.id === id), n, i++, intro, dragOn, view)));
       const head = h('div', { class: 'group-head' }, h('h2', { class: 'group-title' }, g.title));
       if (g.note) {
         head.append(h('span', { class: 'group-note' }, ico('warning', 14), `${n}-finger drag is on, so ${n}-finger swipes are disabled.`),
-          h('button', { class: 'btn btn--sm btn--ghost', type: 'button', onClick: () => turnOffDrag(n) }, 'Turn off drag'));
+          h('button', { class: 'btn btn--sm btn--ghost', type: 'button', onClick: () => turnOffDrag(n) }, view ? 'Turn off drag (All apps)' : 'Turn off drag'));
       }
       return h('section', { class: 'group' }, head, grid);
     }));
@@ -453,38 +632,75 @@
     }
   }
 
-  function cardEl(slot, n, index, intro, dragOn) {
+  /**
+   * One gesture slot. In a profile view the card shows the profile's override
+   * if there is one ("Off in this app" for a `none` override), otherwise the
+   * All-apps binding, muted. Drag is global, so it's read-only in profiles.
+   */
+  function cardEl(slot, n, index, intro, dragOn, view) {
     const s = store.app;
     const trigger = M.triggerOf(slot, n);
-    const b = M.bindingFor(s.config, trigger);
-    const shadowed = (s.shadowed || []).includes(trigger);
-    const inert = slot.kind === 'swipe' && dragOn;
     const label = M.triggerLabel(trigger);
+    const global = M.bindingFor(s.config, trigger);
+    const override = view ? M.overrideFor(view.profile, trigger) : null;
+    const off = !!override && override.action.type === 'none';
+    const shown = override ? (off ? null : override) : global;   // the binding this card displays
+    const inherited = !!view && !override && !!global;
+    const readonly = !!view && slot.kind === 'drag';
+    const shadowed = (s.shadowed || []).includes(trigger) && !!shown;
+    const inert = slot.kind === 'swipe' && dragOn;
 
     const badges = h('span', { class: 'card-badges' });
-    if (b && b.repeat) badges.append(h('span', { class: 'badge badge--accent', title: 'Keeps firing while you slide' }, ico('repeat', 12), 'Repeats'));
+    if (shown && shown.repeat && M.isContinuous(slot)) {
+      badges.append(h('span', { class: 'badge' + (inherited ? '' : ' badge--accent'), title: 'Keeps firing while your fingers keep moving' }, ico('repeat', 12), 'Repeats'));
+    }
     if (shadowed) badges.append(h('span', { class: 'badge badge--warn', title: `${n}-finger drag is on — swipes with ${n} fingers are disabled` }, ico('warning', 12), 'Inactive'));
+    if (!view && slot.kind !== 'drag') {
+      const others = M.overridingProfiles(s.config, trigger);
+      if (others.length) {
+        badges.append(h('span', { class: 'badge badge--profile', title: `Changed in ${others.join(', ')}` },
+          ico('profile', 12), others.length === 1 ? others[0] : `${others.length} profiles`));
+      }
+    }
 
     let body;
-    if (b) body = chipEl(b.action);
+    if (off) body = h('span', { class: 'chip chip--off' }, ico('none', 15), h('span', { class: 'chip-text' }, 'Off in this app'));
+    else if (shown) { body = chipEl(shown.action); if (inherited || readonly) body.classList.add('chip--inherited'); }
     else if (inert) body = h('span', { class: 'chip chip--empty' }, ico('none', 15), h('span', { class: 'chip-text' }, 'Off while drag is on'));
+    else if (readonly) body = h('span', { class: 'chip chip--empty' }, ico('none', 15), h('span', { class: 'chip-text' }, 'Off'));
     else body = h('span', { class: 'chip chip--empty' }, ico('plus', 15), h('span', { class: 'chip-text' }, 'Not set — click to assign'));
 
-    const summary = b ? M.summarize(b.action, platform()).text : 'not set';
-    const card = h('button', {
-      type: 'button',
-      class: 'card' + (b ? ' is-bound' : '') + (shadowed ? ' is-shadowed' : '') + (inert ? ' is-inert' : '') + (intro ? ' intro enter' : ''),
-      'data-trigger': trigger,
+    const summary = off ? 'off in this app'
+      : shown ? M.summarize(shown.action, platform()).text + (inherited ? ' (from All apps)' : '')
+        : 'not set';
+    const kids = [
+      h('div', { class: 'card-illo' }, illoEl(slot.kind, n, slot.dir), badges),
+      h('div', { class: 'card-body' },
+        h('div', { class: 'card-title' }, h('span', { class: 'card-name' }, slot.name), readonly ? null : h('span', { class: 'card-edit' }, ico('chevron', 15))),
+        body,
+        inherited && !readonly ? h('div', { class: 'card-from' }, ico('layers', 12), 'From All apps') : null,
+        readonly ? h('div', { class: 'card-from card-from--readonly' }, ico('layers', 12), 'Drag is set under All apps',
+          h('button', { class: 'link-btn', type: 'button', onClick: () => editInAllApps(trigger) }, 'Change')) : null,
+        shadowed ? h('div', { class: 'card-note' }, `${n}-finger drag is on — swipes with ${n} fingers are disabled.`) : null),
+    ];
+    const cls = 'card' + (shown && !inherited && !readonly ? ' is-bound' : '') + (override ? ' is-override' : '') + (off ? ' is-off' : '')
+      + (inherited ? ' is-inherited' : '') + (shadowed ? ' is-shadowed' : '') + (inert ? ' is-inert' : '') + (readonly ? ' is-readonly' : '') + (intro ? ' intro enter' : '');
+    if (readonly) {
+      return h('div', { class: cls, 'data-trigger': trigger, role: 'group', 'aria-label': `${label}: ${summary}. Set under All apps`, style: { '--i': String(index) } }, kids);
+    }
+    return h('button', {
+      type: 'button', class: cls, 'data-trigger': trigger,
       'aria-label': `${label}: ${summary}${shadowed ? ' (inactive while drag is on)' : ''}. Edit`,
       style: { '--i': String(index) },
       onClick: () => openEditor(trigger),
-    },
-    h('div', { class: 'card-illo' }, frag(illoSVG(slot.kind, n, slot.dir)), badges),
-    h('div', { class: 'card-body' },
-      h('div', { class: 'card-title' }, h('span', { class: 'card-name' }, slot.name), h('span', { class: 'card-edit' }, ico('chevron', 15))),
-      body,
-      shadowed ? h('div', { class: 'card-note' }, `${n}-finger drag is on — swipes with ${n} fingers are disabled.`) : null));
-    return card;
+    }, kids);
+  }
+
+  /** Switch the Gestures page to All apps and open a slot's editor there. */
+  function editInAllApps(trigger) {
+    store.profile = null;
+    renderGestures(true);
+    openEditor(trigger);
   }
 
   async function turnOffDrag(n) {
@@ -494,13 +710,25 @@
     } catch (_) { /* toast shown */ }
   }
 
-  /** Light up the card for a trigger that just fired (Gestures page). */
-  function fireCard(trigger) {
-    if (!trigger || store.page !== 'gestures') return;
+  /**
+   * Light up the card for a trigger that just fired (Gestures page). If the
+   * binding that ran belongs to another scope (a profile, or All apps while a
+   * profile overriding it is shown), ping that scope's pill instead.
+   */
+  function fireCard(trigger, profileName) {
+    if (!trigger || store.page !== 'gestures' || !gestUI.built) return;
+    const view = viewProfile();
+    const shownHere = profileName
+      ? !!view && view.profile.name === profileName
+      : !view || !M.overrideFor(view.profile, trigger);
+    if (!shownHere) {
+      const key = profileName ? String(profileList().findIndex((pr) => pr.name === profileName)) : 'all';
+      ping($(`.scope-btn[data-scope="${key}"]`, gestUI.scope));
+      return;
+    }
     const p = M.parseTrigger(trigger);
     if (p.fingers !== store.fingers) {
-      const btn = $(`.seg-btn[data-n="${p.fingers}"]`);
-      if (btn) { btn.classList.remove('is-ping'); void btn.offsetWidth; btn.classList.add('is-ping'); }
+      ping($(`.seg-btn[data-n="${p.fingers}"]`));
       return;
     }
     const card = $(`.card[data-trigger="${trigger}"]`);
@@ -524,17 +752,32 @@
   let presetsExpanded = false; // remembered across editor openings
   const PRESETS_COLLAPSED = 8;
 
+  /**
+   * Open the editor for a slot. On All apps it edits the global binding; in a
+   * profile view it edits that profile's override, with three modes:
+   *   inherit — no override, the All-apps binding applies
+   *   off     — override with `none`: the gesture does nothing in these apps
+   *   custom  — override with its own action
+   */
   function openEditor(trigger) {
-    if (editor) return;
+    if (editor || profEd) return;
     const s = store.app;
+    const view = viewProfile();
     const slot = M.slotOfTrigger(trigger);
+    if (!slot || (view && slot.kind === 'drag')) return; // drag is global-only
     const p = M.parseTrigger(trigger);
-    const b = M.bindingFor(s.config, trigger);
+    const global = M.bindingFor(s.config, trigger);
+    const override = view ? M.overrideFor(view.profile, trigger) : null;
+    // What the action fields start from; a profile's "Custom" starts from the All-apps action.
+    const from = override && override.action.type !== 'none' ? override : global;
     editor = {
       trigger, slot, n: p.fingers,
-      original: b,
-      draft: b ? clone(b.action) : { type: 'none' },
-      repeat: b ? !!b.repeat : false,
+      scope: view ? { index: view.index, name: view.profile.name } : null,
+      global,
+      original: view ? override : global,
+      mode: !view ? 'custom' : !override ? 'inherit' : override.action.type === 'none' ? 'off' : 'custom',
+      draft: from ? clone(from.action) : { type: 'none' },
+      repeat: from ? !!from.repeat : false,
       prevFocus: document.activeElement,
       busy: false,
     };
@@ -543,37 +786,30 @@
 
   function buildDrawer() {
     const ed = editor;
-    const root = $('#overlay-root');
     const label = M.triggerLabel(ed.trigger);
-    ed.backdrop = h('div', { class: 'backdrop', onClick: closeEditor });
-
     ed.body = h('div', { class: 'drawer-body' });
     ed.errorEl = h('div', { class: 'drawer-error' });
     ed.saveBtn = h('button', { class: 'btn btn--primary', type: 'button', onClick: saveEditor }, ico('check', 15), 'Save', h('span', { class: 'kbd-hint' }, '⏎'));
     ed.testBtn = h('button', { class: 'btn', type: 'button', onClick: testEditor, title: 'Run this action now' }, ico('zap', 15), 'Test');
     ed.removeBtn = h('button', { class: 'btn btn--danger', type: 'button', onClick: removeEditor }, ico('trash', 15), 'Remove');
-    ed.removeBtn.hidden = !ed.original;
+    // In a profile, "Use All-apps setting" is the way to remove an override.
+    ed.removeBtn.hidden = !ed.original || !!ed.scope;
 
-    ed.el = h('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'drawer-title' },
-      h('header', { class: 'drawer-head' },
-        h('div', { class: 'illo-wrap illo-live' }, frag(illoSVG(ed.slot.kind, ed.n, ed.slot.dir))),
-        h('div', { class: 'drawer-titles' },
-          h('h2', { id: 'drawer-title' }, cap(label)),
-          h('div', { class: 'sub' }, h('code', null, ed.trigger), h('span', null, '·'), h('span', null, ed.slot.hint))),
-        h('button', { class: 'btn btn--ghost btn--icon', type: 'button', 'aria-label': 'Close editor', onClick: closeEditor }, ico('x', 18))),
-      ed.body,
-      ed.errorEl,
-      h('footer', { class: 'drawer-foot' }, ed.removeBtn, h('span', { class: 'spacer' }), ed.testBtn, ed.saveBtn));
-
-    ed.el.addEventListener('keydown', onDrawerKey);
-    root.append(ed.backdrop, ed.el);
-    setInert(true);
-    renderEditorBody();
-    // Focus the first preset (or the selected one) for fast keyboard use.
-    requestAnimationFrame(() => {
-      const target = $('.preset[aria-pressed="true"]', ed.el) || $('.preset', ed.el) || ed.saveBtn;
-      target.focus();
+    ed.drawer = mountDrawer({
+      headIcon: h('div', { class: 'illo-wrap illo-live' }, illoEl(ed.slot.kind, ed.n, ed.slot.dir)),
+      title: cap(label),
+      sub: [h('code', null, ed.trigger), h('span', null, '·'), ed.scope ? profileBadge(ed.scope.name) : h('span', null, ed.slot.hint)],
+      body: ed.body,
+      after: ed.errorEl,
+      foot: [ed.removeBtn, h('span', { class: 'spacer' }), ed.testBtn, ed.saveBtn],
+      onClose: closeEditor,
+      onKey: onDrawerKey,
     });
+    ed.el = ed.drawer.el;
+    renderEditorBody();
+    // Focus the current choice for fast keyboard use.
+    const target = $('.mode[aria-checked="true"]', ed.el) || $('.preset[aria-pressed="true"]', ed.el) || $('.preset', ed.el) || ed.saveBtn;
+    target.focus({ preventScroll: true });
   }
 
   function onDrawerKey(e) {
@@ -584,16 +820,6 @@
       if (t.tagName === 'BUTTON' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.closest('.recorder')) return;
       e.preventDefault();
       saveEditor();
-      return;
-    }
-    if (e.key === 'Tab') {
-      // keep focus inside the drawer
-      const focusables = $$('button, input, select, textarea, [tabindex]', editor.el)
-        .filter((el) => !el.disabled && el.tabIndex >= 0 && el.offsetParent !== null);
-      if (!focusables.length) return;
-      const first = focusables[0], last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
   }
 
@@ -602,32 +828,73 @@
     if (!ed) return;
     editor = null;
     if (ed.recorder) ed.recorder.destroy();
-    ed.el.classList.add('is-closing');
-    ed.backdrop.classList.add('is-closing');
-    setTimeout(() => { ed.el.remove(); ed.backdrop.remove(); }, reducedMotion() ? 0 : 220);
-    setInert(false);
+    ed.drawer.close();
     // Return focus to the card (re-rendered cards are found by trigger).
     const target = $(`.card[data-trigger="${ed.trigger}"]`) || ed.prevFocus;
     if (target && target.isConnected && target.focus) target.focus();
   }
 
-  /** Rebuild every section of the drawer body (called when the action type changes). */
+  /** The three choices for a slot inside a profile. */
+  function modeSection() {
+    const ed = editor;
+    const name = ed.scope.name;
+    const g = ed.global;
+    const opts = [
+      {
+        id: 'inherit', icon: 'layers', title: 'Use All-apps setting',
+        sub: g ? [chipEl(g.action), g.repeat && M.isContinuous(ed.slot) ? h('span', { class: 'badge' }, ico('repeat', 12), 'Repeats') : null]
+          : [h('span', null, 'Not set in All apps, so nothing happens.')],
+      },
+      { id: 'off', icon: 'none', title: 'Turn off in this app', sub: [h('span', null, `Does nothing while ${name} is in front.`)] },
+      { id: 'custom', icon: 'pencil', title: 'Custom action', sub: [h('span', null, `Choose what it does in ${name}.`)] },
+    ];
+    const group = h('div', { class: 'modes', role: 'radiogroup', 'aria-label': `In ${name}` });
+    opts.forEach((o) => group.append(h('button', {
+      class: 'mode', type: 'button', role: 'radio', 'data-mode': o.id, 'aria-checked': String(ed.mode === o.id),
+      onClick: () => setMode(o.id),
+    },
+    h('span', { class: 'mode-radio', 'aria-hidden': 'true' }),
+    h('span', { class: 'mode-title' }, ico(o.icon, 15), o.title),
+    h('span', { class: 'mode-sub' }, o.sub))));
+    roving(group, '.mode', (el) => setMode(el.dataset.mode));
+    return h('section', { class: 'drawer-section' }, h('div', { class: 'section-label' }, `In ${name}`), group);
+  }
+
+  function setMode(mode) {
+    const ed = editor;
+    if (!ed || ed.mode === mode) return;
+    ed.mode = mode;
+    renderEditorBody();
+    const btn = $(`.mode[data-mode="${mode}"]`, ed.el);
+    if (btn) btn.focus();
+  }
+
+  /** Rebuild every section of the drawer body (called when the mode or action type changes). */
   function renderEditorBody() {
     const ed = editor;
     const isDrag = ed.slot.kind === 'drag';
-    const isSwipe = ed.slot.kind === 'swipe';
+    const continuous = M.isContinuous(ed.slot);
     const scroll = ed.body.scrollTop;
     ed.body.replaceChildren();
 
     // Shadow warning
-    if (isSwipe && M.dragOn(store.app.config, ed.n)) {
+    if (ed.slot.kind === 'swipe' && M.dragOn(store.app.config, ed.n) && ed.mode !== 'off') {
       ed.body.append(h('div', { class: 'drawer-section' }, h('div', { class: 'banner' }, ico('warning', 18),
         h('div', { class: 'banner-body' }, h('span', { class: 'banner-title' }, `${ed.n}-finger drag is on`),
           h('span', { class: 'banner-text' }, `Swipes with ${ed.n} fingers are disabled while drag uses them. You can still save this — it starts working once drag is turned off.`)))));
     }
 
+    if (ed.scope) {
+      ed.body.append(modeSection());
+      if (ed.mode !== 'custom') {
+        ed.body.scrollTop = scroll;
+        refreshEditor();
+        return;
+      }
+    }
+
     // Presets
-    const presets = M.presetsFor(ed.slot, platform());
+    const presets = M.presetsFor(ed.slot, platform(), ed.n);
     const presetWrap = h('div', { class: 'presets' });
     // Collapse the long list unless the current action is one of the hidden presets.
     const selectedIndex = presets.findIndex((pr) => M.sameAction(pr.action, ed.draft));
@@ -638,7 +905,7 @@
         class: 'preset', type: 'button', 'data-preset': pr.id, 'aria-pressed': 'false',
         onClick: () => {
           ed.draft = clone(pr.action);
-          if (isSwipe) ed.repeat = !!pr.repeat;
+          if (continuous) ed.repeat = !!pr.repeat;
           renderEditorBody();
           const btn = $(`.preset[data-preset="${pr.id}"]`, ed.el);
           if (btn) btn.focus();
@@ -684,15 +951,30 @@
       ed.autofocusField = false;
       if (fields) ed.body.append(h('section', { class: 'drawer-section fields' }, fields));
 
-      // Repeat toggle (swipes only)
-      if (isSwipe) {
+      // Repeat toggle (swipes and pinches)
+      if (continuous) {
+        const pinch = ed.slot.kind === 'pinch';
+        const step = fmtNum(store.app.config.settings.swipe_step_mm, 1);
         const input = h('input', { type: 'checkbox', role: 'switch', checked: ed.repeat, 'aria-describedby': 'repeat-sub', onChange: (e) => { ed.repeat = e.target.checked; refreshEditor(); } });
         ed.body.append(h('section', { class: 'drawer-section' },
           h('label', { class: 'toggle-row' },
             h('span', { class: 'toggle-row-text' },
-              h('span', { class: 'toggle-row-title' }, ico('repeat', 15), 'Keep firing while sliding'),
-              h('span', { class: 'toggle-row-sub', id: 'repeat-sub' }, `Fires again every ${fmtNum(store.app.config.settings.swipe_step_mm, 1)} mm of travel, so one slide can scrub volume or brightness.`)),
+              h('span', { class: 'toggle-row-title' }, ico('repeat', 15), pinch ? 'Keep firing while pinching' : 'Keep firing while sliding'),
+              h('span', { class: 'toggle-row-sub', id: 'repeat-sub' }, pinch
+                ? `Fires again every ${step} mm your fingers spread or close, so one pinch can zoom several steps.`
+                : `Fires again every ${step} mm of travel, so one slide can scrub volume or brightness.`)),
             h('span', { class: 'switch' }, input, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' }))))));
+      }
+    }
+
+    // On All apps, say when a profile has its own setting for this slot.
+    if (!ed.scope && !isDrag) {
+      const names = M.overridingProfiles(store.app.config, ed.trigger);
+      if (names.length) {
+        const text = names.length === 1
+          ? `${names[0]} has its own setting for this gesture, which wins while one of its apps is in front.`
+          : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} have their own settings for this gesture, which win while their apps are in front.`;
+        ed.body.append(h('section', { class: 'drawer-section' }, h('div', { class: 'about-type' }, ico('profile', 18), h('div', null, text))));
       }
     }
     ed.body.scrollTop = scroll;
@@ -707,10 +989,36 @@
     const next = M.TYPES[type].make();
     if ((type === 'launch' || type === 'focus_or_launch') && prev.program) { next.program = prev.program; if (prev.args) next.args = prev.args; }
     ed.draft = next;
-    if (ed.slot.kind === 'swipe') ed.repeat = type === 'volume' || type === 'brightness';
+    // Scrubbing is the usual intent for levels; for pinches, shortcuts (zoom) too.
+    if (M.isContinuous(ed.slot)) ed.repeat = type === 'volume' || type === 'brightness' || (ed.slot.kind === 'pinch' && type === 'keys');
     renderEditorBody();
     const btn = $(`.type-opt[data-type="${type}"]`, ed.el);
     if (btn && keepFocus !== false) btn.focus();
+  }
+
+  /** What's wrong with the editor's current choice, or null. */
+  function editorError(ed) {
+    if (ed.scope && ed.mode !== 'custom') return null;
+    if (ed.scope && ed.draft.type === 'none') return 'Choose an action, or pick “Turn off in this app”';
+    return M.validate(ed.draft);
+  }
+
+  function editorUnchanged(ed) {
+    const o = ed.original;
+    const repeatSame = (b) => !!b.repeat === !!(M.isContinuous(ed.slot) && ed.repeat);
+    if (ed.scope) {
+      if (!o) return ed.mode === 'inherit';
+      if (o.action.type === 'none') return ed.mode === 'off';
+      return ed.mode === 'custom' && M.sameAction(o.action, ed.draft) && repeatSame(o);
+    }
+    return o ? M.sameAction(o.action, ed.draft) && repeatSame(o) : ed.draft.type === 'none';
+  }
+
+  /** The action that would run with the current choice (for Test). */
+  function editorAction(ed) {
+    if (!ed.scope || ed.mode === 'custom') return ed.draft;
+    if (ed.mode === 'inherit' && ed.global) return ed.global.action;
+    return null;
   }
 
   /** Update presets / Save / Test / error without rebuilding inputs (keeps focus & caret). */
@@ -718,17 +1026,15 @@
     const ed = editor;
     if (!ed) return;
     $$('.preset[data-preset]', ed.el).forEach((btn) => {
-      const pr = M.presetsFor(ed.slot, platform()).find((x) => x.id === btn.dataset.preset);
+      const pr = M.presetsFor(ed.slot, platform(), ed.n).find((x) => x.id === btn.dataset.preset);
       btn.setAttribute('aria-pressed', String(!!pr && M.sameAction(pr.action, ed.draft)));
     });
-    const err = M.validate(ed.draft);
+    const err = editorError(ed);
     ed.invalid = err;
-    const unchanged = ed.original
-      ? M.sameAction(ed.original.action, ed.draft) && !!ed.original.repeat === !!(ed.slot.kind === 'swipe' && ed.repeat)
-      : ed.draft.type === 'none';
     // Save stays clickable when invalid so a click can explain what's missing.
-    ed.saveBtn.disabled = ed.busy || unchanged;
-    ed.testBtn.disabled = ed.busy || !!err || ed.draft.type === 'none' || ed.draft.type === 'drag';
+    ed.saveBtn.disabled = ed.busy || editorUnchanged(ed);
+    const act = editorAction(ed);
+    ed.testBtn.disabled = ed.busy || !act || act.type === 'none' || act.type === 'drag' || !!M.validate(act);
     ed.testBtn.hidden = ed.slot.kind === 'drag';
     // Only show validation once the user has typed something, to avoid shouting at an empty form.
     ed.errorEl.replaceChildren();
@@ -973,26 +1279,43 @@
   async function saveEditor() {
     const ed = editor;
     if (!ed || ed.busy) return;
-    const err = M.validate(ed.draft);
-    if (err && ed.draft.type !== 'none') {
+    const err = editorError(ed);
+    // On All apps, type `none` is a valid "unbind"; anything else invalid is explained.
+    if (err && (ed.scope || ed.draft.type !== 'none')) {
       ed.touched = true;
       refreshEditor();
-      const field = $('.fields .input, .fields .recorder', ed.el);
+      const field = $('.fields .input, .fields .recorder', ed.el) || $('.type-opt', ed.el);
       if (field) field.focus();
       return;
     }
     if (ed.saveBtn.disabled) { closeEditor(); return; } // nothing changed
-    const isSwipe = ed.slot.kind === 'swipe';
-    const repeat = isSwipe && ed.repeat && ed.draft.type !== 'none';
-    const config = M.withBinding(store.app.config, ed.trigger, ed.draft, repeat);
+    const repeat = M.isContinuous(ed.slot) && ed.repeat && ed.draft.type !== 'none';
+    const label = cap(M.triggerLabel(ed.trigger));
+    let config, done;
+    if (ed.scope) {
+      const idx = findProfileIndex(ed.scope);
+      if (idx < 0) {
+        toast({ kind: 'error', title: 'Profile not found', text: `“${ed.scope.name}” was renamed or removed in the meantime.` });
+        closeEditor();
+        return;
+      }
+      const name = ed.scope.name;
+      config = M.withProfileBinding(store.app.config, idx, ed.trigger, ed.mode, ed.draft, repeat);
+      done = ed.mode === 'inherit' ? { title: `Back to All apps in ${name}`, text: `${label} uses the All-apps setting again.` }
+        : ed.mode === 'off' ? { title: `Turned off in ${name}`, text: `${label} does nothing while ${name} is in front.` }
+          : { title: `Saved for ${name}`, text: `${label} → ${M.summarize(ed.draft, platform()).text}` };
+    } else {
+      config = M.withBinding(store.app.config, ed.trigger, ed.draft, repeat);
+      done = ed.draft.type === 'none'
+        ? { title: 'Binding removed', text: `${label} does nothing now.` }
+        : { title: 'Saved', text: `${label} → ${M.summarize(ed.draft, platform()).text}` };
+    }
     setBusy(true);
     try {
       const state = await call('save_config', { config }, { errorTitle: 'Couldn’t save' });
-      const label = M.triggerLabel(ed.trigger);
       applyState(state);
       if (editor === ed) closeEditor();
-      if (ed.draft.type === 'none') toast({ title: 'Binding removed', text: `${cap(label)} does nothing now.` });
-      else toast({ title: 'Saved', text: `${cap(label)} → ${M.summarize(ed.draft, platform()).text}` });
+      toast(done);
     } catch (_) {
       if (editor === ed) setBusy(false);
     }
@@ -1014,12 +1337,13 @@
 
   async function testEditor() {
     const ed = editor;
-    if (!ed || M.validate(ed.draft)) return;
+    const act = ed && editorAction(ed);
+    if (!act || act.type === 'none' || M.validate(act)) return;
     const btn = ed.testBtn;
     btn.classList.add('is-busy');
     try {
-      await call('test_action', { action: M.clean(ed.draft) }, { errorTitle: 'Test failed' });
-      toast({ kind: 'info', title: 'Ran it', text: M.summarize(ed.draft, platform()).text, timeout: 2200 });
+      await call('test_action', { action: M.clean(act) }, { errorTitle: 'Test failed' });
+      toast({ kind: 'info', title: 'Ran it', text: M.summarize(act, platform()).text, timeout: 2200 });
     } catch (_) { /* toast shown */ } finally {
       btn.classList.remove('is-busy');
     }
@@ -1033,6 +1357,365 @@
   }
 
   const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+  /* =====================================================================
+     8b. Profile editor (drawer): name, apps, detect, delete
+     ===================================================================== */
+
+  let profEd = null;
+  const DETECT_MS = 10000;
+  const SUGGESTED_APPS = {
+    windows: ['chrome.exe', 'msedge.exe', 'firefox.exe', 'Code.exe', 'Spotify.exe', 'explorer.exe'],
+    linux: ['firefox', 'google-chrome', 'chromium', 'code', 'spotify', 'nautilus'],
+  };
+
+  /** Open the profile editor for profile `index`, or for a new profile when `index` is null. */
+  function openProfileEditor(index) {
+    if (editor || profEd) return;
+    const existing = index != null ? profileList()[index] : null;
+    profEd = {
+      ref: existing ? { index, name: existing.name } : null,
+      index: existing ? index : null,
+      name: existing ? existing.name : '',
+      apps: existing ? (existing.apps || []).slice() : [],
+      overrides: existing ? (existing.binding || []).length : 0,
+      prevFocus: document.activeElement,
+      busy: false,
+      touched: false,
+      detect: null,       // { token, endsAt, timer } while waiting for detect_app
+      detectHint: '',
+    };
+    const pe = profEd;
+    pe.body = h('div', { class: 'drawer-body' });
+    pe.errorEl = h('div', { class: 'drawer-error' });
+    pe.saveBtn = h('button', { class: 'btn btn--primary', type: 'button', onClick: saveProfile }, ico('check', 15), existing ? 'Save' : 'Create profile');
+    pe.deleteBtn = existing ? h('button', { class: 'btn btn--danger', type: 'button', onClick: deleteProfile }, ico('trash', 15), 'Delete profile') : null;
+    pe.drawer = mountDrawer({
+      headIcon: h('div', { class: 'illo-wrap drawer-head-icon' }, ico('profile', 30)),
+      title: existing ? 'Edit profile' : 'New profile',
+      sub: [h('span', null, 'Gestures that change while certain apps are in front')],
+      body: pe.body,
+      after: pe.errorEl,
+      foot: [pe.deleteBtn, h('span', { class: 'spacer' }), h('button', { class: 'btn', type: 'button', onClick: () => closeProfileEditor() }, 'Cancel'), pe.saveBtn],
+      onClose: () => closeProfileEditor(),
+      onKey: (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          if (pe.detect) cancelDetect(); else closeProfileEditor();
+        } else if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.target.tagName === 'INPUT') {
+          e.preventDefault();
+          saveProfile();
+        }
+      },
+    });
+    renderProfileBody();
+    pe.nameInput.focus({ preventScroll: true });
+    if (existing) pe.nameInput.select();
+  }
+
+  function renderProfileBody() {
+    const pe = profEd;
+    const linux = platform() === 'linux';
+
+    pe.nameInput = h('input', { class: 'input', type: 'text', value: pe.name, placeholder: 'e.g. Browser', maxlength: '40', autocomplete: 'off', spellcheck: 'false', 'aria-labelledby': 'prof-name-label', 'aria-describedby': 'prof-name-help' });
+    pe.nameInput.addEventListener('input', () => { pe.name = pe.nameInput.value; pe.touched = true; refreshProfile(); });
+
+    pe.appInput = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Add an app', 'aria-describedby': 'prof-apps-help' });
+    pe.appInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ',' || e.key === ';') {
+        if (pe.appInput.value.trim()) { e.preventDefault(); e.stopPropagation(); commitAppInput(); }
+        else if (e.key !== 'Enter') e.preventDefault(); // an empty Enter falls through to "save"
+      } else if (e.key === 'Backspace' && !pe.appInput.value && pe.apps.length) {
+        e.preventDefault();
+        pe.apps.pop();
+        pe.touched = true;
+        renderChips();
+      }
+    });
+    pe.appInput.addEventListener('paste', (e) => {
+      const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+      if (/[,;\r\n]/.test(text)) { e.preventDefault(); addApps(text.split(/[,;\r\n]+/)); }
+    });
+    pe.appInput.addEventListener('blur', () => { if (pe.appInput.value.trim()) commitAppInput(); });
+
+    pe.chipList = h('span', { class: 'chip-list', role: 'list', 'aria-label': 'Apps in this profile' });
+    pe.chipsEl = h('div', { class: 'chip-input', onClick: (e) => { if (e.target === pe.chipsEl || e.target === pe.chipList) pe.appInput.focus(); } }, pe.chipList, pe.appInput);
+    pe.detectBtn = h('button', { class: 'btn detect-btn', type: 'button', onClick: startDetect, title: 'Switch to the app and Pady picks up its name' }, ico('target', 15), 'Detect app');
+    pe.detectEl = h('div', { class: 'detect-area' });
+    pe.detectLive = h('span', { class: 'sr-only', 'aria-live': 'polite' });
+    pe.suggestEl = h('div', { class: 'suggest' });
+    pe.notesEl = h('div', { class: 'prof-notes' });
+    pe.emptyNote = h('div', { class: 'warn-text' }, ico('warning', 13), 'Add at least one app — until then this profile never applies.');
+
+    const n = pe.overrides;
+    pe.body.replaceChildren(
+      h('section', { class: 'drawer-section' },
+        h('div', { class: 'field' },
+          h('span', { class: 'label', id: 'prof-name-label' }, 'Name'),
+          pe.nameInput,
+          h('span', { class: 'help', id: 'prof-name-help' }, 'Shown on the Gestures page and in Live when it applies.'))),
+      h('section', { class: 'drawer-section' },
+        h('div', { class: 'field' },
+          h('span', { class: 'label' }, 'Apps'),
+          h('div', { class: 'apps-row' }, pe.chipsEl, pe.detectBtn),
+          h('span', { class: 'help', id: 'prof-apps-help' }, `Program names, separated by commas — e.g. ${linux ? 'firefox, code, spotify' : 'chrome.exe, code, spotify'}. Case, folders and .exe don’t matter.`),
+          pe.detectEl, pe.detectLive, pe.emptyNote, pe.notesEl, pe.suggestEl)),
+      h('section', { class: 'drawer-section' },
+        h('div', { class: 'about-type' }, ico('layers', 18), h('div', null,
+          'While one of these apps is in front, the gestures you change in this profile replace the All-apps ones; everything else works as usual. Drag always comes from All apps.',
+          pe.ref ? h('div', { class: 'help', style: { 'margin-top': '6px' } }, n ? `${n} gesture${n === 1 ? '' : 's'} changed in this profile.` : 'No gestures changed yet — pick this profile on the Gestures page, then click a gesture.') : null))));
+    renderChips();
+    renderDetect();
+  }
+
+  /** Chips, suggestions and duplicate-app notes. */
+  function renderChips() {
+    const pe = profEd;
+    if (!pe) return;
+    pe.chipList.replaceChildren(...pe.apps.map((a, i) => h('span', { class: 'app-chip app-chip--edit', role: 'listitem', 'data-key': M.appKey(a) },
+      h('span', { class: 'app-chip-name' }, a),
+      h('button', {
+        type: 'button', 'aria-label': `Remove ${a}`, title: 'Remove',
+        onClick: (e) => { e.stopPropagation(); pe.apps.splice(i, 1); pe.touched = true; renderChips(); pe.appInput.focus(); },
+      }, ico('x', 12)))));
+    pe.appInput.placeholder = pe.apps.length ? 'Add another…' : (platform() === 'linux' ? 'firefox, code, spotify' : 'chrome.exe, code, spotify');
+
+    const have = new Set(pe.apps.map(M.appKey));
+    const suggestions = (SUGGESTED_APPS[platform()] || SUGGESTED_APPS.windows).filter((a) => !have.has(M.appKey(a)));
+    pe.suggestEl.replaceChildren(...(suggestions.length ? [h('span', { class: 'suggest-label' }, 'Suggestions')].concat(suggestions.map((a) =>
+      h('button', { class: 'preset', type: 'button', onClick: () => { addApps([a]); pe.appInput.focus(); } }, ico('plus', 12), a))) : []));
+
+    // The backend uses the first profile that lists the app in front.
+    const notes = [];
+    pe.apps.forEach((a) => M.profilesWithApp(store.app.config, a, pe.index).forEach(({ p, index }) => {
+      const otherFirst = pe.index == null || index < pe.index;
+      notes.push(h('div', { class: 'warn-text' }, ico('warning', 13), otherFirst
+        ? `${a} is also in “${p.name}”, which comes first, so that profile wins for it.`
+        : `${a} is also in “${p.name}”; this profile comes first, so it wins.`));
+    }));
+    pe.notesEl.replaceChildren(...notes);
+    refreshProfile();
+  }
+
+  /** Add typed/detected/suggested apps, skipping case-insensitive duplicates (flashing the existing chip). */
+  function addApps(raw) {
+    const pe = profEd;
+    if (!pe) return [];
+    const added = [];
+    const dupes = [];
+    for (const r of raw) {
+      const a = M.cleanApp(r);
+      if (!a) continue;
+      const key = M.appKey(a);
+      if (pe.apps.some((x) => M.appKey(x) === key)) { dupes.push(key); continue; }
+      pe.apps.push(a);
+      added.push(a);
+    }
+    pe.touched = true;
+    renderChips();
+    dupes.forEach(flashChip); // after re-rendering, or the flash would be thrown away
+    return added;
+  }
+
+  function commitAppInput() {
+    const pe = profEd;
+    if (!pe || !pe.appInput.value.trim()) return;
+    const text = pe.appInput.value;
+    pe.appInput.value = '';
+    addApps(text.split(/[,;\r\n]+/));
+  }
+
+  function flashChip(key) {
+    const chip = profEd && $(`.app-chip[data-key="${CSS.escape(key)}"]`, profEd.chipList);
+    if (!chip) return;
+    chip.classList.remove('is-flash');
+    void chip.offsetWidth;
+    chip.classList.add('is-flash');
+  }
+
+  /* ---------- Detect app: wait for the next app that comes to the front ---------- */
+
+  function startDetect() {
+    const pe = profEd;
+    if (!pe || pe.detect) return;
+    commitAppInput();
+    const token = {};
+    pe.detect = { token, endsAt: Date.now() + DETECT_MS, timer: setInterval(tickDetect, 250) };
+    pe.detectHint = '';
+    pe.detectLive.textContent = 'Waiting. Switch to the app you want to add.';
+    renderDetect();
+    const cancel = $('.detect-panel .btn', pe.detectEl);
+    if (cancel) cancel.focus();
+    call('detect_app', { timeoutMs: DETECT_MS }, { errorTitle: 'Couldn’t detect the app' }).then((app) => {
+      // Ignore late results after Cancel, a new attempt, or closing the editor.
+      if (profEd !== pe || !pe.detect || pe.detect.token !== token) return;
+      stopDetect();
+      if (app) {
+        const key = M.appKey(app);
+        if (pe.apps.some((a) => M.appKey(a) === key)) {
+          flashChip(key);
+          toast({ kind: 'info', title: `${app} is already in this profile`, timeout: 2400 });
+          pe.detectLive.textContent = `${app} is already in this profile.`;
+        } else {
+          addApps([app]);
+          toast({ title: `Added ${app}` });
+          pe.detectLive.textContent = `Added ${app}.`;
+        }
+      } else {
+        pe.detectHint = 'No other app came to the front.';
+        pe.detectLive.textContent = pe.detectHint;
+        renderDetect();
+      }
+      pe.detectBtn.focus();
+    }, () => {
+      if (profEd === pe && pe.detect && pe.detect.token === token) { stopDetect(); pe.detectBtn.focus(); }
+    });
+  }
+
+  function tickDetect() {
+    const pe = profEd;
+    if (!pe || !pe.detect) return;
+    const el = $('.detect-count', pe.detectEl);
+    if (el) el.textContent = `${Math.max(0, Math.ceil((pe.detect.endsAt - Date.now()) / 1000))}s`;
+  }
+
+  function stopDetect() {
+    const pe = profEd;
+    if (!pe || !pe.detect) return;
+    clearInterval(pe.detect.timer);
+    pe.detect = null;
+    renderDetect();
+  }
+
+  function cancelDetect() {
+    const pe = profEd;
+    if (!pe || !pe.detect) return;
+    stopDetect();
+    pe.detectLive.textContent = 'Detection cancelled.';
+    pe.detectBtn.focus();
+  }
+
+  function renderDetect() {
+    const pe = profEd;
+    if (!pe) return;
+    pe.detectBtn.disabled = !!pe.detect;
+    pe.detectBtn.classList.toggle('is-waiting', !!pe.detect);
+    if (pe.detect) {
+      pe.detectEl.replaceChildren(h('div', { class: 'detect-panel' },
+        h('span', { class: 'detect-pulse', 'aria-hidden': 'true' }),
+        h('span', { class: 'detect-text' }, 'Switch to the app you want…'),
+        h('span', { class: 'detect-count', 'aria-hidden': 'true' }, `${Math.ceil(DETECT_MS / 1000)}s`),
+        h('button', { class: 'btn btn--sm btn--ghost', type: 'button', onClick: cancelDetect }, 'Cancel')));
+      tickDetect();
+    } else if (pe.detectHint) {
+      pe.detectEl.replaceChildren(h('div', { class: 'detect-hint' }, ico('info', 13), pe.detectHint));
+    } else {
+      pe.detectEl.replaceChildren();
+    }
+  }
+
+  /* ---------- Save / delete ---------- */
+
+  function profileError(pe) {
+    const name = pe.name.trim();
+    if (!name) return 'Give the profile a name';
+    const lower = name.toLowerCase();
+    if (profileList().some((p, i) => i !== pe.index && String(p.name).trim().toLowerCase() === lower)) return `There’s already a profile called “${name}”`;
+    return null;
+  }
+
+  function profileUnchanged(pe) {
+    if (!pe.ref) return false;
+    const p = profileList()[findProfileIndex(pe.ref)];
+    return !!p && p.name === pe.name.trim() && JSON.stringify(p.apps || []) === JSON.stringify(pe.apps);
+  }
+
+  function refreshProfile() {
+    const pe = profEd;
+    if (!pe) return;
+    const err = profileError(pe);
+    pe.nameInput.classList.toggle('is-invalid', !!err && pe.touched);
+    pe.errorEl.replaceChildren();
+    if (err && pe.touched) pe.errorEl.append(h('div', { class: 'error-text' }, ico('warning', 14), err));
+    pe.saveBtn.disabled = pe.busy || profileUnchanged(pe);
+    pe.emptyNote.hidden = pe.apps.length > 0;
+  }
+
+  async function saveProfile() {
+    const pe = profEd;
+    if (!pe || pe.busy) return;
+    commitAppInput();
+    const err = profileError(pe);
+    if (err) { pe.touched = true; refreshProfile(); pe.nameInput.focus(); return; }
+    if (pe.saveBtn.disabled) { closeProfileEditor(); return; } // nothing changed
+    const name = pe.name.trim();
+    const config = clone(store.app.config);
+    const list = M.profiles(config).slice();
+    let idx;
+    if (pe.ref) {
+      idx = findProfileIndex(pe.ref);
+      if (idx < 0) { toast({ kind: 'error', title: 'Profile not found', text: `“${pe.ref.name}” was removed in the meantime.` }); closeProfileEditor(); return; }
+      list[idx] = Object.assign({}, list[idx], { name, apps: pe.apps.slice() });
+    } else {
+      list.push({ name, apps: pe.apps.slice(), binding: [] });
+      idx = list.length - 1;
+    }
+    config.profile = list;
+    pe.busy = true;
+    pe.saveBtn.classList.add('is-busy');
+    refreshProfile();
+    try {
+      const state = await call('save_config', { config }, { errorTitle: 'Couldn’t save the profile' });
+      store.profile = { index: idx, name }; // show the new / renamed profile
+      applyState(state);
+      closeProfileEditor({ focusScope: true });
+      toast(pe.ref
+        ? { title: 'Profile saved', text: `${name} · ${pe.apps.length ? pe.apps.join(', ') : 'no apps yet'}` }
+        : { title: `Created “${name}”`, text: 'Now click a gesture to give it a different job in these apps.' });
+    } catch (_) {
+      if (profEd === pe) { pe.busy = false; pe.saveBtn.classList.remove('is-busy'); refreshProfile(); }
+    }
+  }
+
+  async function deleteProfile() {
+    const pe = profEd;
+    if (!pe || !pe.ref || pe.busy) return;
+    const idx = findProfileIndex(pe.ref);
+    const p = profileList()[idx];
+    if (!p) { closeProfileEditor(); return; }
+    const n = (p.binding || []).length;
+    const ok = await confirmDialog({
+      title: `Delete “${p.name}”?`,
+      text: (n ? `Its ${n} changed gesture${n === 1 ? '' : 's'} will be removed. ` : '') + 'Those apps will use your All-apps gestures again.',
+      confirm: 'Delete profile',
+      danger: true,
+    });
+    if (!ok || profEd !== pe) return;
+    const config = clone(store.app.config);
+    config.profile = M.profiles(config).filter((_, i) => i !== idx);
+    pe.busy = true;
+    refreshProfile();
+    try {
+      const state = await call('save_config', { config }, { errorTitle: 'Couldn’t delete the profile' });
+      store.profile = null;
+      applyState(state);
+      closeProfileEditor({ focusScope: true });
+      toast({ title: `Deleted “${p.name}”` });
+    } catch (_) {
+      if (profEd === pe) { pe.busy = false; refreshProfile(); }
+    }
+  }
+
+  function closeProfileEditor(opts) {
+    const pe = profEd;
+    if (!pe) return;
+    if (pe.detect) clearInterval(pe.detect.timer); // a late detect_app result is ignored
+    profEd = null;
+    pe.drawer.close();
+    const selected = $('.scope-btn[aria-checked="true"]');
+    const target = (opts && opts.focusScope && selected) || (pe.prevFocus && pe.prevFocus.isConnected ? pe.prevFocus : selected);
+    if (target && target.focus) target.focus();
+  }
 
   /* =====================================================================
      9. Live page
@@ -1133,16 +1816,18 @@
     const g = p.gesture || {};
     const now = new Date();
     const top = store.recent[0];
+    const repeating = (g.kind === 'swipe' || g.kind === 'pinch') && g.step > 0;
     let entry;
-    if (g.kind === 'swipe' && g.step > 0 && top && top.trigger === p.trigger && top.kind === 'swipe') {
-      top.count++; top.action = p.action || top.action; top.time = now;
+    if (repeating && top && top.trigger === p.trigger && top.kind === g.kind) {
+      // Repeat steps of one swipe/pinch collapse into a single "×N" row.
+      top.count++; top.action = p.action || top.action; top.profile = p.profile || top.profile; top.time = now;
       entry = top;
     } else if (g.kind === 'drag_end') {
       const d = store.recent.find((r) => r.kind === 'drag_start' && !r.ended);
       if (d) { d.ended = true; d.duration = now - d.start; }
       entry = d;
     } else {
-      entry = { id: ++store.seq, kind: g.kind, gesture: g, trigger: p.trigger, action: p.action, time: now, start: now, count: 1 };
+      entry = { id: ++store.seq, kind: g.kind, gesture: g, trigger: p.trigger, action: p.action, profile: p.profile || null, time: now, start: now, count: 1 };
       store.recent.unshift(entry);
       if (store.recent.length > 25) store.recent.length = 25;
     }
@@ -1151,21 +1836,30 @@
       if (g.kind !== 'drag_end') flashGesture(p, entry);
       liveUI.stats.last.textContent = cap(M.gestureLabel(g));
     }
-    fireCard(p.trigger);
+    fireCard(p.trigger, p.profile || null);
   }
 
-  const gestureIcon = (g) => (g.kind === 'swipe' ? 'arrow-' + g.direction : g.kind === 'hold' ? 'hold' : g.kind && g.kind.startsWith('drag') ? 'drag' : 'tap');
+  function gestureIcon(g) {
+    switch (g.kind) {
+      case 'swipe': return 'arrow-' + g.direction;
+      case 'pinch': return g.direction === 'in' ? 'pinch-in' : 'pinch-out';
+      case 'hold': return 'hold';
+      case 'drag_start': case 'drag_end': return 'drag';
+      default: return 'tap';
+    }
+  }
 
   function flashGesture(p, entry) {
     const g = p.gesture;
     const key = `${p.trigger}`;
-    const same = live.flashKey === key && liveUI.flash.classList.contains('is-on') && g.kind === 'swipe' && g.step > 0;
+    const same = live.flashKey === key && liveUI.flash.classList.contains('is-on') && (g.kind === 'swipe' || g.kind === 'pinch') && g.step > 0;
     live.flashKey = key;
     if (!same) {
       liveUI.flashGesture.replaceChildren(ico(gestureIcon(g), 20), cap(M.gestureLabel(g)));
     }
     liveUI.flashAction.className = 'flash-action' + (p.action ? ' is-bound' : '');
-    liveUI.flashAction.replaceChildren(p.action ? '→ ' + p.action : 'No action bound');
+    liveUI.flashAction.replaceChildren(p.action ? '→ ' + p.action : p.profile ? 'Off in this app' : 'No action bound');
+    if (p.profile) liveUI.flashAction.append(profileBadge(p.profile));
     if (entry && entry.count > 1) {
       liveUI.flashAction.append(h('span', { class: 'flash-count' }, '×' + entry.count));
       liveUI.flash.classList.remove('is-bump'); void liveUI.flash.offsetWidth; liveUI.flash.classList.add('is-bump');
@@ -1190,14 +1884,15 @@
       }
       const pad2 = (x) => String(x).padStart(2, '0');
       const time = `${pad2(r.time.getHours())}:${pad2(r.time.getMinutes())}:${pad2(r.time.getSeconds())}`;
-      let actionText = r.action || 'No action bound';
+      let actionText = r.action || (r.profile ? 'Off in this app' : 'No action bound');
       if (r.kind === 'drag_start' && r.ended) actionText += ` · ${(r.duration / 1000).toFixed(1)}s`;
       li.className = 'feed-item' + (r.action ? '' : ' is-unbound');
       li.replaceChildren(
         h('span', { class: 'feed-ico' }, ico(gestureIcon(r.gesture), 16)),
         h('span', { class: 'feed-main' },
           h('div', { class: 'feed-gesture' }, cap(M.gestureLabel(r.gesture))),
-          h('div', { class: 'feed-action', title: actionText }, actionText)),
+          h('div', { class: 'feed-action', title: r.profile ? `${actionText} (${r.profile})` : actionText },
+            h('span', { class: 'feed-action-text' }, actionText), r.profile ? profileBadge(r.profile) : null)),
         h('span', { class: 'feed-meta' },
           h('span', { class: 'feed-time' }, time),
           r.count > 1 ? h('span', { class: 'badge badge--accent' }, '×' + r.count) : null));
@@ -1348,13 +2043,19 @@
     { group: 'recog', key: 'tap_max_ms', name: 'Tap speed', min: 100, max: 400, step: 10, fmt: (v) => [v, 'ms'], help: 'Fingers must lift within this time to count as a tap. Lower feels snappier and avoids accidental taps.' },
     { group: 'recog', key: 'tap_slop_mm', name: 'Tap tolerance', min: 1, max: 10, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'mm'], help: 'How far fingers may drift during a tap before it stops being one.' },
     { group: 'recog', key: 'swipe_threshold_mm', name: 'Swipe distance', min: 4, max: 30, step: 1, fmt: (v) => [Number(v).toFixed(0), 'mm'], help: 'Travel needed before a swipe — or a drag — is recognised.' },
-    { group: 'recog', key: 'swipe_step_mm', name: 'Repeat spacing', min: 3, max: 20, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'mm'], help: 'Extra travel between repeats for gestures that keep firing, like a volume scrub.' },
+    { group: 'recog', key: 'swipe_step_mm', name: 'Repeat spacing', min: 3, max: 20, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'mm'], help: 'Extra travel (or pinch) between repeats for gestures that keep firing, like a volume scrub or zoom.' },
+    { group: 'recog', key: 'pinch_threshold_mm', name: 'Pinch distance', min: 3, max: 20, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'mm'], help: 'How much your fingers must spread apart or close together before a pinch is recognised.' },
     { group: 'recog', key: 'hold_ms', name: 'Hold time', min: 300, max: 1500, step: 50, fmt: (v) => [v, 'ms'], help: 'How long fingers rest without moving before it counts as a hold.' },
     { group: 'drag', key: 'drag_speed', name: 'Drag speed', min: 2, max: 25, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'px/mm'], help: 'Cursor pixels per millimetre of finger travel while dragging.' },
     { group: 'drag', key: 'drag_acceleration', name: 'Drag acceleration', min: 0, max: 3, step: 0.1, fmt: (v) => (Number(v) === 0 ? ['Linear', ''] : [Number(v).toFixed(1), '×']), help: 'How much faster quick flicks move the cursor. 0 keeps movement linear.' },
     { group: 'drag', key: 'drag_release_ms', name: 'Drag release delay', min: 0, max: 1000, step: 25, fmt: (v) => (Number(v) === 0 ? ['Instant', ''] : [v, 'ms']), help: 'Keeps the button held briefly after lifting, so you can reposition your fingers and continue the drag.' },
   ];
   const INT_KEYS = new Set(['tap_max_ms', 'hold_ms', 'drag_release_ms']);
+  // Fallbacks if the backend's settings predate a field (same values as pady-core's defaults).
+  const SETTING_DEFAULTS = {
+    tap_max_ms: 220, tap_slop_mm: 4, swipe_threshold_mm: 10, swipe_step_mm: 7, pinch_threshold_mm: 8,
+    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: true,
+  };
 
   const setUI = { built: false, pending: {}, timer: 0, inputs: {} };
 
@@ -1397,16 +2098,29 @@
     setUI.path = h('code', { class: 'path selectable' });
     setUI.devices = h('div');
 
+    // Saved right away, together with any slider change still waiting for its debounce.
+    setUI.overlay = h('input', { type: 'checkbox', role: 'switch', 'aria-labelledby': 'overlay-title', 'aria-describedby': 'overlay-sub' });
+    setUI.overlay.addEventListener('change', () => {
+      setUI.pending.show_overlay = setUI.overlay.checked;
+      clearTimeout(setUI.timer);
+      flushSettings();
+    });
+
     page.append(
       setUI.banners,
       h('div', { class: 'settings-grid' },
-        panel('gestures', 'Recognition', 'Timing and distances for taps, holds and swipes', SLIDERS.filter((d) => d.group === 'recog').map(sliderEl)),
+        panel('gestures', 'Recognition', 'Timing and distances for taps, holds, swipes and pinches', SLIDERS.filter((d) => d.group === 'recog').map(sliderEl)),
         h('div', { style: { display: 'flex', 'flex-direction': 'column', gap: '16px' } },
           panel('drag', 'Drag', 'How multi-finger drag moves the pointer', SLIDERS.filter((d) => d.group === 'drag').map(sliderEl)),
-          panel('power', 'General', 'Start-up and configuration',
+          panel('power', 'General', 'Start-up, feedback and configuration',
             h('label', { class: 'row', style: { cursor: 'pointer' } },
               h('div', { class: 'row-text' }, setUI.autostartTitle, h('div', { class: 'row-sub' }, 'Runs quietly in the tray after you sign in.')),
               h('span', { class: 'switch' }, setUI.autostart, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' })))),
+            h('label', { class: 'row', style: { cursor: 'pointer' } },
+              h('div', { class: 'row-text' },
+                h('div', { class: 'row-title', id: 'overlay-title' }, 'Show volume & brightness overlay'),
+                h('div', { class: 'row-sub', id: 'overlay-sub' }, 'A small level pill near the bottom of the screen while a gesture changes them.')),
+              h('span', { class: 'switch' }, setUI.overlay, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' })))),
             h('div', { class: 'row', style: { 'flex-wrap': 'wrap' } },
               h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Configuration file'), h('div', { class: 'row-sub' }, 'Edit by hand if you like — changes apply instantly.'), setUI.path)),
             h('div', { class: 'row', style: { 'border-top': '0', 'padding-top': '0', gap: '8px' } },
@@ -1432,10 +2146,11 @@
     const cfg = s.config.settings;
     for (const d of SLIDERS) {
       if (d.key in setUI.pending) continue; // user is still adjusting this one
-      const v = cfg[d.key];
+      const v = cfg[d.key] ?? SETTING_DEFAULTS[d.key];
       setUI.inputs[d.key].input.value = v;
       paintSlider(d, v);
     }
+    if (!('show_overlay' in setUI.pending)) setUI.overlay.checked = (cfg.show_overlay ?? SETTING_DEFAULTS.show_overlay) !== false;
     setUI.autostart.checked = !!s.autostart;
     setUI.autostartTitle.textContent = `Start with ${osName()}`;
     setUI.path.textContent = s.config_path || '';
@@ -1535,7 +2250,7 @@
         h('span', { class: 'logo-lg' }, logo),
         h('div', null,
           h('h2', null, 'Pady', h('span', { class: 'badge badge--accent' }, 'v' + s.version)),
-          h('p', null, 'Pady turns multi-finger touchpad gestures into actions: scrub the volume with a four-finger slide, play or pause with a three-finger tap, drag windows without pressing, or jump to an app or website with a single touch. It runs quietly in the tray and reads your touchpad directly, so it works in every app.'),
+          h('p', null, 'Pady turns multi-finger touchpad gestures into actions: scrub the volume with a four-finger slide, play or pause with a three-finger tap, pinch to zoom, drag windows without pressing, or jump to an app or website with a single touch — and per-app profiles let the same gesture do something different in, say, your browser. It runs quietly in the tray and reads your touchpad directly, so it works in every app.'),
           h('div', { class: 'about-links' },
             h('span', { class: 'link-text selectable' }, ico('github', 14), 'github.com/lumidren/Pady'),
             h('span', { class: 'link-text' }, ico(linux ? 'terminal' : 'desktop', 14), linux ? 'Linux' : 'Windows')))),
@@ -1544,16 +2259,17 @@
         h('div', { class: 'flow' },
           step('touchpad', 'Raw touch input', linux ? 'Contacts are read from the touchpad via evdev, in millimetres.' : 'Contacts are read from the Precision Touchpad via Raw Input, in millimetres.'),
           arrow(),
-          step('gestures', 'Gesture engine', 'Finger count, travel and timing become taps, holds, swipes or drags — tuned in Settings.'),
+          step('gestures', 'Gesture engine', 'Finger count, travel, spread and timing become taps, holds, swipes, pinches or drags — tuned in Settings.'),
           arrow(),
-          step('zap', 'Your actions', 'The bound action runs: keys, volume, media, apps, links or commands.'))),
+          step('zap', 'Your actions', 'The binding for the app in front runs: keys, volume, media, apps, links or commands.'))),
       h('section', { class: 'panel' },
         h('div', { class: 'panel-head' }, h('div', null, h('div', { class: 'panel-title' }, 'Tips'))),
         h('ul', { class: 'tips' },
           linux
             ? tip('Avoid double actions.', 'Desktop environments like GNOME use 3- and 4-finger swipes; disable them or bind other finger counts in Pady.')
             : tip('Avoid double actions.', 'In Settings → Bluetooth & devices → Touchpad, set three- and four-finger gestures to “Nothing”.'),
-          tip('Scrub, don’t repeat.', 'Turn on “Keep firing while sliding” for volume or brightness, then slide further for bigger changes.'),
+          tip('Scrub, don’t repeat.', 'Turn on “Keep firing while sliding” for volume or brightness, then slide further for bigger changes. Pinches work the same way for zoom.'),
+          tip('One gesture, many jobs.', 'Add a profile on the Gestures page — e.g. make four-finger swipes switch tabs only while your browser is in front.'),
           tip('Drag claims swipes.', 'When 3-finger drag is on, 3-finger swipes are ignored — use 4 fingers for swipes.'),
           tip('Watch it think.', 'The Live page shows every contact and gesture, which makes tuning Settings much easier.'),
           tip('Plain text config.', 'Everything is stored in config.toml; edits made by hand apply instantly.'))));
@@ -1581,7 +2297,7 @@
 
   window.addEventListener('hashchange', () => {
     const page = location.hash.replace('#', '');
-    if (store.app && page !== store.page && PAGES.includes(page) && !editor) route(page);
+    if (store.app && page !== store.page && PAGES.includes(page) && !editor && !profEd) route(page);
   });
 
   // Theme switches change canvas colours.
