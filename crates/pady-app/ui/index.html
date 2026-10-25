@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Pady</title>
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="28" height="28">
+            <defs>
+              <linearGradient id="brand-g" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#6d6bff"/>
+                <stop offset=".55" stop-color="#8b5cf6"/>
+                <stop offset="1" stop-color="#c026d3"/>
+              </linearGradient>
+            </defs>
+            <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#brand-g)"/>
+            <rect x="1.5" y="1.5" width="29" height="29" rx="8.5" fill="none" stroke="#fff" stroke-opacity=".22"/>
+            <circle cx="10.5" cy="17" r="2.6" fill="#fff"/>
+            <circle cx="16" cy="14.6" r="2.6" fill="#fff"/>
+            <circle cx="21.5" cy="17" r="2.6" fill="#fff" fill-opacity=".9"/>
+          </svg>
+        </span>
+        <span class="brand-word">Pady</span>
+      </div>
+
+      <nav class="nav" aria-label="Main">
+        <button class="nav-item" type="button" data-page="gestures" data-icon="gestures"><span class="nav-label">Gestures</span></button>
+        <button class="nav-item" type="button" data-page="live" data-icon="live"><span class="nav-label">Live</span></button>
+        <button class="nav-item" type="button" data-page="settings" data-icon="settings"><span class="nav-label">Settings</span><span class="nav-dot" id="settings-dot" hidden title="Needs attention"></span></button>
+        <button class="nav-item" type="button" data-page="about" data-icon="info"><span class="nav-label">About</span></button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="device-pill" id="device-pill" role="status"></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-titles">
+          <h1 id="page-title">Gestures</h1>
+          <p id="page-sub" class="muted"></p>
+        </div>
+        <div class="topbar-actions">
+          <span class="save-flag" id="save-flag" aria-live="polite"></span>
+          <label class="master" id="master">
+            <span class="master-text">
+              <span class="master-state" id="master-state">On</span>
+              <span class="master-hint" id="master-hint">Gestures active</span>
+            </span>
+            <span class="switch switch--lg">
+              <input type="checkbox" role="switch" id="master-switch" aria-label="Enable Pady">
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </span>
+          </label>
+        </div>
+      </header>
+
+      <div class="content" id="content">
+        <section class="page" id="page-gestures" data-title="Gestures" data-sub="Choose what each multi-finger gesture does." hidden></section>
+        <section class="page" id="page-live" data-title="Live" data-sub="See exactly what Pady sees on your touchpad." hidden></section>
+        <section class="page" id="page-settings" data-title="Settings" data-sub="Tune how gestures are recognised." hidden></section>
+        <section class="page" id="page-about" data-title="About" data-sub="" hidden></section>
+        <div class="boot" id="boot"><div class="boot-spinner"></div></div>
+      </div>
+    </main>
+  </div>
+
+  <div id="overlay-root"></div>
+  <div class="toasts" id="toasts" aria-live="polite" aria-relevant="additions"></div>
+
+  <!-- mock.js is inert inside Tauri (it returns early when window.__TAURI__ exists). -->
+  <script src="mock.js"></script>
+  <script src="icons.js"></script>
+  <script src="model.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
