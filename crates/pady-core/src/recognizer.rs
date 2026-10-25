@@ -4,7 +4,7 @@
 //! Within a session the recogniser is in one of these phases:
 //!
 //! ```text
-//!            ┌──── fingers lift quickly, barely moved ───▶ Tap
+//!            ┌──── fingers lift quickly, barely moved ───▶ Tap (or double / triple tap)
 //!  Pending ──┼──── fingers rest without moving ──────────▶ Hold      ─▶ Consumed
 //!            ├──── fingers spread or close, pinch bound ─▶ Pinching  (step 0, 1, 2…)
 //!            ├──── fingers travel, drag enabled ─────────▶ Dragging  (start/move/end)
@@ -13,6 +13,10 @@
 //!
 //! Movement and spread are measured from contacts that are present in
 //! consecutive frames, so a finger landing or lifting never looks like a jump.
+//!
+//! Taps are counted across sessions: when a double or triple tap is bound
+//! for a finger count, a tap waits up to `multi_tap_ms` for the next one
+//! before it is reported. With no multi-tap bound, taps fire immediately.
 
 use crate::frame::{Contact, TouchFrame};
 use crate::gesture::{Direction, Gesture, PinchDirection};
@@ -34,6 +38,11 @@ pub struct RecognizerSettings {
     /// Indexed by finger count: is a pinch bound? Pinches are only looked
     /// for when one is, so a sloppy swipe can never be mistaken for one.
     pub pinch_fingers: [bool; 6],
+    /// A tap starting within this long of the previous one's lift counts
+    /// towards a double or triple tap.
+    pub multi_tap_ms: u64,
+    /// Indexed by finger count: the most taps in a row that are bound (1–3).
+    pub multi_tap_fingers: [u8; 6],
 }
 
 impl Default for RecognizerSettings {
@@ -58,6 +67,22 @@ enum Phase {
     Consumed,
 }
 
+/// A tap that may still become a double or triple tap.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PendingTap {
+    fingers: u8,
+    count: u8,
+    lifted_at: u64,
+}
+
+fn tap_gesture(fingers: u8, count: u8) -> Gesture {
+    match count {
+        0 | 1 => Gesture::Tap { fingers },
+        2 => Gesture::DoubleTap { fingers },
+        _ => Gesture::TripleTap { fingers },
+    }
+}
+
 #[derive(Debug)]
 pub struct Recognizer {
     settings: RecognizerSettings,
@@ -78,6 +103,7 @@ pub struct Recognizer {
     /// Change in finger spread since `anchor_time` (negative = closing).
     spread: f32,
     anchor_time: u64,
+    pending_tap: Option<PendingTap>,
 }
 
 impl Recognizer {
@@ -95,6 +121,7 @@ impl Recognizer {
             travel: (0.0, 0.0),
             spread: 0.0,
             anchor_time: 0,
+            pending_tap: None,
         }
     }
 
@@ -116,6 +143,7 @@ impl Recognizer {
     /// the caller can release the mouse button.
     pub fn reset(&mut self) -> Vec<Gesture> {
         let out = if self.is_dragging() { vec![Gesture::DragEnd] } else { Vec::new() };
+        self.pending_tap = None;
         self.phase = Phase::Idle;
         self.prev.clear();
         self.origins.clear();
@@ -220,6 +248,12 @@ impl Recognizer {
     /// reporting while fingers rest, so holds and drag release need this.
     pub fn tick(&mut self, now_ms: u64) -> Vec<Gesture> {
         let mut out = Vec::new();
+        if let Some(p) = self.pending_tap {
+            let expired = now_ms.saturating_sub(p.lifted_at) > self.settings.multi_tap_ms;
+            if expired && !self.next_tap_underway(p) {
+                self.flush_tap(&mut out);
+            }
+        }
         match self.phase {
             Phase::Pending if !self.prev.is_empty() => self.check_hold(now_ms, &mut out),
             Phase::Dragging { lifted_at: Some(at) } if now_ms.saturating_sub(at) >= self.settings.drag_release_ms => {
@@ -229,6 +263,64 @@ impl Recognizer {
             _ => {}
         }
         out
+    }
+
+    /// When `tick` next has work to do, if ever. The engine sleeps until
+    /// then instead of waking up dozens of times a second while idle.
+    pub fn next_deadline(&self) -> Option<u64> {
+        let s = &self.settings;
+        let timer = match self.phase {
+            Phase::Pending
+                if !self.fired
+                    && !self.prev.is_empty()
+                    && self.fingers >= s.min_fingers
+                    && self.travel.0.hypot(self.travel.1) <= s.tap_slop_mm
+                    && self.spread.abs() <= s.tap_slop_mm =>
+            {
+                Some(self.anchor_time + s.hold_ms)
+            }
+            Phase::Dragging { lifted_at: Some(at) } => Some(at + s.drag_release_ms),
+            _ => None,
+        };
+        let tap = self.pending_tap.filter(|&p| !self.next_tap_underway(p)).map(|p| p.lifted_at + s.multi_tap_ms + 1);
+        timer.into_iter().chain(tap).min()
+    }
+
+    /// Fingers came down soon enough to be the next tap of a series, so a
+    /// pending tap must wait for this session to finish.
+    fn next_tap_underway(&self, p: PendingTap) -> bool {
+        self.phase != Phase::Idle && self.session_start.saturating_sub(p.lifted_at) <= self.settings.multi_tap_ms
+    }
+
+    /// A tap just finished: report it now, or hold it back while a double or
+    /// triple tap is still possible.
+    fn count_tap(&mut self, fingers: u8, lifted_at: u64, out: &mut Vec<Gesture>) {
+        let most = self.settings.multi_tap_fingers.get(fingers as usize).copied().unwrap_or(1).clamp(1, 3);
+        let count = match self.pending_tap {
+            Some(p)
+                if p.fingers == fingers
+                    && self.session_start.saturating_sub(p.lifted_at) <= self.settings.multi_tap_ms =>
+            {
+                p.count + 1
+            }
+            _ => {
+                self.flush_tap(out);
+                1
+            }
+        };
+        if count >= most {
+            self.pending_tap = None;
+            out.push(tap_gesture(fingers, count));
+        } else {
+            self.pending_tap = Some(PendingTap { fingers, count, lifted_at });
+        }
+    }
+
+    /// Report a held-back tap (before anything that happens after it).
+    fn flush_tap(&mut self, out: &mut Vec<Gesture>) {
+        if let Some(p) = self.pending_tap.take() {
+            out.push(tap_gesture(p.fingers, p.count));
+        }
     }
 
     fn begin_session(&mut self, t: u64, n: u8) {
@@ -273,6 +365,7 @@ impl Recognizer {
         let travel = tx.hypot(ty);
         let pinch_bound = self.settings.pinch_fingers.get(n as usize).copied().unwrap_or(false);
         if pinch_bound && self.spread.abs() >= self.settings.pinch_threshold_mm && self.spread.abs() > travel {
+            self.flush_tap(out);
             self.fired = true;
             out.push(Gesture::Pinch { fingers: n, direction: PinchDirection::from_change(self.spread), step: 0 });
             self.phase = Phase::Pinching { progress: 0.0, step: 0 };
@@ -281,6 +374,7 @@ impl Recognizer {
         if travel < self.settings.swipe_threshold_mm {
             return;
         }
+        self.flush_tap(out);
         self.fired = true;
         if self.settings.drag_fingers.get(n as usize).copied().unwrap_or(false) {
             out.push(Gesture::DragStart { fingers: n });
@@ -301,6 +395,7 @@ impl Recognizer {
             return;
         }
         if self.travel.0.hypot(self.travel.1) <= s.tap_slop_mm && self.spread.abs() <= s.tap_slop_mm {
+            self.flush_tap(out);
             out.push(Gesture::Hold { fingers: n });
             self.fired = true;
             self.phase = Phase::Consumed;
@@ -325,7 +420,7 @@ impl Recognizer {
         let s = &self.settings;
         let quick = t.saturating_sub(self.session_start) <= s.tap_max_ms;
         if !self.fired && quick && self.max_fingers >= s.min_fingers && self.max_wander <= s.tap_slop_mm {
-            out.push(Gesture::Tap { fingers: self.max_fingers });
+            self.count_tap(self.max_fingers, t, out);
         }
         self.end_session();
     }
@@ -390,6 +485,8 @@ mod tests {
             drag_fingers: [false; 6],
             pinch_threshold_mm: 8.0,
             pinch_fingers: [false; 6],
+            multi_tap_ms: 300,
+            multi_tap_fingers: [1; 6],
         }
     }
 
@@ -674,5 +771,97 @@ mod tests {
         let mut s = Script::new(settings());
         s.spread(0, 3, 15.0).spread(300, 3, 22.0).tick(700);
         assert!(s.out.is_empty(), "spread changed by more than the slop: {:?}", s.out);
+    }
+
+    fn multi_tap_settings(most: u8) -> RecognizerSettings {
+        let mut s = settings();
+        s.multi_tap_fingers[3] = most;
+        s
+    }
+
+    /// A quick three-finger tap that lifts 50 ms after landing.
+    fn tap(s: &mut Script, t: u64) {
+        s.frame(t, 3, 0.0, 0.0).lift(t + 50);
+    }
+
+    #[test]
+    fn double_tap_replaces_two_single_taps() {
+        let mut s = Script::new(multi_tap_settings(2));
+        tap(&mut s, 0);
+        assert!(s.out.is_empty(), "the first tap waits for a possible second");
+        tap(&mut s, 200);
+        assert_eq!(s.out, vec![Gesture::DoubleTap { fingers: 3 }]);
+        s.tick(2000);
+        assert_eq!(s.out.len(), 1, "nothing left over");
+    }
+
+    #[test]
+    fn a_lone_tap_is_reported_once_the_window_passes() {
+        let mut s = Script::new(multi_tap_settings(2));
+        tap(&mut s, 0);
+        s.tick(300);
+        assert!(s.out.is_empty(), "still inside the 300 ms window");
+        s.tick(351);
+        assert_eq!(s.out, vec![Gesture::Tap { fingers: 3 }]);
+    }
+
+    #[test]
+    fn taps_too_far_apart_stay_single() {
+        let mut s = Script::new(multi_tap_settings(2));
+        tap(&mut s, 0);
+        tap(&mut s, 700);
+        assert_eq!(s.out, vec![Gesture::Tap { fingers: 3 }], "the first flushes when the late one lands");
+        s.tick(5000);
+        assert_eq!(s.out, vec![Gesture::Tap { fingers: 3 }, Gesture::Tap { fingers: 3 }]);
+    }
+
+    #[test]
+    fn triple_tap_and_double_when_the_third_never_comes() {
+        let mut s = Script::new(multi_tap_settings(3));
+        tap(&mut s, 0);
+        tap(&mut s, 150);
+        tap(&mut s, 300);
+        assert_eq!(s.out, vec![Gesture::TripleTap { fingers: 3 }]);
+
+        let mut s = Script::new(multi_tap_settings(3));
+        tap(&mut s, 0);
+        tap(&mut s, 150);
+        assert!(s.out.is_empty());
+        s.tick(600);
+        assert_eq!(s.out, vec![Gesture::DoubleTap { fingers: 3 }]);
+    }
+
+    #[test]
+    fn a_swipe_after_a_tap_reports_the_tap_first() {
+        let mut s = Script::new(multi_tap_settings(2));
+        tap(&mut s, 0);
+        s.frame(100, 3, 0.0, 0.0).frame(110, 3, 0.0, -12.0);
+        assert_eq!(
+            s.out,
+            vec![Gesture::Tap { fingers: 3 }, Gesture::Swipe { fingers: 3, direction: Direction::Up, step: 0 }]
+        );
+    }
+
+    #[test]
+    fn taps_without_multi_tap_bindings_fire_immediately() {
+        let mut s = Script::new(settings());
+        tap(&mut s, 0);
+        tap(&mut s, 100);
+        assert_eq!(s.out, vec![Gesture::Tap { fingers: 3 }, Gesture::Tap { fingers: 3 }]);
+    }
+
+    #[test]
+    fn next_deadline_only_while_something_is_pending() {
+        let mut s = Script::new(multi_tap_settings(2));
+        assert_eq!(s.rec.next_deadline(), None, "idle: sleep until the next frame");
+        s.frame(0, 3, 0.0, 0.0);
+        assert_eq!(s.rec.next_deadline(), Some(500), "resting fingers: the hold timer");
+        s.frame(10, 3, 6.0, 0.0);
+        assert_eq!(s.rec.next_deadline(), None, "moved too far to hold");
+        s.lift(40);
+        s.frame(1000, 3, 0.0, 0.0).lift(1050);
+        assert_eq!(s.rec.next_deadline(), Some(1351), "a tap waiting for a second one");
+        s.tick(1351);
+        assert_eq!(s.rec.next_deadline(), None);
     }
 }

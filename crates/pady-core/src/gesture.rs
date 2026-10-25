@@ -105,6 +105,12 @@ pub enum Gesture {
     Tap {
         fingers: u8,
     },
+    DoubleTap {
+        fingers: u8,
+    },
+    TripleTap {
+        fingers: u8,
+    },
     Hold {
         fingers: u8,
     },

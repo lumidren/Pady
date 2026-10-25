@@ -5,11 +5,13 @@ use std::str::FromStr;
 
 /// A gesture slot that can be bound to an action.
 ///
-/// Written in config files as compact strings: `tap:3`, `hold:4`,
-/// `swipe:3:up`, `pinch:4:in`, `drag:3`.
+/// Written in config files as compact strings: `tap:3`, `doubletap:3`,
+/// `tripletap:3`, `hold:4`, `swipe:3:up`, `pinch:4:in`, `drag:3`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Trigger {
     Tap(u8),
+    DoubleTap(u8),
+    TripleTap(u8),
     Hold(u8),
     Swipe(u8, Direction),
     Pinch(u8, PinchDirection),
@@ -22,7 +24,23 @@ impl Trigger {
 
     pub fn fingers(self) -> u8 {
         match self {
-            Trigger::Tap(n) | Trigger::Hold(n) | Trigger::Swipe(n, _) | Trigger::Pinch(n, _) | Trigger::Drag(n) => n,
+            Trigger::Tap(n)
+            | Trigger::DoubleTap(n)
+            | Trigger::TripleTap(n)
+            | Trigger::Hold(n)
+            | Trigger::Swipe(n, _)
+            | Trigger::Pinch(n, _)
+            | Trigger::Drag(n) => n,
+        }
+    }
+
+    /// How many taps in a row this trigger needs (0 for anything but taps).
+    pub fn tap_count(self) -> u8 {
+        match self {
+            Trigger::Tap(_) => 1,
+            Trigger::DoubleTap(_) => 2,
+            Trigger::TripleTap(_) => 3,
+            _ => 0,
         }
     }
 
@@ -36,6 +54,8 @@ impl Trigger {
     pub fn from_gesture(g: &Gesture) -> Option<Trigger> {
         match *g {
             Gesture::Tap { fingers } => Some(Trigger::Tap(fingers)),
+            Gesture::DoubleTap { fingers } => Some(Trigger::DoubleTap(fingers)),
+            Gesture::TripleTap { fingers } => Some(Trigger::TripleTap(fingers)),
             Gesture::Hold { fingers } => Some(Trigger::Hold(fingers)),
             Gesture::Swipe { fingers, direction, .. } => Some(Trigger::Swipe(fingers, direction)),
             Gesture::Pinch { fingers, direction, .. } => Some(Trigger::Pinch(fingers, direction)),
@@ -46,7 +66,12 @@ impl Trigger {
 
     /// Every bindable slot for one finger count, in display order.
     pub fn all_for(fingers: u8) -> Vec<Trigger> {
-        let mut v = vec![Trigger::Tap(fingers), Trigger::Hold(fingers)];
+        let mut v = vec![
+            Trigger::Tap(fingers),
+            Trigger::DoubleTap(fingers),
+            Trigger::TripleTap(fingers),
+            Trigger::Hold(fingers),
+        ];
         v.extend(Direction::ALL.iter().map(|&d| Trigger::Swipe(fingers, d)));
         v.extend(PinchDirection::ALL.iter().map(|&d| Trigger::Pinch(fingers, d)));
         v.push(Trigger::Drag(fingers));
@@ -56,6 +81,8 @@ impl Trigger {
     pub fn label(self) -> String {
         match self {
             Trigger::Tap(n) => format!("{n}-finger tap"),
+            Trigger::DoubleTap(n) => format!("{n}-finger double tap"),
+            Trigger::TripleTap(n) => format!("{n}-finger triple tap"),
             Trigger::Hold(n) => format!("{n}-finger hold"),
             Trigger::Swipe(n, d) => format!("{n}-finger swipe {d}"),
             Trigger::Pinch(n, d) => format!("{n}-finger pinch {d}"),
@@ -68,6 +95,8 @@ impl fmt::Display for Trigger {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Trigger::Tap(n) => write!(f, "tap:{n}"),
+            Trigger::DoubleTap(n) => write!(f, "doubletap:{n}"),
+            Trigger::TripleTap(n) => write!(f, "tripletap:{n}"),
             Trigger::Hold(n) => write!(f, "hold:{n}"),
             Trigger::Swipe(n, d) => write!(f, "swipe:{n}:{d}"),
             Trigger::Pinch(n, d) => write!(f, "pinch:{n}:{d}"),
@@ -77,7 +106,7 @@ impl fmt::Display for Trigger {
 }
 
 #[derive(Debug, thiserror::Error, PartialEq)]
-#[error("invalid trigger `{0}` (expected e.g. tap:3, hold:4, swipe:3:up, pinch:4:in, drag:3)")]
+#[error("invalid trigger `{0}` (expected e.g. tap:3, doubletap:3, hold:4, swipe:3:up, pinch:4:in, drag:3)")]
 pub struct ParseTriggerError(pub String);
 
 impl FromStr for Trigger {
@@ -93,6 +122,8 @@ impl FromStr for Trigger {
         let kind = parts[0].to_ascii_lowercase();
         match (kind.as_str(), parts.len()) {
             ("tap", 2) => Ok(Trigger::Tap(fingers)),
+            ("doubletap", 2) => Ok(Trigger::DoubleTap(fingers)),
+            ("tripletap", 2) => Ok(Trigger::TripleTap(fingers)),
             ("hold", 2) => Ok(Trigger::Hold(fingers)),
             ("drag", 2) => Ok(Trigger::Drag(fingers)),
             ("swipe", 3) => Direction::parse(parts[2]).map(|d| Trigger::Swipe(fingers, d)).ok_or_else(err),
@@ -132,6 +163,8 @@ mod tests {
     fn parsing_is_forgiving_about_case_and_spaces() {
         assert_eq!(" Swipe : 4 : LEFT ".parse(), Ok(Trigger::Swipe(4, Direction::Left)));
         assert_eq!("PINCH:3:Out".parse(), Ok(Trigger::Pinch(3, PinchDirection::Out)));
+        assert_eq!(" DoubleTap:4".parse(), Ok(Trigger::DoubleTap(4)));
+        assert_eq!(Trigger::TripleTap(3).tap_count(), 3);
     }
 
     #[test]
@@ -146,6 +179,7 @@ mod tests {
         assert!(Trigger::Swipe(3, Direction::Up).can_repeat());
         assert!(Trigger::Pinch(3, PinchDirection::In).can_repeat());
         assert!(!Trigger::Tap(3).can_repeat());
+        assert!(!Trigger::DoubleTap(3).can_repeat());
         assert!(!Trigger::Drag(3).can_repeat());
     }
 }
