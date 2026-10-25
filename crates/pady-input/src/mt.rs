@@ -2,10 +2,11 @@
 //!
 //! The kernel describes each finger in a numbered *slot*: `ABS_MT_SLOT`
 //! selects a slot, `ABS_MT_TRACKING_ID` starts (>= 0) or ends (-1) a contact
-//! in it, `ABS_MT_POSITION_X/Y` move it, and `SYN_REPORT` closes a packet.
-//! Values are only sent when they change, so the tracker keeps every slot's
-//! last state. [`MtTracker`] is fed those values one by one and yields a
-//! frame, in millimetres, whenever a packet changed the set of contacts.
+//! in it, `ABS_MT_POSITION_X/Y` move it, `ABS_MT_TOOL_TYPE` says whether it
+//! is a finger or a palm, and `SYN_REPORT` closes a packet. Values are only
+//! sent when they change, so the tracker keeps every slot's last state.
+//! [`MtTracker`] is fed those values one by one and yields a frame, in
+//! millimetres, whenever a packet changed the set of contacts.
 //!
 //! This module knows nothing about evdev types so it is unit tested on every
 //! platform; `linux.rs` only translates event codes into calls here.
@@ -25,6 +26,9 @@ pub struct AxisRange {
 /// Typical laptop pads are 90-120 mm wide, and every threshold in the
 /// recognizer is in millimetres, so a plausible guess beats raw units.
 pub const FALLBACK_WIDTH_MM: f32 = 100.0;
+
+/// `ABS_MT_TOOL_TYPE` value for a palm (`MT_TOOL_PALM` in the kernel).
+pub const MT_TOOL_PALM: i32 = 2;
 
 /// Ids for contacts adopted after a [`MtTracker::reset`], whose real tracking
 /// id was lost. Kernel tracking ids fit in 16 bits, so these never collide.
@@ -73,10 +77,12 @@ enum SlotState {
 #[derive(Clone, Copy, Debug, Default)]
 struct Slot {
     state: SlotState,
-    /// Last reported position. Kept across contacts because the kernel does
-    /// not repeat a value that did not change, even for a new finger.
+    /// Last reported position and tool. Kept across contacts because the
+    /// kernel does not repeat a value that did not change, even for a new
+    /// finger.
     x: Option<i32>,
     y: Option<i32>,
+    palm: bool,
 }
 
 /// Rebuilds the set of touching fingers from multitouch type B events.
@@ -84,6 +90,11 @@ struct Slot {
 /// Output frames are in millimetres from the top-left corner (y grows
 /// downward) and [`Contact::id`] is the kernel tracking id, stable while the
 /// finger stays down.
+///
+/// Contacts the driver marks as palms ([`MT_TOOL_PALM`], e.g. touches the
+/// firmware flags as not confident) are left out, so a resting hand does not
+/// add a finger or block a gesture. A finger that turns into a palm looks
+/// like a lift; one that turns back reappears with its tracking id.
 ///
 /// # Pads with fewer slots than fingers
 ///
@@ -94,7 +105,9 @@ struct Slot {
 /// contacts' centroid, spread [`SYNTHETIC_SPACING_MM`] apart horizontally,
 /// with ids that stay the same while the count does. They therefore move
 /// exactly with the real fingers, which is what swipe, drag and tap
-/// detection look at. Synthesis needs at least one real contact to anchor it.
+/// detection look at. Synthesis needs at least one real contact to anchor it,
+/// and palms count as reported slots: drivers differ on whether the tool
+/// keys include them, and a palm must never come back as a made-up finger.
 #[derive(Clone, Debug)]
 pub struct MtTracker {
     slots: Vec<Slot>,
@@ -179,6 +192,14 @@ impl MtTracker {
         self.adopt_current();
     }
 
+    /// `ABS_MT_TOOL_TYPE`: contacts in a slot whose tool is [`MT_TOOL_PALM`]
+    /// are left out of frames until the slot reports another tool.
+    pub fn tool_type(&mut self, tool: i32) {
+        if let Some(slot) = self.current_slot() {
+            slot.palm = tool == MT_TOOL_PALM;
+        }
+    }
+
     /// `BTN_TOOL_FINGER` (1) .. `BTN_TOOL_QUINTTAP` (5) pressed or released.
     /// The kernel may press the new key before releasing the old one within a
     /// packet, so the largest held key wins.
@@ -207,10 +228,11 @@ impl MtTracker {
 
     /// Forget per-slot state after `SYN_DROPPED`: events were lost, so any
     /// slot may have lifted or landed. Every slot becomes unknown (re-adopted
-    /// when it reports movement) and the tool keys are cleared; the caller
-    /// should then restore what it can query from the device (current slot,
-    /// its tracking id and position, held tool keys). A gesture in progress
-    /// is cut short by the resulting lift rather than misread.
+    /// when it reports movement, with its last known position and tool) and
+    /// the tool keys are cleared; the caller should then restore what it can
+    /// query from the device (current slot, its tracking id, tool and
+    /// position, held tool keys). A gesture in progress is cut short by the
+    /// resulting lift rather than misread.
     pub fn reset(&mut self) {
         for slot in &mut self.slots {
             slot.state = SlotState::Unknown;
@@ -244,21 +266,24 @@ impl MtTracker {
     }
 
     fn contacts(&self) -> Vec<Contact> {
-        let mut contacts: Vec<Contact> = self
-            .slots
-            .iter()
-            .filter_map(|s| match (s.state, s.x, s.y) {
-                (SlotState::Active(id), Some(x), Some(y)) => Some(Contact { id, x: self.x.mm(x), y: self.y.mm(y) }),
-                _ => None,
-            })
-            .collect();
+        let mut contacts = Vec::new();
+        // Touches the slots account for, palms included.
+        let mut touching = 0;
+        for slot in &self.slots {
+            if let (SlotState::Active(id), Some(x), Some(y)) = (slot.state, slot.x, slot.y) {
+                touching += 1;
+                if !slot.palm {
+                    contacts.push(Contact { id, x: self.x.mm(x), y: self.y.mm(y) });
+                }
+            }
+        }
 
         let real = contacts.len();
-        let wanted = self.tool_count() as usize;
-        if real > 0 && wanted > real {
+        let missing = (self.tool_count() as usize).saturating_sub(touching);
+        if real > 0 && missing > 0 {
             let cx = contacts.iter().map(|c| c.x).sum::<f32>() / real as f32;
             let cy = contacts.iter().map(|c| c.y).sum::<f32>() / real as f32;
-            for k in 0..wanted - real {
+            for k in 0..missing {
                 // Alternate right and left of the centroid: +s, -s, +2s, -2s...
                 let step = (k / 2 + 1) as f32 * SYNTHETIC_SPACING_MM;
                 let dx = if k % 2 == 0 { step } else { -step };
@@ -550,5 +575,78 @@ mod tests {
         assert_eq!(t.sync(1).unwrap().finger_count(), 1);
         t.tracking_id(-1);
         assert!(t.sync(2).unwrap().contacts.is_empty());
+    }
+
+    #[test]
+    fn palms_are_left_out() {
+        let mut t = tracker();
+        // A palm lands on its own: nothing to report.
+        t.slot(0);
+        t.tool_type(MT_TOOL_PALM);
+        t.tracking_id(1);
+        t.position_x(100);
+        t.position_y(400);
+        assert!(t.sync(0).is_none());
+
+        // Three fingers join it.
+        land(&mut t, 1, 2, 300, 100);
+        land(&mut t, 2, 3, 400, 100);
+        land(&mut t, 3, 4, 500, 100);
+        assert_eq!(ids(&t.sync(1).unwrap()), vec![2, 3, 4]);
+
+        // The palm moving changes nothing.
+        t.slot(0);
+        t.position_x(150);
+        assert!(t.sync(2).is_none());
+    }
+
+    #[test]
+    fn finger_turning_into_a_palm_lifts_and_can_return() {
+        let mut t = tracker();
+        land(&mut t, 0, 1, 100, 100);
+        land(&mut t, 1, 2, 200, 100);
+        t.sync(0);
+        t.slot(1);
+        t.tool_type(MT_TOOL_PALM);
+        assert_eq!(ids(&t.sync(1).unwrap()), vec![1]);
+        t.tool_type(0); // MT_TOOL_FINGER
+        assert_eq!(ids(&t.sync(2).unwrap()), vec![1, 2]);
+    }
+
+    #[test]
+    fn palm_tool_type_persists_for_the_next_contact_in_the_slot() {
+        let mut t = tracker();
+        t.slot(0);
+        t.tool_type(MT_TOOL_PALM);
+        t.tracking_id(1);
+        t.position_x(100);
+        t.position_y(100);
+        t.tracking_id(-1);
+        // Another palm in the same slot: the kernel does not resend the tool.
+        t.tracking_id(2);
+        assert!(t.sync(0).is_none());
+        // A finger: the tool changes, so it is sent.
+        t.tracking_id(3);
+        t.tool_type(0);
+        assert_eq!(ids(&t.sync(1).unwrap()), vec![3]);
+    }
+
+    #[test]
+    fn palms_are_never_replaced_by_synthetic_fingers() {
+        let mut t = tracker();
+        // Two touches reported by the tool keys: one finger, one palm.
+        t.tool_fingers(2);
+        land(&mut t, 0, 1, 100, 100);
+        t.slot(1);
+        t.tool_type(MT_TOOL_PALM);
+        t.tracking_id(2);
+        t.position_x(500);
+        t.position_y(400);
+        assert_eq!(ids(&t.sync(0).unwrap()), vec![1]);
+        // A third touch the slots cannot show is still synthesized.
+        t.tool_fingers(3);
+        let f = t.sync(1).unwrap();
+        assert_eq!(f.finger_count(), 2);
+        assert!(f.contacts[1].id >= SYNTHETIC_ID_BASE);
     }
 }
