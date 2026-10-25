@@ -493,6 +493,12 @@ fn main() {
                 tray_toggle: Mutex::new(None),
             });
 
+            // The windows are created only now (`create: false` in tauri.conf.json):
+            // a fast page load would otherwise call get_state before `manage` ran.
+            for window in app.config().app.windows.clone() {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &window)?.build()?;
+            }
+
             let toggle = build_tray(app.handle())?;
             *lock(&app.state::<Pady>().tray_toggle) = Some(toggle);
             app.state::<Pady>().sync_tray();
