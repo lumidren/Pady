@@ -407,7 +407,7 @@ impl WindowsExecutor {
                 u32::try_from(&value)?
             }
         };
-        let next = (current as i32 + step).clamp(0, 100) as u32;
+        let next = (current as i32).saturating_add(step).clamp(0, 100) as u32;
         unsafe {
             let instance = wmi_first(&wmi, "SELECT * FROM WmiMonitorBrightnessMethods WHERE Active=TRUE")?;
             let mut path = VARIANT::default();
