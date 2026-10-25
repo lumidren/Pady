@@ -19,6 +19,18 @@ use std::{env, fs, io};
 const UINPUT_PATH: &str = "/dev/uinput";
 const UINPUT_FIX: &str = "Click Fix permissions (or run pady-cli fix-permissions) and enter your \
     password once. Packages from the Pady releases page set this up automatically.";
+/// Installs the optional helper programs Pady uses (brightness, focusing
+/// windows, media players) where missing. Failures don't stop the rest.
+const HELPERS_SCRIPT: &str = "missing=''\n\
+    for tool in brightnessctl xdotool wmctrl playerctl; do \
+        command -v \"$tool\" >/dev/null 2>&1 || missing=\"$missing $tool\"; done\n\
+    if [ -n \"$missing\" ]; then\n\
+        if command -v apt-get >/dev/null 2>&1; then DEBIAN_FRONTEND=noninteractive apt-get install -y $missing || true\n\
+        elif command -v dnf >/dev/null 2>&1; then dnf install -y $missing || true\n\
+        elif command -v pacman >/dev/null 2>&1; then pacman -S --needed --noconfirm $missing || true\n\
+        elif command -v zypper >/dev/null 2>&1; then zypper --non-interactive install $missing || true\n\
+        fi\n\
+    fi\n";
 /// The udev rule the .deb and .rpm packages install; [`fix_permissions`]
 /// installs the same file for AppImage and source builds.
 const UDEV_RULES: &str = include_str!("../../../packaging/linux/70-pady.rules");
@@ -949,10 +961,25 @@ fn current_desktop() -> String {
 }
 
 pub fn conflicts(config: &Config) -> Vec<Conflict> {
-    conflicts_for(&current_desktop(), config, uinput_writable())
+    conflicts_for(&current_desktop(), config, uinput_writable(), &missing_helpers(config))
 }
 
-fn conflicts_for(desktop: &str, config: &Config, uinput_ok: bool) -> Vec<Conflict> {
+/// Helper programs that the user's bindings rely on but aren't installed,
+/// with what they're for. Fix permissions installs them.
+fn missing_helpers(config: &Config) -> Vec<(&'static str, &'static str)> {
+    let bindings: Vec<_> = config.bindings.iter().chain(config.profiles.iter().flat_map(|p| &p.bindings)).collect();
+    let mut out = Vec::new();
+    let x11 = has_display();
+    if x11 && which("wmctrl").is_none() && bindings.iter().any(|b| matches!(b.action, Action::FocusOrLaunch { .. })) {
+        out.push(("wmctrl", "switching to apps"));
+    }
+    if x11 && !config.profiles.is_empty() && which("xdotool").is_none() && which("xprop").is_none() {
+        out.push(("xdotool", "per-app profiles"));
+    }
+    out
+}
+
+fn conflicts_for(desktop: &str, config: &Config, uinput_ok: bool, missing: &[(&str, &str)]) -> Vec<Conflict> {
     // Per-app profile bindings count too: they fire whenever their app is in front.
     let bindings = || {
         config.bindings.iter().chain(config.profiles.iter().flat_map(|p| &p.bindings)).filter(|b| !b.action.is_none())
@@ -995,12 +1022,21 @@ fn conflicts_for(desktop: &str, config: &Config, uinput_ok: bool) -> Vec<Conflic
             can_fix: true,
         });
     }
+    if !missing.is_empty() {
+        let list: Vec<String> = missing.iter().map(|(tool, why)| format!("{tool} ({why})")).collect();
+        out.push(Conflict {
+            message: format!("Some of your gestures need programs that aren't installed: {}.", list.join(", ")),
+            fix: "Click Fix permissions to install them along with Pady's permissions (one password prompt).".into(),
+            can_open_settings: false,
+            can_fix: true,
+        });
+    }
     out
 }
 
 /// Install Pady's udev rule (and load uinput at boot) as root via pkexec,
-/// then apply it to the running session. The script only writes Pady's own
-/// two files and reloads udev.
+/// apply it to the running session, and install any missing helper programs
+/// with the distribution's package manager, all behind one password prompt.
 pub fn fix_permissions() -> Result<(), ActionError> {
     let script = fix_permissions_script();
     let status = Command::new("pkexec").args(["sh", "-c", &script]).status().map_err(|e| {
@@ -1023,7 +1059,8 @@ fn fix_permissions_script() -> String {
          modprobe uinput || true\n\
          udevadm control --reload-rules\n\
          udevadm trigger --subsystem-match=input --action=change\n\
-         udevadm trigger --subsystem-match=misc --sysname-match=uinput --action=change\n"
+         udevadm trigger --subsystem-match=misc --sysname-match=uinput --action=change\n\
+         {HELPERS_SCRIPT}"
     )
 }
 
@@ -1202,19 +1239,27 @@ mod tests {
     #[test]
     fn desktop_conflicts() {
         let mut cfg = Config { bindings: Vec::new(), ..Default::default() };
-        assert!(conflicts_for("UBUNTU:GNOME", &cfg, true).is_empty());
-        assert!(conflicts_for("XFCE", &cfg, false).is_empty(), "no binding needs uinput yet");
+        assert!(conflicts_for("UBUNTU:GNOME", &cfg, true, &[]).is_empty());
+        assert!(conflicts_for("XFCE", &cfg, false, &[]).is_empty(), "no binding needs uinput yet");
         cfg.set_binding(Trigger::Swipe(3, Direction::Left), Action::Keys { combo: "alt+left".into() }, false);
-        let c = conflicts_for("UBUNTU:GNOME", &cfg, true);
+        let c = conflicts_for("UBUNTU:GNOME", &cfg, true, &[]);
         assert_eq!(c.len(), 1);
         assert!(c[0].message.contains("GNOME"));
-        assert!(conflicts_for("KDE", &cfg, true).is_empty());
+        assert!(conflicts_for("KDE", &cfg, true, &[]).is_empty());
         cfg.set_binding(Trigger::Swipe(4, Direction::Up), Action::Lock, false);
-        let c = conflicts_for("KDE", &cfg, false);
+        let c = conflicts_for("KDE", &cfg, false, &[]);
         assert_eq!(c.len(), 2);
         assert!(c[0].can_open_settings);
         assert!(c[1].can_fix && c[1].fix.contains("Fix permissions"));
-        assert!(conflicts_for("XFCE", &cfg, true).is_empty());
+        assert!(conflicts_for("XFCE", &cfg, true, &[]).is_empty());
+    }
+
+    #[test]
+    fn missing_helpers_become_a_fixable_conflict() {
+        let cfg = Config { bindings: Vec::new(), ..Default::default() };
+        let c = conflicts_for("XFCE", &cfg, true, &[("wmctrl", "switching to apps")]);
+        assert_eq!(c.len(), 1);
+        assert!(c[0].can_fix && c[0].message.contains("wmctrl (switching to apps)"));
     }
 
     #[test]
@@ -1233,6 +1278,7 @@ PADY_RULES
         ));
         assert!(script.contains("> /etc/udev/rules.d/70-pady.rules"));
         assert!(script.contains("udevadm trigger --subsystem-match=input"));
+        assert!(script.contains("apt-get install -y $missing"), "installs helpers too");
     }
 
     #[test]
@@ -1247,12 +1293,12 @@ PADY_RULES
             ],
         });
         // The `none` swipe only switches a gesture off; the shortcut needs uinput.
-        assert!(conflicts_for("GNOME", &cfg, true).is_empty());
-        let c = conflicts_for("GNOME", &cfg, false);
+        assert!(conflicts_for("GNOME", &cfg, true, &[]).is_empty());
+        let c = conflicts_for("GNOME", &cfg, false, &[]);
         assert_eq!(c.len(), 1);
         assert!(c[0].message.contains("/dev/uinput"));
         cfg.profiles[0].bindings[0].action = Action::Keys { combo: "alt+left".into() };
-        assert_eq!(conflicts_for("GNOME", &cfg, true).len(), 1);
+        assert_eq!(conflicts_for("GNOME", &cfg, true, &[]).len(), 1);
     }
 
     #[test]

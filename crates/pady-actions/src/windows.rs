@@ -39,7 +39,7 @@ use windows::Win32::System::Wmi::{
     WBEM_GENERIC_FLAG_TYPE, WBEM_INFINITE,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
-use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::Shell::{SHQueryUserNotificationState, ShellExecuteW, QUNS_RUNNING_D3D_FULL_SCREEN};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetForegroundWindow, GetWindow, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId,
     IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_MINIMIZE, SW_RESTORE,
@@ -103,6 +103,12 @@ impl Executor for WindowsExecutor {
 
     fn foreground_app(&mut self) -> Option<String> {
         foreground_app()
+    }
+
+    /// Only exclusive full-screen Direct3D games count. Full-screen video
+    /// and presentations are left alone: people scrub volume there.
+    fn fullscreen_game(&mut self) -> bool {
+        unsafe { SHQueryUserNotificationState() }.is_ok_and(|state| state == QUNS_RUNNING_D3D_FULL_SCREEN)
     }
 
     fn mouse_button(&mut self, down: bool) -> Result<(), ActionError> {
@@ -662,7 +668,10 @@ pub fn conflicts(config: &Config) -> Vec<Conflict> {
                 || Direction::ALL.iter().any(|&d| b.trigger == Trigger::Swipe(fingers, d))
         });
         let swipes = uses_motion && enabled(slide);
-        let taps = config.binding(Trigger::Tap(fingers)).is_some() && enabled(tap);
+        let taps = [Trigger::Tap(fingers), Trigger::DoubleTap(fingers), Trigger::TripleTap(fingers)]
+            .into_iter()
+            .any(|t| config.binding(t).is_some())
+            && enabled(tap);
         out.extend(touchpad_conflict(word, swipes, taps));
     }
     out
