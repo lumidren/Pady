@@ -1,8 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-25)
 
 ### Added
+- **Installers.**
+  - Windows: a per-user setup `.exe` that installs WebView2 if it's missing, with the VC++ runtime linked statically so nothing else is needed, plus an MSI for managed PCs.
+  - Linux: `.deb` and `.rpm` packages that declare their libraries and install a udev rule for touchpad and `/dev/uinput` access, plus an AppImage.
+  - Uninstalling also removes autostart, and can remove your settings.
+- **Fix permissions** (Linux): installs the same udev rule from inside the app (one password prompt), and as `pady-cli fix-permissions`.
+- A release pipeline that builds every installer with SHA-256 checksums, and signs Windows builds once a certificate secret is added.
+- A log file (`%LOCALAPPDATA%\com.lumidren.pady\logs` on Windows, `~/.local/share/com.lumidren.pady/logs` on Linux), rotated at 1 MB, that also records crashes.
 - **Pinch gestures**: `pinch:N:in` and `pinch:N:out` for 3–5 fingers. With `repeat`, a single pinch keeps stepping, so the new default 4-finger pinch zooms smoothly with `ctrl+minus` / `ctrl+equal`.
 - **Per-app profiles**: override any tap, hold, swipe or pinch while specific apps are in front, or switch a gesture off there. The profile editor can detect an app when you switch to it, and `pady-cli app` prints app names as you switch.
 - **Level overlay**: while volume or brightness changes, a pill near the bottom of the screen under your cursor shows the level. It can't take focus or clicks. Toggle it with `show_overlay`.
@@ -11,7 +18,9 @@
 - Linux: palm rejection, touchpads plugged in after start are picked up, and per-app profiles on X11/XWayland and KDE Wayland.
 
 ### Changed
-- Gesture events report which profile a binding came from, and actions report the resulting volume or brightness.
+- Gesture events report which profile a binding came from, including when a profile switches a gesture off ("Off in this app"), and actions report the resulting volume or brightness.
+- Quitting Pady in the middle of a drag releases the mouse button instead of leaving it held down.
+- `pady-cli.exe` no longer needs the VC++ Redistributable.
 - Windows touchpad conflicts are merged into one warning per finger count.
 
 ## 0.1.0

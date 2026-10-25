@@ -69,9 +69,23 @@ The repository is a Cargo workspace:
 | `pady-cli` | `pady-cli monitor` to watch fingers and gestures live, `pady-cli run` to run headless |
 | `pady-app` | The Tauri 2 desktop app: tray icon plus a settings window (static HTML/CSS/JS in `ui/`) |
 
-## Getting started
+## Install
 
-### Build from source
+Download the file for your system from the [latest release](https://github.com/lumidren/Pady/releases/latest):
+
+| System | File | What happens |
+|---|---|---|
+| **Windows 10 / 11** | `Pady_<version>_x64-setup.exe` | Installs for your user, no admin rights needed. It adds Pady to the Start menu and installs Microsoft WebView2 if it's missing. Nothing else is required. |
+| Windows (managed PCs) | `Pady_<version>_x64_en-US.msi` | Per-machine install for Intune / Group Policy. |
+| **Ubuntu, Debian, Mint** | `Pady_<version>_amd64.deb` | `sudo apt install ./Pady_*_amd64.deb` installs the libraries Pady needs and sets up touchpad access. |
+| **Fedora, openSUSE** | `Pady-<version>-1.x86_64.rpm` | `sudo dnf install ./Pady-*.x86_64.rpm`, same as the .deb. |
+| Any Linux | `Pady_<version>_amd64.AppImage` | `chmod +x` and run it. On first launch, click **Fix permissions** (one password prompt). |
+
+Pady starts in the tray. Turn on **Start with Windows/Linux** in Settings to have it start when you sign in. To uninstall, use *Settings › Apps* on Windows (tick "Delete the application data" to remove your settings too) or your package manager on Linux.
+
+> **Windows SmartScreen:** until the installer is code-signed, Windows may say "Windows protected your PC". Click **More info › Run anyway**. The setup and its checksums come from this repository's release page.
+
+## Build from source
 
 You need [Rust](https://rustup.rs) (1.82 or newer).
 
@@ -88,26 +102,28 @@ cargo run -p pady-app --release        # the desktop app
 cargo run -p pady-cli -- monitor       # or: watch your fingers in the terminal
 ```
 
-To build an installer (NSIS `.exe`, `.deb` or AppImage), run `cargo install tauri-cli --version "^2"`, then `cargo tauri build` inside `crates/pady-app`.
+To build the installers yourself, run this inside `crates/pady-app`:
 
-### Windows setup
+```bash
+npx @tauri-apps/cli@2 build --bundles nsis,msi        # Windows
+npx @tauri-apps/cli@2 build --bundles deb,rpm,appimage # Linux
+```
+
+[RELEASING.md](RELEASING.md) covers tagging a release, the CI pipeline and code signing.
+
+## Setup
+
+### Windows
 
 Windows keeps running its own touchpad gestures alongside Pady; apps can read touchpad input but can't block it. For every finger count you rebind, open **Settings › Bluetooth & devices › Touchpad** and set *Three-finger gestures* and/or *Four-finger gestures* to **Nothing**. Pady detects when this is still needed and shows a banner with a button that opens the right page.
 
 Five-finger gestures have no Windows equivalent, so they never clash.
 
-### Linux setup
+### Linux
 
-```bash
-# Read the touchpad
-sudo usermod -aG input $USER
+Pady needs to read your touchpad and to send keys and pointer motion through `/dev/uinput`. The .deb and .rpm packages install a udev rule ([`packaging/linux/70-pady.rules`](packaging/linux/70-pady.rules)) that grants this to whoever is signed in at the computer. No group changes or re-login are needed. With the AppImage or a source build, click **Fix permissions** in Pady, or run `pady-cli fix-permissions`, to install the same rule.
 
-# Send keys, media keys and drag through /dev/uinput
-echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | sudo tee /etc/udev/rules.d/60-pady-uinput.rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
-```
-
-Log out and back in afterwards. GNOME uses three-finger swipes and KDE Plasma uses four-finger swipes for their own gestures; Pady warns you when your bindings overlap them. Switching to an app (`focus_or_launch`) works on X11 and XWayland apps through `wmctrl`; on native Wayland it falls back to launching.
+GNOME uses three-finger swipes and KDE Plasma uses four-finger swipes for their own gestures; Pady warns you when your bindings overlap them. Switching to an app (`focus_or_launch`) works on X11 and XWayland apps through `wmctrl`; on native Wayland it falls back to launching.
 
 ## Configuration
 
@@ -185,6 +201,7 @@ pady-cli run              Run Pady headless with your config
 pady-cli action <toml>    Run one action now: pady-cli action '{ type = "volume", step = 5 }'
 pady-cli app              Print the app in front as you switch (names for profiles)
 pady-cli doctor           Check config, touchpad, clashing OS gestures and permissions
+pady-cli fix-permissions  Linux: install the udev rule Pady needs (asks for a password)
 pady-cli config show      Print the active config
 ```
 
