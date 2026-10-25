@@ -6,6 +6,7 @@ members = [
     "crates/pady-actions",
     "crates/pady-cli",
     "crates/pady-app",
+    "crates/pady-overlay",
 ]
 
 [workspace.package]
@@ -19,6 +20,7 @@ rust-version = "1.82"
 pady-core = { path = "crates/pady-core" }
 pady-input = { path = "crates/pady-input" }
 pady-actions = { path = "crates/pady-actions" }
+pady-overlay = { path = "crates/pady-overlay" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"

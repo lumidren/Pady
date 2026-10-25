@@ -2576,6 +2576,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pady-overlay"
+version = "0.2.0"
+dependencies = [
+ "env_logger",
+ "log",
+ "pady-core",
+ "windows 0.58.0",
+]
+
+[[package]]
 name = "pango"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
