@@ -172,6 +172,8 @@ trigger = "tap:4"
 action = { type = "none" }                             # off in the browser
 ```
 
+You don't need to know exe names: in the profile editor, click **Detect app** and switch to the app, or run `pady-cli app` and switch between apps to see their names.
+
 Drag can't be overridden per app: Pady has to decide whether moving fingers drag before it knows where the gesture is going. On Linux, finding the app in front works on X11/XWayland (`xdotool` or `xprop`) and on KDE Wayland with `kdotool`.
 
 ## Command line
@@ -181,6 +183,7 @@ pady-cli devices          List detected touchpads
 pady-cli monitor          Show fingers and recognised gestures live (no actions run)
 pady-cli run              Run Pady headless with your config
 pady-cli action <toml>    Run one action now: pady-cli action '{ type = "volume", step = 5 }'
+pady-cli app              Print the app in front as you switch (names for profiles)
 pady-cli config show      Print the active config
 ```
 
