@@ -1,3 +1,6 @@
 /target
 **/*.rs.bk
 *.toml.tmp
+crates/pady-app/gen/
+.DS_Store
+Thumbs.db
