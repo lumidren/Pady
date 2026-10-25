@@ -25,8 +25,9 @@
 | **3-finger tap** | Play / pause |
 | **4-finger tap** | Open Chrome at a specific link, or bring an app to the front |
 | **4-finger hold** | Lock the screen |
+| **4-finger pinch in / out** | Zoom out / in (`ctrl+minus` / `ctrl+equal`), stepping as you keep pinching |
 
-Every slot (tap, hold, swipe up/down/left/right and drag, for 3, 4 or 5 fingers) can run any of these:
+Every slot (tap, hold, swipe up/down/left/right, pinch in/out and drag, for 3, 4 or 5 fingers) can run any of these:
 
 - **Keyboard shortcut**, e.g. `ctrl+shift+t`, `win+d`, `alt+f4`, recorded straight from your keyboard
 - **Volume** ±N % (exact Core Audio steps on Windows; PipeWire, Pulse or ALSA on Linux) and **mute**
@@ -36,6 +37,12 @@ Every slot (tap, hold, swipe up/down/left/right and drag, for 3, 4 or 5 fingers)
 - **Launch an app**, or **switch to it** (focus it if running, minimise it if it's already in front, launch it if not)
 - **Run a command**
 - **Lock the screen**
+
+On top of that:
+
+- **Per-app profiles.** Give a gesture a different job while Chrome, VS Code or a game is in front, or switch it off there. Everything else falls back to your global bindings.
+- **Level overlay.** While you scrub volume or brightness, a small pill near the bottom of the screen shows the level. It can't take focus or clicks, so the app you're using never notices it.
+- **Live view.** Watch your fingers on a to-scale touchpad and see every gesture Pady recognises, which action it ran and which profile it came from.
 
 Pady lives in the tray, starts with your computer if you want it to, and applies changes instantly, including when you edit the config file by hand.
 
@@ -139,9 +146,33 @@ trigger = "hold:3"
 action = { type = "focus_or_launch", program = "code" }
 ```
 
-**Triggers:** `tap:N`, `hold:N`, `swipe:N:up|down|left|right` and `drag:N`, where N is 3 to 5. A `drag:N` binding takes over all movement with N fingers, so swipes with that finger count are disabled. The app flags them.
+**Triggers:** `tap:N`, `hold:N`, `swipe:N:up|down|left|right`, `pinch:N:in|out` and `drag:N`, where N is 3 to 5. Swipes and pinches with `repeat = true` keep firing every `swipe_step_mm` while the fingers keep moving. A `drag:N` binding takes over all movement with N fingers, so swipes with that finger count are disabled. The app flags them.
 
 **Actions:** `none`, `keys{combo}`, `volume{step}`, `mute`, `brightness{step}`, `media{key}`, `open_url{url, browser?}`, `launch{program, args?}`, `focus_or_launch{program, args?}`, `run{command}`, `lock` and `drag`.
+
+### Per-app profiles
+
+A profile overrides global bindings, trigger by trigger, while one of its apps is in front. App names match the executable, ignoring case, folder and `.exe`. A binding with `type = "none"` switches that gesture off in those apps.
+
+```toml
+[[profile]]
+name = "Browser"
+apps = ["chrome.exe", "msedge.exe", "firefox"]
+
+[[profile.binding]]
+trigger = "swipe:4:left"
+action = { type = "keys", combo = "ctrl+shift+tab" }   # previous tab
+
+[[profile.binding]]
+trigger = "swipe:4:right"
+action = { type = "keys", combo = "ctrl+tab" }         # next tab
+
+[[profile.binding]]
+trigger = "tap:4"
+action = { type = "none" }                             # off in the browser
+```
+
+Drag can't be overridden per app: Pady has to decide whether moving fingers drag before it knows where the gesture is going. On Linux, finding the app in front works on X11/XWayland (`xdotool` or `xprop`) and on KDE Wayland with `kdotool`.
 
 ## Command line
 
@@ -165,7 +196,10 @@ To preview the UI in a browser without the backend, open `crates/pady-app/ui/ind
 
 ## Roadmap
 
-- Pinch and rotate gestures
-- Per-app profiles (different bindings in the browser vs. your editor)
-- An on-screen display for volume and brightness scrubbing
+- Rotate gestures and diagonal swipes
+- Edge swipes (start a swipe from the touchpad's edge for a separate set of bindings)
+- Double taps and tap-then-drag combinations
 - Exclusive mode on Linux (grab the touchpad and re-emit pointer motion) to fully replace desktop gestures
+- Pause automatically while a full-screen game is in front
+- Import and export of configs, and shareable profile presets
+- Signed installers and auto-update
