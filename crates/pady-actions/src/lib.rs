@@ -22,6 +22,18 @@ pub fn executor() -> Box<dyn Executor> {
     return Box::new(pady_core::engine::LogExecutor);
 }
 
+/// Executable name of the app in front (e.g. `chrome.exe` or `firefox`), as
+/// matched by per-app profiles. `None` where the OS won't say (e.g. native
+/// Wayland without a helper).
+pub fn foreground_app() -> Option<String> {
+    #[cfg(windows)]
+    return windows::foreground_app();
+    #[cfg(target_os = "linux")]
+    return linux::LinuxExecutor::new().foreground_app();
+    #[cfg(not(any(windows, target_os = "linux")))]
+    None
+}
+
 /// Something on this system that will fight with the user's bindings.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Conflict {

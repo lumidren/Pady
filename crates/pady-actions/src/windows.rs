@@ -102,8 +102,7 @@ impl Executor for WindowsExecutor {
     }
 
     fn foreground_app(&mut self) -> Option<String> {
-        let hwnd = unsafe { GetForegroundWindow() };
-        (!hwnd.0.is_null()).then(|| process_exe(hwnd)).flatten()
+        foreground_app()
     }
 
     fn mouse_button(&mut self, down: bool) -> Result<(), ActionError> {
@@ -597,6 +596,13 @@ fn find_window(exe: &str) -> Option<HWND> {
         let _ = EnumWindows(Some(visit), LPARAM(&mut search as *mut _ as isize));
     }
     search.found
+}
+
+/// Executable of the window in front, e.g. `chrome.exe`. Needs no COM, so
+/// any thread may call it.
+pub fn foreground_app() -> Option<String> {
+    let hwnd = unsafe { GetForegroundWindow() };
+    (!hwnd.0.is_null()).then(|| process_exe(hwnd)).flatten()
 }
 
 fn process_exe(hwnd: HWND) -> Option<String> {
