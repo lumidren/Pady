@@ -1,0 +1,12 @@
+# Pady touchpad gestures (https://github.com/lumidren/Pady)
+#
+# Lets the person signed in at this computer use their touchpad and the
+# virtual input device without joining the `input` group: the "uaccess" tag
+# makes systemd-logind grant the active session's user access. It has to run
+# before 73-seat-late.rules, hence the 70- prefix.
+
+# Read raw finger positions from touchpads (keyboards and mice stay private).
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_TOUCHPAD}=="1", TAG+="uaccess"
+
+# Send keyboard shortcuts, media keys and three-finger drag.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
