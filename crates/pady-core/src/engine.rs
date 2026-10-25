@@ -9,7 +9,7 @@
 //!   handling.
 
 use crate::action::Action;
-use crate::config::{Config, SharedConfig};
+use crate::config::{Config, Resolution, SharedConfig};
 use crate::frame::{now_ms, TouchFrame};
 use crate::gesture::Gesture;
 use crate::recognizer::Recognizer;
@@ -210,19 +210,14 @@ impl ActionLoop {
             Gesture::Swipe { step, .. } | Gesture::Pinch { step, .. } => step,
             _ => 0,
         };
-        let resolved = self
-            .config
-            .resolve(trigger, app.as_deref())
-            .filter(|(b, _)| step == 0 || b.repeat)
-            .map(|(b, p)| (b.action.clone(), p.map(|p| p.name.clone())));
-
-        // Unbound repeat steps are noise; everything else is worth showing.
-        if step > 0 && resolved.is_none() {
-            return;
-        }
-        let (action, profile) = match resolved {
-            Some((action, profile)) => (Some(action), profile),
-            None => (None, None),
+        let (action, profile) = match self.config.resolution(trigger, app.as_deref()) {
+            Resolution::Bound { binding, profile } if step == 0 || binding.repeat => {
+                (Some(binding.action.clone()), profile.map(|p| p.name.clone()))
+            }
+            // Repeat steps that nothing repeats are noise; everything else is worth showing.
+            _ if step > 0 => return,
+            Resolution::Off { profile } => (None, Some(profile.name.clone())),
+            _ => (None, None),
         };
         (self.observer)(EngineEvent::Gesture {
             gesture,
@@ -526,6 +521,18 @@ mod tests {
         assert!(events.iter().any(|e| matches!(
             e,
             EngineEvent::Gesture { profile: Some(p), .. } if p == "Browser"
+        )));
+    }
+
+    #[test]
+    fn profiles_report_gestures_they_switch_off() {
+        let mut cfg = with_browser_profile();
+        cfg.profiles[0].bindings[0].action = Action::None;
+        let (jobs, events) = run_engine_in(Some("chrome.exe"), cfg, tap3());
+        assert!(jobs.is_empty(), "nothing runs: {jobs:?}");
+        assert!(events.iter().any(|e| matches!(
+            e,
+            EngineEvent::Gesture { action: None, profile: Some(p), .. } if p == "Browser"
         )));
     }
 

@@ -20,7 +20,7 @@ pub mod recognizer;
 pub mod trigger;
 
 pub use action::{Action, MediaKey};
-pub use config::{Binding, Config, ConfigError, Profile, Settings, SharedConfig};
+pub use config::{Binding, Config, ConfigError, Profile, Resolution, Settings, SharedConfig};
 pub use engine::{ActionError, Engine, EngineEvent, Executor, Job, Level, LevelKind};
 pub use frame::{now_ms, Contact, TouchFrame};
 pub use gesture::{Direction, Gesture, PinchDirection};

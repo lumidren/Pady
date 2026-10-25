@@ -88,6 +88,20 @@ impl Profile {
     }
 }
 
+/// How a trigger resolves while a given app is in front.
+#[derive(Debug, PartialEq)]
+pub enum Resolution<'a> {
+    Bound {
+        binding: &'a Binding,
+        profile: Option<&'a Profile>,
+    },
+    /// The app's profile switched this gesture off.
+    Off {
+        profile: &'a Profile,
+    },
+    Unbound,
+}
+
 /// `C:\Apps\Code.EXE` / `code.exe` / `Code` → `code`
 fn app_key(app: &str) -> String {
     let base = app.trim().trim_matches('"').rsplit(['\\', '/']).next().unwrap_or("").to_ascii_lowercase();
@@ -212,15 +226,30 @@ impl Config {
         self.profiles.iter().find(|p| p.matches(app))
     }
 
+    /// What `trigger` does while `app` is in front.
+    pub fn resolution(&self, trigger: Trigger, app: Option<&str>) -> Resolution<'_> {
+        if let Some(profile) = app.and_then(|a| self.profile_for(a)) {
+            if let Some(binding) = profile.binding(trigger) {
+                return if binding.action.is_none() {
+                    Resolution::Off { profile }
+                } else {
+                    Resolution::Bound { binding, profile: Some(profile) }
+                };
+            }
+        }
+        match self.binding(trigger) {
+            Some(binding) => Resolution::Bound { binding, profile: None },
+            None => Resolution::Unbound,
+        }
+    }
+
     /// The binding that applies to `trigger` while `app` is in front, and
     /// the profile it came from. `None` if unbound or switched off there.
     pub fn resolve(&self, trigger: Trigger, app: Option<&str>) -> Option<(&Binding, Option<&Profile>)> {
-        if let Some(profile) = app.and_then(|a| self.profile_for(a)) {
-            if let Some(b) = profile.binding(trigger) {
-                return (!b.action.is_none()).then_some((b, Some(profile)));
-            }
+        match self.resolution(trigger, app) {
+            Resolution::Bound { binding, profile } => Some((binding, profile)),
+            Resolution::Off { .. } | Resolution::Unbound => None,
         }
-        self.binding(trigger).map(|b| (b, None))
     }
 
     /// Replace (or remove, for `Action::None`) the binding for a trigger.
