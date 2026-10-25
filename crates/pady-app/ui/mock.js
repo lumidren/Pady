@@ -19,6 +19,7 @@
  *   ?theme=light|dark force a theme regardless of the OS setting
  *   ?brightfail       brightness actions emit pady://action-failed
  *   ?detectnull       detect_app times out (resolves null)
+ *   ?nopermission     Linux without access to the touchpad (shows Fix permissions)
  *   ?slow             add 600ms latency to every command
  */
 (function () {
@@ -63,6 +64,7 @@
   const FOREGROUND = linux ? ['code', 'google-chrome', 'nautilus'] : ['Code.exe', 'chrome.exe', 'explorer.exe'];
 
   const noDevice = q.has('nodevice');
+  const noPermission = q.has('nopermission');
   const state = {
     config: {
       settings: clone(DEFAULT_SETTINGS),
@@ -74,24 +76,32 @@
       ]),
       profile: q.has('noprofiles') ? [] : [clone(SAMPLE_PROFILE)],
     },
-    devices: noDevice ? [] : [{ name: 'Precision Touchpad', width_mm: 105.0, height_mm: 68.0, max_contacts: 5 }],
-    input_error: noDevice
+    devices: noDevice || noPermission ? [] : [{ name: 'Precision Touchpad', width_mm: 105.0, height_mm: 68.0, max_contacts: 5 }],
+    input_error: noPermission
+      ? 'permission denied reading touchpad: click Fix permissions in Pady or run pady-cli fix-permissions'
+      : noDevice
       ? (linux
         ? 'No touchpad found under /dev/input. Add your user to the "input" group and log in again.'
         : 'No Precision Touchpad was found. Pady needs a touchpad that uses the Windows Precision driver.')
       : null,
-    conflicts: q.has('noconflicts') ? [] : [{
+    conflicts: (noPermission ? [{
+      message: "Pady isn't allowed to read your touchpad yet.",
+      fix: 'Click Fix permissions and enter your password once.',
+      can_open_settings: false,
+      can_fix: true,
+    }] : []).concat(q.has('noconflicts') ? [] : [{
       message: linux ? 'GNOME also handles three-finger swipes.' : 'Windows also handles three-finger swipes.',
       fix: linux
         ? 'Disable workspace gestures with a GNOME extension, or bind only 4- and 5-finger swipes.'
         : 'Set three-finger swipes to "Nothing" in Touchpad settings.',
       can_open_settings: !linux,
-    }],
+      can_fix: false,
+    }]),
     shadowed: [],
     autostart: false,
     config_path: linux ? '/home/me/.config/pady/config.toml' : 'C:\\Users\\me\\AppData\\Roaming\\Pady\\config.toml',
     platform,
-    version: '0.1.0',
+    version: '0.2.0',
   };
 
   /* ---------- Validation / normalisation (mirrors pady-core) ---------- */
@@ -332,6 +342,13 @@
     },
     open_config_folder: () => { console.info('[mock] open_config_folder'); return null; },
     open_touchpad_settings: () => { console.info('[mock] open_touchpad_settings'); return null; },
+    fix_permissions: () => new Promise((done) => setTimeout(() => {
+      state.conflicts = state.conflicts.filter((c) => !c.can_fix);
+      state.input_error = null;
+      // The backend retries the touchpad right after the rule is installed.
+      if (!state.devices.length) state.devices = [{ name: 'Precision Touchpad', width_mm: 105.0, height_mm: 68.0, max_contacts: 5 }];
+      done(snapshot());
+    }, 1200)),
     set_live: ({ live: on }) => { live = !!on; return null; },
     // Pretend the user switches to another app after ~2.5 s (or never, with ?detectnull).
     detect_app: ({ timeoutMs }) => new Promise((done) => {

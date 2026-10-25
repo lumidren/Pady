@@ -576,12 +576,14 @@
     if (conflicts.length) {
       const one = conflicts.length === 1;
       const canOpen = conflicts.some((c) => c.can_open_settings);
+      const canFix = conflicts.some((c) => c.can_fix);
       gestUI.banners.append(h('div', { class: 'banner' }, ico('warning', 18),
         h('div', { class: 'banner-body' },
           h('span', { class: 'banner-title' }, one ? conflicts[0].message : `${conflicts.length} system settings clash with your gestures`),
           h('span', { class: 'banner-text' }, one ? conflicts[0].fix : conflicts.map((c) => c.message).join(' '))),
         h('div', { class: 'banner-actions' },
           one ? null : h('button', { class: 'btn btn--sm', type: 'button', onClick: () => { location.hash = '#settings'; } }, 'Details'),
+          canFix ? fixPermissionsButton() : null,
           canOpen ? h('button', { class: 'btn btn--sm', type: 'button', onClick: openTouchpadSettings }, ico('external', 14), 'Open settings') : null)));
     }
 
@@ -742,6 +744,23 @@
 
   async function openTouchpadSettings() {
     try { await call('open_touchpad_settings', null, { errorTitle: 'Couldn’t open touchpad settings' }); } catch (_) { /* toast shown */ }
+  }
+
+  /** Linux: installs Pady's udev rule after one password prompt, then re-renders. */
+  function fixPermissionsButton() {
+    const btn = h('button', { class: 'btn btn--sm btn--primary', type: 'button' }, ico('check', 14), 'Fix permissions');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.lastChild.textContent = 'Waiting for password…';
+      try {
+        applyState(await call('fix_permissions', null, { errorTitle: 'Couldn’t fix permissions' }));
+        toast({ title: 'Permissions fixed', text: 'Pady can now read your touchpad and send keys.' });
+      } catch (_) {
+        btn.disabled = false;
+        btn.lastChild.textContent = 'Fix permissions';
+      }
+    });
+    return btn;
   }
 
   /* =====================================================================
@@ -2157,7 +2176,11 @@
 
     setUI.banners.replaceChildren(...(s.conflicts || []).map((c) => h('div', { class: 'banner' }, ico('warning', 18),
       h('div', { class: 'banner-body' }, h('span', { class: 'banner-title' }, c.message), h('span', { class: 'banner-text' }, c.fix)),
-      c.can_open_settings ? h('div', { class: 'banner-actions' }, h('button', { class: 'btn btn--sm', type: 'button', onClick: openTouchpadSettings }, ico('external', 14), 'Open touchpad settings')) : null)));
+      c.can_open_settings || c.can_fix
+        ? h('div', { class: 'banner-actions' },
+          c.can_fix ? fixPermissionsButton() : null,
+          c.can_open_settings ? h('button', { class: 'btn btn--sm', type: 'button', onClick: openTouchpadSettings }, ico('external', 14), 'Open touchpad settings') : null)
+        : null)));
 
     setUI.devices.replaceChildren();
     if (s.devices && s.devices.length) {
