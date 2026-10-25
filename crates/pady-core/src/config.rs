@@ -71,7 +71,7 @@ pub enum ConfigError {
     #[error("could not read or write {path}: {source}")]
     Io { path: PathBuf, source: std::io::Error },
     #[error("{path} is not valid Pady config: {source}")]
-    Parse { path: PathBuf, source: toml::de::Error },
+    Parse { path: PathBuf, source: Box<toml::de::Error> },
     #[error("could not serialise config: {0}")]
     Serialize(#[from] toml::ser::Error),
     #[error("could not locate the user config directory")]
@@ -130,7 +130,7 @@ impl Config {
 
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         let text = std::fs::read_to_string(path).map_err(|source| ConfigError::Io { path: path.into(), source })?;
-        Config::from_toml(&text).map_err(|source| ConfigError::Parse { path: path.into(), source })
+        Config::from_toml(&text).map_err(|source| ConfigError::Parse { path: path.into(), source: Box::new(source) })
     }
 
     /// Load the file, creating it with defaults on first run.
