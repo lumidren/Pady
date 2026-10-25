@@ -9,7 +9,7 @@
 use crate::Conflict;
 use evdev::uinput::{VirtualDevice, VirtualDeviceBuilder};
 use evdev::{AttributeSet, EventType, InputEvent, Key as EvKey, RelativeAxisType};
-use pady_core::{Action, ActionError, Config, Executor, Key, KeyCombo, MediaKey, Modifiers, Trigger};
+use pady_core::{Action, ActionError, Config, Executor, Key, KeyCombo, Level, MediaKey, Modifiers, Trigger};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -100,42 +100,63 @@ impl LinuxExecutor {
         Err(uinput_err)
     }
 
-    fn media(&mut self, key: MediaKey) -> Result<(), ActionError> {
+    fn media(&mut self, key: MediaKey) -> Result<Option<Level>, ActionError> {
         let uinput_err = match self.device() {
-            Ok(dev) => return emit_keys(dev, &[(media_key(key), true), (media_key(key), false)]).map_err(Into::into),
+            // The desktop shows its own OSD for media keys, so no level here.
+            Ok(dev) => {
+                return emit_keys(dev, &[(media_key(key), true), (media_key(key), false)])
+                    .map(|()| None)
+                    .map_err(Into::into)
+            }
             Err(e) => e,
         };
-        let player =
-            |cmd: &str| run_quiet("playerctl", [cmd]).map_err(|e| format!("{uinput_err} (fallback: {e})").into());
+        let player = |cmd: &str| {
+            run_quiet("playerctl", [cmd]).map(|()| None).map_err(|e| format!("{uinput_err} (fallback: {e})").into())
+        };
         match key {
             MediaKey::PlayPause => player("play-pause"),
             MediaKey::Next => player("next"),
             MediaKey::Previous => player("previous"),
             MediaKey::Stop => player("stop"),
+            // Changed behind the desktop's back, so no OSD: report the level.
             MediaKey::VolumeUp => self.volume(5),
             MediaKey::VolumeDown => self.volume(-5),
             MediaKey::Mute => self.mute(),
         }
     }
 
-    fn volume(&mut self, step: i32) -> Result<(), ActionError> {
-        if step == 0 {
-            return Ok(());
+    /// Change the volume and read back the result (`None` if no tool could
+    /// report it). Turning it up while muted also unmutes, as volume keys do.
+    fn volume(&mut self, step: i32) -> Result<Option<Level>, ActionError> {
+        if step != 0 {
+            self.audio_command(|tool| tool.volume_args(step))
+                .map_err(|e| format!("could not change the volume: {e}"))?;
         }
-        self.audio_command(|tool| tool.volume_args(step))
-            .map_err(|e| format!("could not change the volume: {e}").into())
+        let mut level = self.read_volume();
+        if let Some(level) = level.as_mut().filter(|l| step > 0 && l.muted) {
+            if self.audio_command(AudioTool::unmute_args).is_ok() {
+                level.muted = false;
+            }
+        }
+        Ok(level)
     }
 
-    fn mute(&mut self) -> Result<(), ActionError> {
-        self.audio_command(AudioTool::mute_args).map_err(|e| format!("could not toggle mute: {e}").into())
+    fn mute(&mut self) -> Result<Option<Level>, ActionError> {
+        self.audio_command(AudioTool::mute_args).map_err(|e| format!("could not toggle mute: {e}"))?;
+        Ok(self.read_volume())
+    }
+
+    /// The remembered audio tool first, then the rest in order of preference.
+    fn audio_tools(&self) -> Vec<AudioTool> {
+        let mut order: Vec<AudioTool> = self.audio.into_iter().collect();
+        order.extend(AudioTool::ALL.iter().filter(|&&t| Some(t) != self.audio));
+        order
     }
 
     /// Run the remembered audio tool, or probe them all in order.
     fn audio_command(&mut self, args: impl Fn(AudioTool) -> Vec<String>) -> Result<(), String> {
-        let mut order: Vec<AudioTool> = self.audio.into_iter().collect();
-        order.extend(AudioTool::ALL.iter().filter(|&&t| Some(t) != self.audio));
         let mut errors = Vec::new();
-        for tool in order {
+        for tool in self.audio_tools() {
             match run_quiet(tool.program(), args(tool)) {
                 Ok(()) => {
                     self.audio = Some(tool);
@@ -147,28 +168,37 @@ impl LinuxExecutor {
         self.audio = None;
         Err(errors.join("; "))
     }
+
+    fn read_volume(&self) -> Option<Level> {
+        self.audio_tools().into_iter().find_map(AudioTool::read_level)
+    }
 }
 
 impl Executor for LinuxExecutor {
-    fn run(&mut self, action: &Action) -> Result<(), ActionError> {
-        match action {
+    fn run(&mut self, action: &Action) -> Result<Option<Level>, ActionError> {
+        let done = match action {
+            Action::Volume { step } => return self.volume(*step),
+            Action::Mute => return self.mute(),
+            Action::Brightness { step } => return brightness(*step),
+            Action::Media { key } => return self.media(*key),
             // Drag is driven through mouse_button / mouse_move.
             Action::None | Action::Drag => Ok(()),
             Action::Keys { combo } => {
                 let parsed: KeyCombo = combo.parse().map_err(|e| format!("invalid shortcut `{combo}`: {e}"))?;
                 self.send_combo(&parsed)
             }
-            Action::Volume { step } => self.volume(*step),
-            Action::Mute => self.mute(),
-            Action::Brightness { step } => brightness(*step),
-            Action::Media { key } => self.media(*key),
             Action::OpenUrl { url, browser } => open_url(url, browser.as_deref()),
             Action::Launch { program, args } => launch(program, args),
             Action::FocusOrLaunch { program, args } => focus_or_launch(program, args),
             Action::Run { command } => spawn_detached(Command::new("sh").arg("-c").arg(command))
                 .map_err(|e| format!("cannot run `{command}`: {e}").into()),
             Action::Lock => lock(),
-        }
+        };
+        done.map(|()| None)
+    }
+
+    fn foreground_app(&mut self) -> Option<String> {
+        process_name(active_window_pid()?)
     }
 
     fn mouse_button(&mut self, down: bool) -> Result<(), ActionError> {
@@ -413,26 +443,34 @@ fn x_keysym(key: Key) -> &'static str {
     }
 }
 
-fn is_x11() -> bool {
+/// An X server (possibly XWayland) is reachable.
+fn has_display() -> bool {
     env::var_os("DISPLAY").is_some_and(|d| !d.is_empty())
-        && env::var_os("WAYLAND_DISPLAY").is_none()
-        && env::var("XDG_SESSION_TYPE").map_or(true, |t| t != "wayland")
+}
+
+fn is_wayland() -> bool {
+    env::var_os("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty())
+        || env::var("XDG_SESSION_TYPE").is_ok_and(|t| t == "wayland")
+}
+
+fn is_x11() -> bool {
+    has_display() && !is_wayland()
 }
 
 // ------------------------------------------------------------- processes
 
-/// Run a short-lived helper and wait for it. The error is one line saying
-/// why, for messages that list everything that was tried. Only for tools
-/// that do not leave children behind holding the stderr pipe.
-fn run_quiet<I, S>(program: &str, args: I) -> Result<(), String>
+/// Run a short-lived helper, wait for it and return its stdout. The error is
+/// one line saying why, for messages that list everything that was tried.
+/// Output is untranslated (`LC_ALL=C`) because some of it is parsed. Only for
+/// tools that do not leave children behind holding the pipes.
+fn run_capture<I, S>(program: &str, args: I) -> Result<String, String>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let out =
-        Command::new(program).args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).output();
+    let out = Command::new(program).args(args).env("LC_ALL", "C").stdin(Stdio::null()).output();
     match out {
-        Ok(o) if o.status.success() => Ok(()),
+        Ok(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).into_owned()),
         Ok(o) => {
             let stderr = String::from_utf8_lossy(&o.stderr);
             match stderr.lines().map(str::trim).find(|l| !l.is_empty()) {
@@ -442,6 +480,15 @@ where
         }
         Err(e) => Err(spawn_error(program, &e)),
     }
+}
+
+/// [`run_capture`] for commands whose output does not matter.
+fn run_quiet<I, S>(program: &str, args: I) -> Result<(), String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    run_capture(program, args).map(|_| ())
 }
 
 /// Like [`run_quiet`] for launchers whose children inherit our stdio: no
@@ -458,16 +505,6 @@ where
         Ok(s) => Err(format!("{program} failed ({s})")),
         Err(e) => Err(spawn_error(program, &e)),
     }
-}
-
-/// Stdout of a short-lived helper, if it ran successfully.
-fn run_output<I, S>(program: &str, args: I) -> Option<String>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<OsStr>,
-{
-    let out = Command::new(program).args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 fn spawn_error(program: &str, e: &io::Error) -> String {
@@ -540,41 +577,147 @@ impl AudioTool {
     }
 
     fn mute_args(self) -> Vec<String> {
-        let args: &[&str] = match self {
-            AudioTool::Wpctl => &["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"],
-            AudioTool::Pactl => &["set-sink-mute", "@DEFAULT_SINK@", "toggle"],
-            AudioTool::Amixer => &["-q", "sset", "Master", "toggle"],
+        self.set_mute_args("toggle")
+    }
+
+    fn unmute_args(self) -> Vec<String> {
+        self.set_mute_args(match self {
+            AudioTool::Wpctl | AudioTool::Pactl => "0",
+            AudioTool::Amixer => "unmute",
+        })
+    }
+
+    fn set_mute_args(self, value: &str) -> Vec<String> {
+        let base: &[&str] = match self {
+            AudioTool::Wpctl => &["set-mute", "@DEFAULT_AUDIO_SINK@"],
+            AudioTool::Pactl => &["set-sink-mute", "@DEFAULT_SINK@"],
+            AudioTool::Amixer => &["-q", "sset", "Master"],
         };
-        args.iter().map(|s| s.to_string()).collect()
+        base.iter().copied().chain([value]).map(String::from).collect()
+    }
+
+    /// The default output's volume and mute state, as this tool reports it.
+    fn read_level(self) -> Option<Level> {
+        match self {
+            AudioTool::Wpctl => parse_wpctl_volume(&run_capture("wpctl", ["get-volume", "@DEFAULT_AUDIO_SINK@"]).ok()?),
+            AudioTool::Pactl => {
+                let volume = parse_pactl_volume(&run_capture("pactl", ["get-sink-volume", "@DEFAULT_SINK@"]).ok()?)?;
+                let muted = parse_pactl_mute(&run_capture("pactl", ["get-sink-mute", "@DEFAULT_SINK@"]).ok()?)?;
+                Some(Level::volume(volume, muted))
+            }
+            AudioTool::Amixer => parse_amixer(&run_capture("amixer", ["get", "Master"]).ok()?),
+        }
     }
 }
 
-fn brightness(step: i32) -> Result<(), ActionError> {
-    if step == 0 {
-        return Ok(());
+/// `wpctl get-volume`: `Volume: 0.45`, or `Volume: 0.45 [MUTED]`.
+fn parse_wpctl_volume(out: &str) -> Option<Level> {
+    let rest = out.trim().strip_prefix("Volume:")?;
+    let volume: f32 = rest.split_whitespace().next()?.replace(',', ".").parse().ok()?;
+    Some(Level::volume(volume * 100.0, rest.contains("[MUTED]")))
+}
+
+/// `pactl get-sink-volume`: `Volume: front-left: 29491 /  45% / -20.81 dB,
+/// front-right: ...`; the average of the channels.
+fn parse_pactl_volume(out: &str) -> Option<f32> {
+    let percents: Vec<f32> =
+        out.split_whitespace().filter_map(|t| t.strip_suffix('%')).filter_map(|n| n.parse().ok()).collect();
+    average(&percents)
+}
+
+fn average(values: &[f32]) -> Option<f32> {
+    (!values.is_empty()).then(|| values.iter().sum::<f32>() / values.len() as f32)
+}
+
+/// `pactl get-sink-mute`: `Mute: yes` or `Mute: no`.
+fn parse_pactl_mute(out: &str) -> Option<bool> {
+    match out.trim().strip_prefix("Mute:")?.trim() {
+        "yes" => Some(true),
+        "no" => Some(false),
+        _ => None,
     }
-    let n = step.unsigned_abs();
-    let sign = if step > 0 { "+" } else { "-" };
+}
+
+/// `amixer get Master`: channel lines such as `Front Left: Playback 29491
+/// [45%] [-20.00dB] [on]`. Muted when every channel's switch is off.
+fn parse_amixer(out: &str) -> Option<Level> {
+    let mut percents = Vec::new();
+    let (mut on, mut off) = (false, false);
+    for field in out.split_whitespace() {
+        let Some(inner) = field.strip_prefix('[').and_then(|f| f.strip_suffix(']')) else { continue };
+        match inner {
+            "on" => on = true,
+            "off" => off = true,
+            _ => percents.extend(inner.strip_suffix('%').and_then(|p| p.parse::<f32>().ok())),
+        }
+    }
+    Some(Level::volume(average(&percents)?, off && !on))
+}
+
+/// Change the brightness and report the new level (`Ok(None)` when it
+/// changed but the tool did not say to what).
+fn brightness(step: i32) -> Result<Option<Level>, ActionError> {
     let mut tried = Vec::new();
-    match run_quiet("brightnessctl", ["set", &format!("{n}%{sign}")]) {
-        Ok(()) => return Ok(()),
+    match brightnessctl(step) {
+        Ok(percent) => return Ok(percent.map(Level::brightness)),
         Err(e) => tried.push(e),
     }
     match sysfs_backlight(step) {
-        Ok(()) => return Ok(()),
+        Ok(percent) => return Ok(Some(Level::brightness(percent))),
         Err(e) => tried.push(e),
     }
-    // External monitors over DDC/CI (VCP feature 0x10 is brightness).
-    match run_quiet("ddcutil", ["setvcp", "10", sign, &n.to_string()]) {
-        Ok(()) => return Ok(()),
+    match ddc_brightness(step) {
+        Ok(percent) => return Ok(Some(Level::brightness(percent))),
         Err(e) => tried.push(e),
     }
     Err(format!("could not change brightness: {}", tried.join("; ")).into())
 }
 
+/// `brightnessctl -m` prints the device after the change (step 0 only reads).
+fn brightnessctl(step: i32) -> Result<Option<f32>, String> {
+    let amount = format!("{}%{}", step.unsigned_abs(), if step >= 0 { '+' } else { '-' });
+    let args = if step == 0 { vec!["-m", "info"] } else { vec!["-m", "set", &amount] };
+    run_capture("brightnessctl", args).map(|out| parse_brightnessctl(&out))
+}
+
+/// `brightnessctl -m`: `intel_backlight,backlight,12000,50%,24000`
+/// (device, class, current, percent, max).
+fn parse_brightnessctl(out: &str) -> Option<f32> {
+    let line = out.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let fields: Vec<&str> = line.split(',').collect();
+    let [_, _, current, percent, max] = fields[..] else { return None };
+    match (current.parse::<f64>(), max.parse::<f64>()) {
+        (Ok(current), Ok(max)) if max > 0.0 => Some((current * 100.0 / max) as f32),
+        _ => percent.strip_suffix('%')?.parse().ok(),
+    }
+}
+
+/// External monitors over DDC/CI (VCP feature 0x10 is brightness). Reading
+/// first and setting an absolute value costs the same two DDC round trips
+/// as a relative `setvcp 10 + N` and tells us the result.
+fn ddc_brightness(step: i32) -> Result<f32, String> {
+    let out = run_capture("ddcutil", ["getvcp", "10", "--terse"])?;
+    let (current, max) = parse_ddcutil_vcp(&out).ok_or("ddcutil: no monitor reported its brightness")?;
+    if step == 0 {
+        return Ok(backlight_percent(current, max));
+    }
+    let value = backlight_value(current, max, step);
+    run_quiet("ddcutil", ["setvcp", "10", &value.to_string()])?;
+    Ok(backlight_percent(value.into(), max))
+}
+
+/// `ddcutil getvcp 10 --terse`: `VCP 10 C 50 100` (current, max).
+fn parse_ddcutil_vcp(out: &str) -> Option<(i64, i64)> {
+    out.lines().find_map(|line| match line.split_whitespace().collect::<Vec<_>>()[..] {
+        ["VCP", "10", "C", current, max] => Some((current.parse().ok()?, max.parse().ok()?)),
+        _ => None,
+    })
+}
+
 /// Change the laptop backlight directly, or through logind (which lets the
 /// session owner set it without root) when the sysfs file is not writable.
-fn sysfs_backlight(step: i32) -> Result<(), String> {
+/// Returns the new level in percent.
+fn sysfs_backlight(step: i32) -> Result<f32, String> {
     let base = Path::new("/sys/class/backlight");
     let mut devices: Vec<(u8, PathBuf)> = fs::read_dir(base)
         .map_err(|e| format!("{}: {e}", base.display()))?
@@ -589,11 +732,14 @@ fn sysfs_backlight(step: i32) -> Result<(), String> {
         let text = fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
         text.trim().parse().map_err(|e| format!("{}: {e}", p.display()))
     };
-    let value = backlight_value(read("brightness")?, read("max_brightness")?, step);
+    let (current, max) = (read("brightness")?, read("max_brightness")?);
+    if step == 0 {
+        return Ok(backlight_percent(current, max));
+    }
+    let value = backlight_value(current, max, step);
     let file = path.join("brightness");
-    match fs::write(&file, value.to_string()) {
-        Ok(()) => Ok(()),
-        Err(write_err) => run_quiet(
+    if let Err(write_err) = fs::write(&file, value.to_string()) {
+        run_quiet(
             "busctl",
             [
                 "call",
@@ -607,8 +753,13 @@ fn sysfs_backlight(step: i32) -> Result<(), String> {
                 &value.to_string(),
             ],
         )
-        .map_err(|e| format!("cannot write {} ({write_err}) and logind refused ({e})", file.display())),
+        .map_err(|e| format!("cannot write {} ({write_err}) and logind refused ({e})", file.display()))?;
     }
+    Ok(backlight_percent(value.into(), max))
+}
+
+fn backlight_percent(value: i64, max: i64) -> f32 {
+    (value as f64 * 100.0 / max.max(1) as f64) as f32
 }
 
 /// The kernel's advice: prefer firmware interfaces over platform drivers
@@ -673,11 +824,10 @@ fn launch(program: &str, args: &[String]) -> Result<(), ActionError> {
 /// windows), so for native Wayland apps this falls back to launching, and
 /// most apps then activate their existing window themselves.
 fn focus_or_launch(program: &str, args: &[String]) -> Result<(), ActionError> {
-    let has_display = env::var_os("DISPLAY").is_some_and(|d| !d.is_empty());
-    if has_display && which("wmctrl").is_some() {
-        if let Some(id) = run_output("wmctrl", ["-lx"]).and_then(|list| find_window(&list, program)) {
+    if has_display() && which("wmctrl").is_some() {
+        if let Some(id) = run_capture("wmctrl", ["-lx"]).ok().and_then(|list| find_window(&list, program)) {
             let active = which("xdotool")
-                .and_then(|_| run_output("xdotool", ["getactivewindow"]))
+                .and_then(|_| run_capture("xdotool", ["getactivewindow"]).ok())
                 .and_then(|s| s.trim().parse::<u64>().ok());
             if active.is_some() && active == parse_window_id(&id) {
                 return run_quiet("xdotool", ["windowminimize", &id]).map_err(Into::into);
@@ -720,6 +870,76 @@ fn lock() -> Result<(), ActionError> {
     run_status("xdg-screensaver", ["lock"]).map_err(|e| format!("could not lock the session: {logind}; {e}").into())
 }
 
+// ------------------------------------------------------------ focused app
+
+/// PID of the focused window's process.
+///
+/// X11 windows, XWayland ones included, publish it as `_NET_WM_PID`. Wayland
+/// has no portable way to ask which window has focus: on KDE `kdotool` asks
+/// KWin; elsewhere only XWayland windows are seen, so a native Wayland app in
+/// front gets no per-app profile (or, if the compositor leaves the X hint
+/// stale, the last X11 app's).
+fn active_window_pid() -> Option<u32> {
+    let pid_from = |program: &str, args: &[&str]| parse_pid(&run_capture(program, args).ok()?);
+    if is_wayland() && current_desktop().contains("KDE") {
+        if let Some(pid) = pid_from("kdotool", &["getactivewindow", "getwindowpid"]) {
+            return Some(pid);
+        }
+    }
+    if !has_display() {
+        return None;
+    }
+    if let Some(pid) = pid_from("xdotool", &["getactivewindow", "getwindowpid"]) {
+        return Some(pid);
+    }
+    let window = parse_xprop_window(&run_capture("xprop", ["-root", "_NET_ACTIVE_WINDOW"]).ok()?)?;
+    parse_xprop_pid(&run_capture("xprop", ["-id", &window, "_NET_WM_PID"]).ok()?)
+}
+
+/// A pid printed on a line of its own (`xdotool`/`kdotool getwindowpid`).
+/// Pid 1 never owns a window here: it is what a containerised app reports
+/// from inside its own pid namespace.
+fn parse_pid(out: &str) -> Option<u32> {
+    out.lines().rev().find_map(|l| l.trim().parse().ok()).filter(|&pid| pid > 1)
+}
+
+/// `xprop -root _NET_ACTIVE_WINDOW`: `_NET_ACTIVE_WINDOW(WINDOW): window id #
+/// 0x3a00007` (0x0 when nothing has focus).
+fn parse_xprop_window(out: &str) -> Option<String> {
+    let id = out.split("window id #").nth(1)?.split([',', ' ', '\n']).find(|s| !s.is_empty())?;
+    (parse_window_id(id)? != 0).then(|| id.to_string())
+}
+
+/// `xprop -id <window> _NET_WM_PID`: `_NET_WM_PID(CARDINAL) = 12345`.
+fn parse_xprop_pid(out: &str) -> Option<u32> {
+    parse_pid(out.split_once('=')?.1)
+}
+
+/// Executable name of a process: the target of `/proc/<pid>/exe`, or its
+/// `comm` when that link is hidden (another user's or a non-dumpable
+/// process). Kernel threads and vanished processes give `None`, which also
+/// covers sandboxed apps (Flatpak) whose pid is only valid in their own pid
+/// namespace and so usually names a kernel thread on the host.
+fn process_name(pid: u32) -> Option<String> {
+    let dir = PathBuf::from(format!("/proc/{pid}"));
+    match fs::read_link(dir.join("exe")) {
+        Ok(target) => exe_basename(&target),
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            let comm = fs::read_to_string(dir.join("comm")).ok()?;
+            Some(comm.trim().to_string()).filter(|c| !c.is_empty())
+        }
+        Err(_) => None,
+    }
+}
+
+/// `/usr/lib/firefox/firefox` → `firefox`. The link gains ` (deleted)` when
+/// an update replaced the binary while it was running.
+fn exe_basename(target: &Path) -> Option<String> {
+    let name = target.file_name()?.to_str()?;
+    let name = name.strip_suffix(" (deleted)").unwrap_or(name);
+    (!name.is_empty()).then(|| name.to_string())
+}
+
 // --------------------------------------------------- desktop integration
 
 fn current_desktop() -> String {
@@ -731,7 +951,11 @@ pub fn conflicts(config: &Config) -> Vec<Conflict> {
 }
 
 fn conflicts_for(desktop: &str, config: &Config, uinput_ok: bool) -> Vec<Conflict> {
-    let bound = |pred: &dyn Fn(Trigger) -> bool| config.bindings.iter().any(|b| !b.action.is_none() && pred(b.trigger));
+    // Per-app profile bindings count too: they fire whenever their app is in front.
+    let bindings = || {
+        config.bindings.iter().chain(config.profiles.iter().flat_map(|p| &p.bindings)).filter(|b| !b.action.is_none())
+    };
+    let bound = |pred: &dyn Fn(Trigger) -> bool| bindings().any(|b| pred(b.trigger));
     let mut out = Vec::new();
     if desktop.contains("GNOME") && bound(&|t| matches!(t, Trigger::Swipe(3, _) | Trigger::Drag(3))) {
         out.push(Conflict {
@@ -756,7 +980,7 @@ fn conflicts_for(desktop: &str, config: &Config, uinput_ok: bool) -> Vec<Conflic
     }
     // Only bindings that synthesise input need uinput; volume, apps and links don't.
     let needs_uinput =
-        config.bindings.iter().any(|b| matches!(b.action, Action::Keys { .. } | Action::Media { .. } | Action::Drag));
+        bindings().any(|b| matches!(b.action, Action::Keys { .. } | Action::Media { .. } | Action::Drag));
     if !uinput_ok && needs_uinput {
         out.push(Conflict {
             message: format!(
@@ -855,7 +1079,7 @@ fn quote_exec_arg(arg: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pady_core::Direction;
+    use pady_core::{Binding, Direction, Profile};
     use std::collections::HashSet;
 
     #[test]
@@ -957,6 +1181,95 @@ mod tests {
         assert!(c[0].can_open_settings);
         assert!(c[1].fix.contains("KERNEL==\"uinput\""));
         assert!(conflicts_for("XFCE", &cfg, true).is_empty());
+    }
+
+    #[test]
+    fn profile_bindings_conflict_too() {
+        let mut cfg = Config { bindings: Vec::new(), ..Default::default() };
+        cfg.profiles.push(Profile {
+            name: "Browser".into(),
+            apps: vec!["firefox".into()],
+            bindings: vec![
+                Binding { trigger: Trigger::Swipe(3, Direction::Left), action: Action::None, repeat: false },
+                Binding { trigger: Trigger::Tap(4), action: Action::Keys { combo: "ctrl+w".into() }, repeat: false },
+            ],
+        });
+        // The `none` swipe only switches a gesture off; the shortcut needs uinput.
+        assert!(conflicts_for("GNOME", &cfg, true).is_empty());
+        let c = conflicts_for("GNOME", &cfg, false);
+        assert_eq!(c.len(), 1);
+        assert!(c[0].message.contains("/dev/uinput"));
+        cfg.profiles[0].bindings[0].action = Action::Keys { combo: "alt+left".into() };
+        assert_eq!(conflicts_for("GNOME", &cfg, true).len(), 1);
+    }
+
+    #[test]
+    fn volume_read_back() {
+        assert_eq!(parse_wpctl_volume("Volume: 0.45\n"), Some(Level::volume(45.0, false)));
+        assert_eq!(parse_wpctl_volume("Volume: 0.30 [MUTED]\n"), Some(Level::volume(30.0, true)));
+        assert_eq!(parse_wpctl_volume("Volume: 1.20").map(|l| l.percent), Some(100));
+        assert_eq!(parse_wpctl_volume("Volume: 0,5").map(|l| l.percent), Some(50));
+        assert_eq!(parse_wpctl_volume("Couldn't get default node"), None);
+
+        let pactl = "Volume: front-left: 26214 /  40% / -23.88 dB,   front-right: 32768 /  50% / -18.06 dB\n        \
+                     balance 0.10\n";
+        assert_eq!(parse_pactl_volume(pactl), Some(45.0));
+        assert_eq!(parse_pactl_volume("Volume: mono: 65536 / 100% / 0.00 dB"), Some(100.0));
+        assert_eq!(parse_pactl_volume("Failure: No such entity"), None);
+        assert_eq!(parse_pactl_mute("Mute: yes\n"), Some(true));
+        assert_eq!(parse_pactl_mute("Mute: no"), Some(false));
+        assert_eq!(parse_pactl_mute("Stumm: ja"), None);
+
+        let amixer = "Simple mixer control 'Master',0\n  Capabilities: pvolume pswitch pswitch-joined\n  \
+                      Playback channels: Front Left - Front Right\n  Limits: Playback 0 - 87\n  Mono:\n  \
+                      Front Left: Playback 39 [45%] [-36.00dB] [on]\n  \
+                      Front Right: Playback 39 [45%] [-36.00dB] [on]\n";
+        assert_eq!(parse_amixer(amixer), Some(Level::volume(45.0, false)));
+        assert_eq!(parse_amixer(&amixer.replace("[on]", "[off]")), Some(Level::volume(45.0, true)));
+        assert_eq!(parse_amixer("Simple mixer control 'Master',0\n  Capabilities: pswitch\n"), None);
+    }
+
+    #[test]
+    fn mute_arguments() {
+        assert_eq!(AudioTool::Wpctl.mute_args(), vec!["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]);
+        assert_eq!(AudioTool::Wpctl.unmute_args(), vec!["set-mute", "@DEFAULT_AUDIO_SINK@", "0"]);
+        assert_eq!(AudioTool::Pactl.unmute_args(), vec!["set-sink-mute", "@DEFAULT_SINK@", "0"]);
+        assert_eq!(AudioTool::Amixer.unmute_args(), vec!["-q", "sset", "Master", "unmute"]);
+    }
+
+    #[test]
+    fn brightness_read_back() {
+        assert_eq!(parse_brightnessctl("intel_backlight,backlight,12000,50%,24000\n"), Some(50.0));
+        let amd = parse_brightnessctl("amdgpu_bl0,backlight,128,50%,255").unwrap();
+        assert!((amd - 50.196).abs() < 0.01, "{amd}");
+        assert_eq!(parse_brightnessctl("odd,backlight,x,30%,0"), Some(30.0));
+        assert_eq!(parse_brightnessctl("Device 'intel_backlight' of class 'backlight':"), None);
+        assert_eq!(parse_ddcutil_vcp("VCP 10 C 50 100\n"), Some((50, 100)));
+        assert_eq!(parse_ddcutil_vcp("VCP 10 ERR"), None);
+        assert_eq!(backlight_percent(12_000, 24_000), 50.0);
+    }
+
+    #[test]
+    fn focused_app_lookup() {
+        assert_eq!(parse_pid("12345\n"), Some(12345));
+        assert_eq!(parse_pid("{c2a5}\n4242\n"), Some(4242));
+        assert_eq!(parse_pid("1\n"), None);
+        assert_eq!(parse_pid(""), None);
+        assert_eq!(
+            parse_xprop_window("_NET_ACTIVE_WINDOW(WINDOW): window id # 0x3a00007\n").as_deref(),
+            Some("0x3a00007")
+        );
+        assert_eq!(
+            parse_xprop_window("_NET_ACTIVE_WINDOW(WINDOW): window id # 0x3a00007, 0x0").as_deref(),
+            Some("0x3a00007")
+        );
+        assert_eq!(parse_xprop_window("_NET_ACTIVE_WINDOW(WINDOW): window id # 0x0"), None);
+        assert_eq!(parse_xprop_window("_NET_ACTIVE_WINDOW:  not found."), None);
+        assert_eq!(parse_xprop_pid("_NET_WM_PID(CARDINAL) = 4321\n"), Some(4321));
+        assert_eq!(parse_xprop_pid("_NET_WM_PID:  not found.\n"), None);
+        assert_eq!(exe_basename(Path::new("/usr/share/code/code")).as_deref(), Some("code"));
+        assert_eq!(exe_basename(Path::new("/usr/lib/firefox/firefox (deleted)")).as_deref(), Some("firefox"));
+        assert_eq!(exe_basename(Path::new("/")), None);
     }
 
     #[test]
