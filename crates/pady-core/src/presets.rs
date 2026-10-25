@@ -20,26 +20,28 @@ pub const PRESETS: &[Preset] = &[
     Preset {
         id: "recommended",
         name: "Recommended",
-        description: "Three-finger drag, play and skip tracks with three-finger taps, volume and brightness on \
-                      four-finger swipes, pinch to zoom.",
+        description: "Three-finger drag, taps for play/pause and next track, four-finger swipes for volume and brightness, pinch to zoom.",
     },
     Preset {
         id: "macos",
         name: "Like a Mac",
-        description: "Three-finger drag, four-finger swipes for task view, the desktop and switching desktops, \
-                      pinch to zoom.",
+        description: "Feels like a MacBook trackpad: three-finger drag, four-finger swipes between desktops and to task view, pinch to zoom.",
     },
     Preset {
         id: "media",
         name: "Media",
-        description: "Taps play, pause and skip, four-finger swipes change the volume and track.",
+        description: "Built for music and video: taps control playback, four-finger swipes scrub the volume and skip tracks.",
     },
     Preset {
         id: "productivity",
         name: "Productivity",
-        description: "Desktops, task view, screenshots and lock on four fingers, plus three-finger drag.",
+        description: "Window and desktop management: task view, show desktop, switching desktops, quick screenshots and lock.",
     },
-    Preset { id: "minimal", name: "Minimal", description: "Only three-finger drag; everything else stays as it was." },
+    Preset {
+        id: "minimal",
+        name: "Minimal",
+        description: "Just three-finger drag. Start small and add your own.",
+    },
 ];
 
 fn keys(combo: &str) -> Action {
