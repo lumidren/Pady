@@ -150,6 +150,30 @@ fn open_touchpad_settings() -> Result<(), String> {
     pady_actions::open_touchpad_settings().map_err(|e| e.to_string())
 }
 
+/// Wait for the user to switch to another app and return its executable
+/// name, so the profile editor can add it without anyone typing `.exe`
+/// names. Pady's own windows don't count. `None` on timeout.
+#[tauri::command]
+async fn detect_app(timeout_ms: u64) -> Option<String> {
+    let own =
+        std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()));
+    tauri::async_runtime::spawn_blocking(move || {
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms.clamp(1_000, 30_000));
+        while Instant::now() < deadline {
+            if let Some(app) = pady_actions::foreground_app() {
+                if Some(app.to_ascii_lowercase()) != own {
+                    return Some(app);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        None
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 
@@ -186,7 +210,11 @@ impl Overlay {
         let Some(window) = self.app.get_webview_window("overlay") else { return };
         let _ = window.emit("pady://level", level);
         if !window.is_visible().unwrap_or(false) {
-            if let (Ok(Some(monitor)), Ok(size)) = (window.primary_monitor(), window.outer_size()) {
+            // Appear on the screen the user is looking at: the one under the cursor.
+            let under_cursor =
+                self.app.cursor_position().ok().and_then(|p| self.app.monitor_from_point(p.x, p.y).ok().flatten());
+            let monitor = under_cursor.or_else(|| window.primary_monitor().ok().flatten());
+            if let (Some(monitor), Ok(size)) = (monitor, window.outer_size()) {
                 let (area, scale) = (monitor.size(), monitor.scale_factor());
                 let x = monitor.position().x + (area.width as i32 - size.width as i32) / 2;
                 let y = monitor.position().y + area.height as i32 - size.height as i32 - (110.0 * scale) as i32;
@@ -349,6 +377,7 @@ fn main() {
             set_live,
             open_config_folder,
             open_touchpad_settings,
+            detect_app,
         ])
         .setup(move |app| {
             let config_path = Config::default_path()?;
