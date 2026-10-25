@@ -92,6 +92,18 @@ pub enum Job {
     },
     MouseButton(bool),
     MouseMove(i32, i32),
+    /// Let go of the mouse button if a drag is holding it (on quit).
+    ReleaseMouse(Ack),
+}
+
+/// Lets the sender of a [`Job`] wait until the action thread has handled it.
+#[derive(Clone, Debug)]
+pub struct Ack(Sender<()>);
+
+impl PartialEq for Ack {
+    fn eq(&self, _: &Self) -> bool {
+        true // acknowledgements carry no data worth comparing
+    }
 }
 
 /// What the engine reports to observers (UI, CLI).
@@ -158,6 +170,16 @@ impl Engine {
         let _ = self.jobs.send(Job::Run(action));
     }
 
+    /// Release the mouse button if a drag is holding it, waiting up to
+    /// `timeout` for the action thread. Call before quitting so the button
+    /// is never left pressed system-wide.
+    pub fn release_mouse(&self, timeout: Duration) {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        if self.jobs.send(Job::ReleaseMouse(Ack(tx))).is_ok() {
+            let _ = rx.recv_timeout(timeout);
+        }
+    }
+
     /// Wait for the engine to stop (after the frame source closes) and for
     /// queued actions to finish.
     pub fn join(self) {
@@ -175,11 +197,13 @@ struct ActionLoop {
     generation: u64,
     config: Config,
     observer: Observer,
+    /// Did we press the mouse button (a drag in progress)?
+    button_down: bool,
 }
 
 impl ActionLoop {
     fn new(exec: Box<dyn Executor>, shared: Arc<SharedConfig>, observer: Observer) -> Self {
-        ActionLoop { exec, generation: shared.generation(), config: shared.get(), shared, observer }
+        ActionLoop { exec, generation: shared.generation(), config: shared.get(), shared, observer, button_down: false }
     }
 
     fn run(mut self, jobs: Receiver<Job>) {
@@ -189,11 +213,20 @@ impl ActionLoop {
                 Job::Fire { gesture, trigger } => self.fire(gesture, trigger),
                 Job::MouseButton(down) => {
                     let result = self.exec.mouse_button(down);
+                    self.button_down = down && result.is_ok();
                     self.report("Mouse button", result);
                 }
                 Job::MouseMove(dx, dy) => {
                     let result = self.exec.mouse_move(dx, dy);
                     self.report("Mouse move", result);
+                }
+                Job::ReleaseMouse(Ack(done)) => {
+                    if self.button_down {
+                        let result = self.exec.mouse_button(false);
+                        self.button_down = false;
+                        self.report("Mouse button", result);
+                    }
+                    let _ = done.send(());
                 }
             }
         }
@@ -540,6 +573,34 @@ mod tests {
     fn other_apps_fall_back_to_global_bindings() {
         let (jobs, _) = run_engine_in(Some("code.exe"), with_browser_profile(), tap3());
         assert_eq!(jobs, vec![Job::Run(Action::Mute)]);
+    }
+
+    #[test]
+    fn release_mouse_lets_go_only_of_a_held_button() {
+        let jobs = Arc::new(Mutex::new(Vec::new()));
+        let (tx, rx) = unbounded::<TouchFrame>();
+        let rec = jobs.clone();
+        let engine = Engine::spawn(
+            Arc::new(SharedConfig::new(Config::default())),
+            rx,
+            move || Box::new(Recorder { jobs: rec, app: None }),
+            Arc::new(|_| {}),
+        );
+        engine.release_mouse(Duration::from_secs(2));
+        assert!(jobs.lock().unwrap().is_empty(), "nothing was held, so nothing is released");
+
+        // Start a three-finger drag and quit mid-way.
+        for f in [frame(0, 3, 0.0, 0.0), frame(10, 3, 12.0, 0.0)] {
+            tx.send(f).unwrap();
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !jobs.lock().unwrap().contains(&Job::MouseButton(true)) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        engine.release_mouse(Duration::from_secs(2));
+        assert_eq!(jobs.lock().unwrap().last(), Some(&Job::MouseButton(false)));
+        drop(tx);
+        engine.join();
     }
 
     #[test]
