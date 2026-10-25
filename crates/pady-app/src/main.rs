@@ -250,7 +250,7 @@ impl Overlay {
     fn show(&self, level: &Level) {
         let Some(window) = self.app.get_webview_window("overlay") else { return };
         let _ = window.emit("pady://level", level);
-        if !window.is_visible().unwrap_or(false) {
+        if !overlay_window::is_visible(&window) {
             // Appear on the screen the user is looking at: the one under the cursor.
             let under_cursor =
                 self.app.cursor_position().ok().and_then(|p| self.app.monitor_from_point(p.x, p.y).ok().flatten());
@@ -262,16 +262,74 @@ impl Overlay {
                 let _ = window.set_position(PhysicalPosition::new(x, y));
             }
             let _ = window.set_ignore_cursor_events(true);
-            let _ = window.show();
+            overlay_window::show_without_focus(&window);
         }
         let ticket = self.shown.fetch_add(1, Ordering::SeqCst) + 1;
         let shown = self.shown.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Self::LINGER);
             if shown.load(Ordering::SeqCst) == ticket {
-                let _ = window.hide();
+                overlay_window::hide(&window);
             }
         });
+    }
+}
+
+/// Showing the overlay must never take keyboard focus from the app the
+/// gesture was aimed at. On Windows, Tauri's `show()` activates the window
+/// even when it isn't focusable, so the Win32 calls are made directly; the
+/// async variants are safe from the engine threads that show the overlay.
+#[cfg(windows)]
+mod overlay_window {
+    use tauri::WebviewWindow;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        IsWindowVisible, SetWindowPos, ShowWindowAsync, HWND_TOPMOST, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE,
+        SWP_NOSIZE, SW_HIDE, SW_SHOWNOACTIVATE,
+    };
+
+    fn hwnd(window: &WebviewWindow) -> Option<HWND> {
+        window.hwnd().ok().map(|h| HWND(h.0 as _))
+    }
+
+    pub fn is_visible(window: &WebviewWindow) -> bool {
+        hwnd(window).is_some_and(|h| unsafe { IsWindowVisible(h) }.as_bool())
+    }
+
+    pub fn show_without_focus(window: &WebviewWindow) {
+        if let Some(h) = hwnd(window) {
+            unsafe {
+                let _ = ShowWindowAsync(h, SW_SHOWNOACTIVATE);
+                let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS;
+                let _ = SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, flags);
+            }
+        }
+    }
+
+    pub fn hide(window: &WebviewWindow) {
+        if let Some(h) = hwnd(window) {
+            unsafe {
+                let _ = ShowWindowAsync(h, SW_HIDE);
+            }
+        }
+    }
+}
+
+/// GTK honours `focusable: false`, so Tauri's own calls never steal focus here.
+#[cfg(not(windows))]
+mod overlay_window {
+    use tauri::WebviewWindow;
+
+    pub fn is_visible(window: &WebviewWindow) -> bool {
+        window.is_visible().unwrap_or(false)
+    }
+
+    pub fn show_without_focus(window: &WebviewWindow) {
+        let _ = window.show();
+    }
+
+    pub fn hide(window: &WebviewWindow) {
+        let _ = window.hide();
     }
 }
 
