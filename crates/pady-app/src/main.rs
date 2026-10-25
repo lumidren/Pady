@@ -1,14 +1,15 @@
 //! Pady desktop app: a tray-resident gesture engine with a settings window.
 //!
 //! The window is a static web UI (`ui/`) talking to the commands below.
-//! Closing it hides to the tray; the engine keeps running until "Quit".
+//! It is created when opened and destroyed when closed, so Pady in the tray
+//! holds no WebView; the engine keeps running until "Quit".
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crossbeam_channel::Sender;
 use pady_actions::Conflict;
 use pady_core::engine::Observer;
-use pady_core::{Action, Config, Engine, EngineEvent, Level, SharedConfig, TouchFrame};
+use pady_core::{Action, Config, Engine, EngineEvent, Level, Preset, SharedConfig, TouchFrame, PRESETS};
 use pady_input::{DeviceInfo, InputHandle};
 use serde::Serialize;
 use serde_json::json;
@@ -54,6 +55,7 @@ struct AppState {
     config_path: String,
     platform: &'static str,
     version: &'static str,
+    presets: &'static [Preset],
 }
 
 impl Pady {
@@ -82,6 +84,7 @@ impl Pady {
             config_path: self.config_path.display().to_string(),
             platform: if cfg!(windows) { "windows" } else { "linux" },
             version: env!("CARGO_PKG_VERSION"),
+            presets: PRESETS,
             config,
             devices,
             input_error,
@@ -136,6 +139,16 @@ fn set_enabled(app: AppHandle, pady: State<Pady>, enabled: bool) -> Result<AppSt
 #[tauri::command]
 fn reset_config(app: AppHandle, pady: State<Pady>) -> Result<AppState, String> {
     pady.apply(&app, Config::default())
+}
+
+/// Replace the All-apps bindings with a starter preset's.
+#[tauri::command]
+fn apply_preset(app: AppHandle, pady: State<Pady>, id: String) -> Result<AppState, String> {
+    let mut config = pady.config.get();
+    if !config.apply_preset(&id) {
+        return Err(format!("unknown preset `{id}`"));
+    }
+    pady.apply(&app, config)
 }
 
 #[tauri::command]
@@ -371,11 +384,11 @@ fn spawn_watcher(app: AppHandle) {
         .spawn(move || {
             let mut last_retry = Instant::now();
             loop {
-                std::thread::sleep(Duration::from_secs(1));
+                std::thread::sleep(Duration::from_secs(2));
                 let pady = app.state::<Pady>();
                 let mut changed = false;
 
-                if lock(&pady.input).is_err() && last_retry.elapsed() >= Duration::from_secs(5) {
+                if lock(&pady.input).is_err() && last_retry.elapsed() >= Duration::from_secs(10) {
                     last_retry = Instant::now();
                     if let Ok(input) = pady_input::start(pady.frames.clone()) {
                         log::info!("touchpad found");
@@ -412,12 +425,27 @@ fn spawn_watcher(app: AppHandle) {
         .expect("spawn watcher thread");
 }
 
+/// Open the settings window, creating it if needed. It's destroyed when
+/// closed, so a Pady sitting in the tray holds no WebView (or its memory).
 fn show_main(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    let window = match app.get_webview_window("main") {
+        Some(window) => window,
+        None => {
+            let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main").cloned() else {
+                return;
+            };
+            match tauri::WebviewWindowBuilder::from_config(app, &config).and_then(|b| b.build()) {
+                Ok(window) => window,
+                Err(e) => {
+                    log::error!("could not open the Pady window: {e}");
+                    return;
+                }
+            }
+        }
+    };
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 fn toggle_enabled(app: &AppHandle) {
@@ -522,6 +550,7 @@ fn main() {
             open_touchpad_settings,
             detect_app,
             fix_permissions,
+            apply_preset,
         ])
         .setup(move |app| {
             let config_path = Config::default_path()?;
@@ -551,10 +580,11 @@ fn main() {
                 tray_toggle: Mutex::new(None),
             });
 
-            // The windows are created only now (`create: false` in tauri.conf.json):
+            // Windows are created only now (`create: false` in tauri.conf.json):
             // a fast page load would otherwise call get_state before `manage` ran.
-            for window in app.config().app.windows.clone() {
-                tauri::WebviewWindowBuilder::from_config(app.handle(), &window)?.build()?;
+            // The settings window waits until it's opened (see show_main).
+            for window in app.config().app.windows.iter().filter(|w| w.label != "main") {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), window)?.build()?;
             }
 
             let toggle = build_tray(app.handle())?;
@@ -568,22 +598,24 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                // Keep gestures working: hide to the tray instead of quitting.
-                api.prevent_close();
-                let _ = window.hide();
+            // Closing the settings window destroys it (freeing its WebView);
+            // the engine and the tray icon keep running.
+            if let (WindowEvent::Destroyed, "main") = (event, window.label()) {
                 window.state::<Pady>().live.store(false, Ordering::Relaxed);
             }
         })
         .build(tauri::generate_context!())
         .expect("error while building Pady")
-        .run(|app, event| {
-            if let RunEvent::Exit = event {
+        .run(|app, event| match event {
+            // The last window closing is not "Quit": keep gestures working from the tray.
+            RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
+            RunEvent::Exit => {
                 // Quitting mid-drag must not leave the mouse button pressed system-wide.
                 if let Some(pady) = app.try_state::<Pady>() {
                     pady.engine.release_mouse(Duration::from_millis(300));
                 }
                 log::info!("Pady exiting");
             }
+            _ => {}
         });
 }
