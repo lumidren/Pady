@@ -1,5 +1,4 @@
-use crate::action::{Action, MediaKey};
-use crate::gesture::{Direction, PinchDirection};
+use crate::action::Action;
 use crate::recognizer::RecognizerSettings;
 use crate::trigger::Trigger;
 use serde::{Deserialize, Serialize};
@@ -34,6 +33,13 @@ pub struct Settings {
     pub drag_release_ms: u64,
     /// Show a small on-screen level while volume or brightness changes.
     pub show_overlay: bool,
+    /// Longest gap (lift to next touch) between the taps of a double or
+    /// triple tap. Only matters when one is bound.
+    pub multi_tap_ms: u64,
+    /// Ignore gestures while a game runs in exclusive full screen (Windows).
+    pub pause_in_fullscreen: bool,
+    /// The first-run tutorial has been completed or skipped.
+    pub onboarded: bool,
 }
 
 impl Default for Settings {
@@ -50,6 +56,9 @@ impl Default for Settings {
             drag_acceleration: 1.0,
             drag_release_ms: 350,
             show_overlay: true,
+            multi_tap_ms: 300,
+            pause_in_fullscreen: true,
+            onboarded: false,
         }
     }
 }
@@ -132,7 +141,8 @@ pub enum ConfigError {
 
 const HEADER: &str = r#"# Pady configuration.
 #
-# Triggers:  tap:N  hold:N  swipe:N:up|down|left|right  pinch:N:in|out  drag:N   (N = 3..5)
+# Triggers:  tap:N  doubletap:N  tripletap:N  hold:N  swipe:N:up|down|left|right
+#            pinch:N:in|out  drag:N                       (N = 3..5 fingers)
 # Actions:   none | keys{combo} | volume{step} | mute | brightness{step}
 #            media{key = play_pause|next|previous|stop|volume_up|volume_down|mute}
 #            open_url{url, browser?} | launch{program, args?} | focus_or_launch{program, args?}
@@ -152,21 +162,9 @@ const HEADER: &str = r#"# Pady configuration.
 
 impl Default for Config {
     fn default() -> Self {
-        let b = |trigger, action, repeat| Binding { trigger, action, repeat };
         Config {
             settings: Settings::default(),
-            bindings: vec![
-                b(Trigger::Drag(3), Action::Drag, false),
-                b(Trigger::Tap(3), Action::Media { key: MediaKey::PlayPause }, false),
-                b(Trigger::Swipe(4, Direction::Up), Action::Volume { step: 4 }, true),
-                b(Trigger::Swipe(4, Direction::Down), Action::Volume { step: -4 }, true),
-                b(Trigger::Swipe(4, Direction::Right), Action::Brightness { step: 10 }, true),
-                b(Trigger::Swipe(4, Direction::Left), Action::Brightness { step: -10 }, true),
-                b(Trigger::Tap(4), Action::Keys { combo: "win+d".into() }, false),
-                b(Trigger::Hold(4), Action::Lock, false),
-                b(Trigger::Pinch(4, PinchDirection::Out), Action::Keys { combo: "ctrl+equal".into() }, true),
-                b(Trigger::Pinch(4, PinchDirection::In), Action::Keys { combo: "ctrl+minus".into() }, true),
-            ],
+            bindings: crate::presets::bindings("recommended").unwrap_or_default(),
             profiles: Vec::new(),
         }
     }
@@ -252,6 +250,18 @@ impl Config {
         }
     }
 
+    /// Replace the global bindings with a starter preset's, keeping
+    /// settings and per-app profiles. Returns false for an unknown id.
+    pub fn apply_preset(&mut self, id: &str) -> bool {
+        match crate::presets::bindings(id) {
+            Some(bindings) => {
+                self.bindings = bindings;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Replace (or remove, for `Action::None`) the binding for a trigger.
     pub fn set_binding(&mut self, trigger: Trigger, action: Action, repeat: bool) {
         self.bindings.retain(|b| b.trigger != trigger);
@@ -306,6 +316,19 @@ impl Config {
         out
     }
 
+    /// Per finger count, the most taps in a row bound anywhere: single taps
+    /// wait to be told apart from double or triple taps only where needed.
+    pub fn multi_tap_fingers(&self) -> [u8; 6] {
+        let mut out = [1u8; 6];
+        let all = self.bindings.iter().chain(self.profiles.iter().flat_map(|p| &p.bindings));
+        for b in all.filter(|b| !b.action.is_none()) {
+            if let Some(slot) = out.get_mut(b.trigger.fingers() as usize) {
+                *slot = (*slot).max(b.trigger.tap_count());
+            }
+        }
+        out
+    }
+
     /// Swipe bindings (global or in a profile) that will never fire because
     /// a drag owns that finger count.
     pub fn shadowed_bindings(&self) -> Vec<Trigger> {
@@ -332,6 +355,8 @@ impl Config {
             drag_release_ms: s.drag_release_ms,
             drag_fingers: self.drag_fingers(),
             pinch_fingers: self.pinch_fingers(),
+            multi_tap_ms: s.multi_tap_ms,
+            multi_tap_fingers: self.multi_tap_fingers(),
         }
     }
 }
@@ -390,6 +415,7 @@ impl SharedConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gesture::Direction;
 
     #[test]
     fn default_config_round_trips_through_toml() {
@@ -549,6 +575,27 @@ mod tests {
         assert_eq!(app_key(r"C:\Apps\Code.EXE"), "code");
         assert_eq!(app_key("/usr/bin/firefox"), "firefox");
         assert_eq!(app_key("\"Spotify.exe\""), "spotify");
+    }
+
+    #[test]
+    fn multi_tap_detection_follows_bindings() {
+        let mut cfg = Config { bindings: Vec::new(), ..Default::default() };
+        assert_eq!(cfg.multi_tap_fingers(), [1; 6], "no multi-taps: single taps never wait");
+        cfg.set_binding(Trigger::DoubleTap(3), Action::Mute, false);
+        cfg.set_binding(Trigger::TripleTap(4), Action::Lock, false);
+        let m = cfg.multi_tap_fingers();
+        assert_eq!((m[3], m[4], m[5]), (2, 3, 1));
+    }
+
+    #[test]
+    fn presets_replace_only_global_bindings() {
+        let mut cfg = Config::from_toml(WITH_PROFILE).unwrap();
+        cfg.settings.hold_ms = 900;
+        assert!(cfg.apply_preset("minimal"));
+        assert_eq!(cfg.bindings.len(), 1);
+        assert_eq!(cfg.settings.hold_ms, 900, "settings kept");
+        assert_eq!(cfg.profiles.len(), 1, "profiles kept");
+        assert!(!cfg.apply_preset("does-not-exist"));
     }
 
     #[test]
