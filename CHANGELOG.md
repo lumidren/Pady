@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0 (2026-10-25)
+
+### Added
+- **Double and triple taps** for 3, 4 and 5 fingers (`doubletap:N`, `tripletap:N`). Single taps only wait to be told apart where a multi-tap is bound; the "Double-tap speed" setting controls how long.
+- **Guided first-run tutorial.** It checks the touchpad, helps turn off clashing OS gestures, picks a starter preset and lets you practise with live feedback. You can reopen it from About.
+- **Starter presets**: Recommended, Like a Mac, Media, Productivity and Minimal, in the tutorial, in Settings and through `pady-cli config preset <id>` / `pady-cli presets`.
+- **Pause in full-screen games** (Windows): gestures, drags included, are ignored while a game runs in exclusive full screen.
+- **Linux helper tools.** *Fix permissions* also installs missing helpers (brightnessctl, xdotool, wmctrl, playerctl) with the system package manager, and Pady flags bindings that need one.
+- A redesigned README with screenshots and an animated demo, plus contributing and security guides, issue and PR templates, and Dependabot.
+
+### Performance
+- **The settings window is freed when closed.** In the tray, Pady holds no WebView at all, and the volume/brightness overlay is drawn natively on Windows.
+- **No CPU wake-ups while idle.** The engine sleeps until a frame arrives or a timer is due, instead of polling 60 times a second.
+
 ## 0.2.0 (2026-10-25)
 
 ### Added
