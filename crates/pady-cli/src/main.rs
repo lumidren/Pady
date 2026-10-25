@@ -7,6 +7,7 @@
 //! pady-cli action <toml>    run one action now, e.g. '{ type = "volume", step = 5 }'
 //! pady-cli app              print the app in front as you switch, for per-app profiles
 //! pady-cli doctor           check that everything Pady needs is in place
+//! pady-cli fix-permissions  Linux: install the udev rule Pady needs (asks for a password)
 //! pady-cli config [path|show|reset]
 //! ```
 
@@ -27,6 +28,7 @@ USAGE:
     pady-cli action <toml>    Run one action now, e.g. pady-cli action '{ type = \"volume\", step = 5 }'
     pady-cli app              Print the app in front as you switch (names for per-app profiles)
     pady-cli doctor           Check that everything Pady needs is in place
+    pady-cli fix-permissions  Linux: let Pady read the touchpad and send keys (asks for a password)
     pady-cli config path      Print the config file location
     pady-cli config show      Print the active config
     pady-cli config reset     Overwrite the config with defaults
@@ -44,6 +46,7 @@ fn main() -> ExitCode {
         ["action", toml] => action(toml),
         ["app"] => foreground_apps(),
         ["doctor"] => doctor(),
+        ["fix-permissions"] => fix_permissions(),
         ["config", "path"] | ["config"] => config_path(),
         ["config", "show"] => config_show(),
         ["config", "reset"] => config_reset(),
@@ -68,6 +71,12 @@ fn load_config() -> Result<(std::path::PathBuf, Config), String> {
     let path = Config::default_path().map_err(|e| e.to_string())?;
     let cfg = Config::load_or_create(&path).map_err(|e| e.to_string())?;
     Ok((path, cfg))
+}
+
+fn fix_permissions() -> CliResult {
+    pady_actions::fix_permissions().map_err(|e| e.to_string())?;
+    println!("Done. Pady can now read the touchpad and send keys; restart Pady if it is running.");
+    Ok(())
 }
 
 #[derive(Clone, Copy, PartialEq)]

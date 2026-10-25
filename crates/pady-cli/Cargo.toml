@@ -20,3 +20,6 @@ log.workspace = true
 env_logger.workspace = true
 toml.workspace = true
 serde.workspace = true
+
+[build-dependencies]
+static_vcruntime = "3"
