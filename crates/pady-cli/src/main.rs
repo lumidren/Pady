@@ -10,7 +10,7 @@
 
 use crossbeam_channel::unbounded;
 use pady_core::engine::LogExecutor;
-use pady_core::{Action, Config, Engine, EngineEvent, Executor, Gesture, SharedConfig};
+use pady_core::{Action, Config, Engine, EngineEvent, Executor, Gesture, Level, LevelKind, SharedConfig};
 use std::io::Write;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -100,15 +100,17 @@ fn watch(run_actions: bool) -> CliResult {
             print!("\r\x1b[2K{} finger(s) {}", frame.contacts.len(), fingers.join(" "));
             let _ = std::io::stdout().flush();
         }
-        EngineEvent::Gesture { gesture, trigger, action } => {
+        EngineEvent::Gesture { gesture, trigger, action, profile } => {
             if matches!(gesture, Gesture::DragEnd) {
                 println!("\r\x1b[2K→ drag released");
                 return;
             }
             let what = trigger.unwrap_or_else(|| format!("{gesture:?}"));
             let did = action.map_or_else(|| "no action bound".to_string(), |a| format!("→ {a}"));
-            println!("\r\x1b[2K● {what:<16} {did}");
+            let via = profile.map(|p| format!("  [{p}]")).unwrap_or_default();
+            println!("\r\x1b[2K● {what:<16} {did}{via}");
         }
+        EngineEvent::Level(level) => println!("\r\x1b[2K  {}", describe_level(&level)),
         EngineEvent::ActionFailed { action, error } => println!("\r\x1b[2K✗ {action} failed: {error}"),
     });
 
@@ -130,7 +132,22 @@ fn action(toml_text: &str) -> CliResult {
     }
     let wrap: Wrap = toml::from_str(&format!("action = {toml_text}")).map_err(|e| format!("invalid action: {e}"))?;
     println!("running: {}", wrap.action.label());
-    pady_actions::executor().run(&wrap.action).map_err(|e| e.to_string())
+    let mut exec = pady_actions::executor();
+    if let Some(level) = exec.run(&wrap.action).map_err(|e| e.to_string())? {
+        println!("{}", describe_level(&level));
+    }
+    Ok(())
+}
+
+/// `volume 44% (muted)` — a text stand-in for the app's overlay.
+fn describe_level(level: &Level) -> String {
+    let kind = match level.kind {
+        LevelKind::Volume => "volume",
+        LevelKind::Brightness => "brightness",
+    };
+    let filled = (level.percent as usize + 5) / 10;
+    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(10 - filled));
+    format!("{kind:<10} {bar} {}%{}", level.percent, if level.muted { " (muted)" } else { "" })
 }
 
 fn config_path() -> CliResult {
