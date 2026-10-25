@@ -15,6 +15,8 @@
 
   M.SLOTS = [
     { id: 'tap', kind: 'tap', name: 'Tap', hint: 'Touch and lift quickly' },
+    { id: 'doubletap', kind: 'doubletap', name: 'Double tap', hint: 'Tap twice quickly' },
+    { id: 'tripletap', kind: 'tripletap', name: 'Triple tap', hint: 'Tap three times quickly' },
     { id: 'hold', kind: 'hold', name: 'Hold', hint: 'Rest fingers without moving' },
     { id: 'swipe-up', kind: 'swipe', dir: 'up', name: 'Swipe up', hint: 'Slide upward' },
     { id: 'swipe-down', kind: 'swipe', dir: 'down', name: 'Swipe down', hint: 'Slide downward' },
@@ -30,6 +32,13 @@
   /** Swipes and pinches can keep firing while the fingers keep moving (`repeat`). */
   M.isContinuous = (slot) => !!slot && (slot.kind === 'swipe' || slot.kind === 'pinch');
 
+  /** Double and triple taps (binding one makes single taps wait for `multi_tap_ms`). */
+  M.isMultiTap = (slot) => !!slot && (slot.kind === 'doubletap' || slot.kind === 'tripletap');
+
+  // Trigger kind → words used in labels ("3-finger double tap").
+  const KIND_WORDS = { tap: 'tap', doubletap: 'double tap', tripletap: 'triple tap', hold: 'hold', swipe: 'swipe', pinch: 'pinch', drag: 'drag' };
+  M.NUMBER_WORDS = { 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five' };
+
   M.parseTrigger = function (t) {
     const [kind, n, dir] = String(t || '').split(':');
     return { kind, fingers: Number(n), dir: dir || null };
@@ -40,10 +49,26 @@
     return M.SLOTS.find((s) => s.kind === p.kind && (s.dir || null) === p.dir) || null;
   };
 
-  /** "4-finger swipe up" */
+  /** "4-finger swipe up", "3-finger double tap" */
   M.triggerLabel = function (t) {
     const p = M.parseTrigger(t);
-    return `${p.fingers}-finger ${p.kind}${p.dir ? ' ' + p.dir : ''}`;
+    return `${p.fingers}-finger ${KIND_WORDS[p.kind] || p.kind}${p.dir ? ' ' + p.dir : ''}`;
+  };
+
+  /** Plain instruction for a trigger: "Swipe up with four fingers", "Double-tap with three fingers". */
+  M.triggerInstruction = function (t) {
+    const p = M.parseTrigger(t);
+    const n = M.NUMBER_WORDS[p.fingers] || p.fingers;
+    switch (p.kind) {
+      case 'tap': return `Tap with ${n} fingers`;
+      case 'doubletap': return `Double-tap with ${n} fingers`;
+      case 'tripletap': return `Triple-tap with ${n} fingers`;
+      case 'hold': return `Rest ${n} fingers still for a moment`;
+      case 'swipe': return `Swipe ${p.dir} with ${n} fingers`;
+      case 'pinch': return p.dir === 'in' ? `Pinch ${n} fingers together` : `Spread ${n} fingers apart`;
+      case 'drag': return `Drag with ${n} fingers`;
+      default: return M.triggerLabel(t);
+    }
   };
 
   M.gestureLabel = function (g) {
@@ -51,6 +76,8 @@
     const f = g.fingers ? `${g.fingers}-finger ` : '';
     switch (g.kind) {
       case 'tap': return `${f}tap`;
+      case 'double_tap': return `${f}double tap`;
+      case 'triple_tap': return `${f}triple tap`;
       case 'hold': return `${f}hold`;
       case 'swipe': return `${f}swipe ${g.direction}`;
       case 'pinch': return `${f}pinch ${g.direction}`;
@@ -313,6 +340,44 @@
   M.bindingFor = (config, trigger) => (config.binding || []).find((b) => b.trigger === trigger) || null;
 
   M.dragOn = (config, n) => (config.binding || []).some((b) => b.trigger === `drag:${n}` && b.action.type === 'drag');
+
+  /**
+   * Up to `max` practice tasks for the tutorial, taken from the All-apps
+   * bindings with the most beginner-friendly gestures first. Swipes that a
+   * drag makes inert are skipped. If too few are bound, unbound basics that
+   * are always recognised (tap, swipe, hold) fill in, so there's always
+   * something to try. → [{ trigger, binding | null }]
+   */
+  M.practiceTasks = function (config, max) {
+    const limit = max || 4;
+    const groups = [
+      ['tap:3'],
+      ['swipe:4:up', 'swipe:4:down', 'swipe:4:left', 'swipe:4:right'],
+      ['drag:3'],
+      ['pinch:4:out', 'pinch:4:in'],
+      ['doubletap:3'],
+      ['hold:4'],
+      ['tap:4'],
+      ['swipe:3:up', 'swipe:3:down', 'swipe:3:left', 'swipe:3:right'],
+      ['tap:5'],
+    ];
+    const usable = (t) => {
+      const b = M.bindingFor(config, t);
+      if (!b || b.action.type === 'none') return false;
+      return !(t.startsWith('swipe:') && M.dragOn(config, M.parseTrigger(t).fingers));
+    };
+    const tasks = [];
+    for (const group of groups) {
+      if (tasks.length >= limit) break;
+      const t = group.find(usable);
+      if (t) tasks.push({ trigger: t, binding: M.bindingFor(config, t) });
+    }
+    for (const t of ['tap:3', 'swipe:4:up', 'hold:4']) {
+      if (tasks.length >= 3) break;
+      if (!tasks.some((x) => x.trigger === t)) tasks.push({ trigger: t, binding: null });
+    }
+    return tasks;
+  };
 
   /* ---------------- Per-app profiles ---------------- */
 
