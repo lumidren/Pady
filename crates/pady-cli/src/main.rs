@@ -5,6 +5,7 @@
 //! pady-cli monitor          show fingers and recognised gestures live (no actions run)
 //! pady-cli run              run Pady headless with your config (actions run)
 //! pady-cli action <toml>    run one action now, e.g. '{ type = "volume", step = 5 }'
+//! pady-cli app              print the app in front as you switch, for per-app profiles
 //! pady-cli config [path|show|reset]
 //! ```
 
@@ -23,6 +24,7 @@ USAGE:
     pady-cli monitor          Show fingers and recognised gestures live (no actions run)
     pady-cli run              Run Pady headless with your config (actions run)
     pady-cli action <toml>    Run one action now, e.g. pady-cli action '{ type = \"volume\", step = 5 }'
+    pady-cli app              Print the app in front as you switch (names for per-app profiles)
     pady-cli config path      Print the config file location
     pady-cli config show      Print the active config
     pady-cli config reset     Overwrite the config with defaults
@@ -38,6 +40,7 @@ fn main() -> ExitCode {
         ["monitor"] => watch(false),
         ["run"] => watch(true),
         ["action", toml] => action(toml),
+        ["app"] => foreground_apps(),
         ["config", "path"] | ["config"] => config_path(),
         ["config", "show"] => config_show(),
         ["config", "reset"] => config_reset(),
@@ -62,6 +65,28 @@ fn load_config() -> Result<(std::path::PathBuf, Config), String> {
     let path = Config::default_path().map_err(|e| e.to_string())?;
     let cfg = Config::load_or_create(&path).map_err(|e| e.to_string())?;
     Ok((path, cfg))
+}
+
+/// Print the app in front whenever it changes, with the profile it would
+/// use, so people can find the names to put in `apps = [...]`.
+fn foreground_apps() -> CliResult {
+    let (_, cfg) = load_config()?;
+    println!("Switch between apps to see their names. Press Ctrl+C to stop.\n");
+    let mut last: Option<String> = None;
+    loop {
+        let app = pady_actions::foreground_app();
+        if app != last {
+            match &app {
+                Some(name) => {
+                    let profile = cfg.profile_for(name).map(|p| format!("  → profile \"{}\"", p.name));
+                    println!("{name}{}", profile.unwrap_or_default());
+                }
+                None => println!("(the OS doesn't say which app is in front)"),
+            }
+            last = app;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
 }
 
 fn devices() -> CliResult {
