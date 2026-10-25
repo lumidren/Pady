@@ -680,6 +680,7 @@ fn touchpad_conflict(word: &str, swipes: bool, taps: bool) -> Option<Conflict> {
         message: format!("Windows also reacts to {word}-finger {what}."),
         fix: format!("In Touchpad settings › {}-finger gestures, set {setting} to \"Nothing\".", capitalize(word)),
         can_open_settings: true,
+        can_fix: false,
     })
 }
 

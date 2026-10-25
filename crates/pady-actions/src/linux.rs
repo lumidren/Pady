@@ -17,9 +17,11 @@ use std::time::{Duration, Instant};
 use std::{env, fs, io};
 
 const UINPUT_PATH: &str = "/dev/uinput";
-const UINPUT_FIX: &str = "Create /etc/udev/rules.d/60-pady-uinput.rules containing \
-    KERNEL==\"uinput\", GROUP=\"input\", MODE=\"0660\", add yourself to the input group \
-    (sudo usermod -aG input $USER), then reboot (or log out and back in).";
+const UINPUT_FIX: &str = "Click Fix permissions (or run pady-cli fix-permissions) and enter your \
+    password once. Packages from the Pady releases page set this up automatically.";
+/// The udev rule the .deb and .rpm packages install; [`fix_permissions`]
+/// installs the same file for AppImage and source builds.
+const UDEV_RULES: &str = include_str!("../../../packaging/linux/70-pady.rules");
 /// How long to wait before trying `/dev/uinput` again after it failed, so a
 /// stream of drag movements does not hammer it (or the log).
 const UINPUT_RETRY: Duration = Duration::from_secs(5);
@@ -965,6 +967,7 @@ fn conflicts_for(desktop: &str, config: &Config, uinput_ok: bool) -> Vec<Conflic
                 .into(),
             // GNOME Settings has no switch for these gestures.
             can_open_settings: false,
+            can_fix: false,
         });
     }
     if desktop.contains("KDE") && bound(&|t| matches!(t, Trigger::Swipe(4, _))) {
@@ -976,6 +979,7 @@ fn conflicts_for(desktop: &str, config: &Config, uinput_ok: bool) -> Vec<Conflic
                   System Settings › Touchpad / Gestures."
                 .into(),
             can_open_settings: true,
+            can_fix: false,
         });
     }
     // Only bindings that synthesise input need uinput; volume, apps and links don't.
@@ -988,9 +992,39 @@ fn conflicts_for(desktop: &str, config: &Config, uinput_ok: bool) -> Vec<Conflic
             ),
             fix: UINPUT_FIX.into(),
             can_open_settings: false,
+            can_fix: true,
         });
     }
     out
+}
+
+/// Install Pady's udev rule (and load uinput at boot) as root via pkexec,
+/// then apply it to the running session. The script only writes Pady's own
+/// two files and reloads udev.
+pub fn fix_permissions() -> Result<(), ActionError> {
+    let script = fix_permissions_script();
+    let status = Command::new("pkexec").args(["sh", "-c", &script]).status().map_err(|e| {
+        format!("could not ask for administrator rights (pkexec: {e}); run this as root instead:\n{script}")
+    })?;
+    match status.code() {
+        Some(0) => Ok(()),
+        Some(126) => Err("the administrator password prompt was dismissed".into()),
+        Some(127) => Err("polkit could not authorise this (is a polkit authentication agent running?)".into()),
+        _ => Err(format!("installing the udev rule failed ({status})").into()),
+    }
+}
+
+fn fix_permissions_script() -> String {
+    format!(
+        "set -e\n\
+         mkdir -p /etc/udev/rules.d /etc/modules-load.d\n\
+         cat > /etc/udev/rules.d/70-pady.rules <<'PADY_RULES'\n{UDEV_RULES}PADY_RULES\n\
+         echo uinput > /etc/modules-load.d/pady.conf\n\
+         modprobe uinput || true\n\
+         udevadm control --reload-rules\n\
+         udevadm trigger --subsystem-match=input --action=change\n\
+         udevadm trigger --subsystem-match=misc --sysname-match=uinput --action=change\n"
+    )
 }
 
 pub fn open_touchpad_settings() -> Result<(), ActionError> {
@@ -1179,8 +1213,26 @@ mod tests {
         let c = conflicts_for("KDE", &cfg, false);
         assert_eq!(c.len(), 2);
         assert!(c[0].can_open_settings);
-        assert!(c[1].fix.contains("KERNEL==\"uinput\""));
+        assert!(c[1].can_fix && c[1].fix.contains("Fix permissions"));
         assert!(conflicts_for("XFCE", &cfg, true).is_empty());
+    }
+
+    #[test]
+    fn fix_permissions_script_installs_the_packaged_rule() {
+        let script = fix_permissions_script();
+        assert!(script.starts_with(
+            "set -e
+"
+        ));
+        assert!(script.contains("TAG+=\"uaccess\""), "embeds packaging/linux/70-pady.rules");
+        // The heredoc terminator must sit on a line of its own.
+        assert!(script.contains(
+            "
+PADY_RULES
+"
+        ));
+        assert!(script.contains("> /etc/udev/rules.d/70-pady.rules"));
+        assert!(script.contains("udevadm trigger --subsystem-match=input"));
     }
 
     #[test]

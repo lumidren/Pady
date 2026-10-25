@@ -42,6 +42,8 @@ pub struct Conflict {
     pub fix: String,
     /// Whether [`open_touchpad_settings`] leads somewhere useful for it.
     pub can_open_settings: bool,
+    /// Whether [`fix_permissions`] solves it.
+    pub can_fix: bool,
 }
 
 /// OS gesture handling or permission problems that clash with `config`.
@@ -55,6 +57,17 @@ pub fn conflicts(config: &Config) -> Vec<Conflict> {
         let _ = config;
         Vec::new()
     }
+}
+
+/// Grant what only an administrator can: on Linux, install the udev rule
+/// that lets the signed-in user read touchpads and use `/dev/uinput` (one
+/// polkit password prompt; the .deb and .rpm packages already include it).
+/// Windows needs nothing extra.
+pub fn fix_permissions() -> Result<(), ActionError> {
+    #[cfg(target_os = "linux")]
+    return linux::fix_permissions();
+    #[cfg(not(target_os = "linux"))]
+    Err("Pady needs no extra permissions on this OS".into())
 }
 
 /// Open the OS touchpad settings page.
