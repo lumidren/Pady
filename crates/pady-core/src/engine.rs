@@ -61,6 +61,11 @@ pub trait Executor {
     fn foreground_app(&mut self) -> Option<String> {
         None
     }
+    /// Is a game running in exclusive full screen? Gestures pause while it
+    /// is, when `pause_in_fullscreen` is on.
+    fn fullscreen_game(&mut self) -> bool {
+        false
+    }
 }
 
 /// Executor that only logs; used by `pady monitor` and tests.
@@ -199,11 +204,34 @@ struct ActionLoop {
     observer: Observer,
     /// Did we press the mouse button (a drag in progress)?
     button_down: bool,
+    /// A drag that started while gestures were paused: swallow it whole.
+    drag_suppressed: bool,
 }
 
 impl ActionLoop {
     fn new(exec: Box<dyn Executor>, shared: Arc<SharedConfig>, observer: Observer) -> Self {
-        ActionLoop { exec, generation: shared.generation(), config: shared.get(), shared, observer, button_down: false }
+        ActionLoop {
+            exec,
+            generation: shared.generation(),
+            config: shared.get(),
+            shared,
+            observer,
+            button_down: false,
+            drag_suppressed: false,
+        }
+    }
+
+    fn refresh_config(&mut self) {
+        let generation = self.shared.generation();
+        if generation != self.generation {
+            self.generation = generation;
+            self.config = self.shared.get();
+        }
+    }
+
+    /// Gestures pause while a full-screen game runs (if the user wants that).
+    fn paused(&mut self) -> bool {
+        self.config.settings.pause_in_fullscreen && self.exec.fullscreen_game()
     }
 
     fn run(mut self, jobs: Receiver<Job>) {
@@ -211,12 +239,29 @@ impl ActionLoop {
             match job {
                 Job::Run(action) => self.execute(&action),
                 Job::Fire { gesture, trigger } => self.fire(gesture, trigger),
-                Job::MouseButton(down) => {
-                    let result = self.exec.mouse_button(down);
-                    self.button_down = down && result.is_ok();
+                Job::MouseButton(true) => {
+                    self.refresh_config();
+                    if self.paused() {
+                        log::debug!("drag ignored: a full-screen game is running");
+                        self.drag_suppressed = true;
+                        continue;
+                    }
+                    let result = self.exec.mouse_button(true);
+                    self.button_down = result.is_ok();
+                    self.report("Mouse button", result);
+                }
+                Job::MouseButton(false) => {
+                    if std::mem::take(&mut self.drag_suppressed) {
+                        continue;
+                    }
+                    let result = self.exec.mouse_button(false);
+                    self.button_down = false;
                     self.report("Mouse button", result);
                 }
                 Job::MouseMove(dx, dy) => {
+                    if self.drag_suppressed {
+                        continue;
+                    }
                     let result = self.exec.mouse_move(dx, dy);
                     self.report("Mouse move", result);
                 }
@@ -233,10 +278,10 @@ impl ActionLoop {
     }
 
     fn fire(&mut self, gesture: Gesture, trigger: Trigger) {
-        let generation = self.shared.generation();
-        if generation != self.generation {
-            self.generation = generation;
-            self.config = self.shared.get();
+        self.refresh_config();
+        if self.paused() {
+            log::debug!("{trigger} ignored: a full-screen game is running");
+            return;
         }
         let app = if self.config.profiles.is_empty() { None } else { self.exec.foreground_app() };
         let step = match gesture {
@@ -333,7 +378,13 @@ impl EngineLoop {
     fn run(mut self, frames: Receiver<TouchFrame>) {
         loop {
             self.refresh_config();
-            match frames.recv_timeout(Duration::from_millis(16)) {
+            // Sleep until the next frame or the next due timer (hold, drag
+            // release, multi-tap); with nothing pending there are no wake-ups.
+            let received = match self.recognizer.next_deadline() {
+                Some(due) => frames.recv_timeout(Duration::from_millis(due.saturating_sub(now_ms()))),
+                None => frames.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            };
+            match received {
                 Ok(frame) => self.on_frame(frame),
                 Err(RecvTimeoutError::Timeout) => {
                     let gestures = self.recognizer.tick(now_ms());
@@ -342,7 +393,9 @@ impl EngineLoop {
                 Err(RecvTimeoutError::Disconnected) => break,
             }
         }
-        let gestures = self.recognizer.reset();
+        // Deliver what is still pending (a tap waiting for a second one, a drag).
+        let mut gestures = self.recognizer.tick(u64::MAX);
+        gestures.extend(self.recognizer.reset());
         self.dispatch(gestures, now_ms());
     }
 
@@ -416,6 +469,7 @@ mod tests {
     struct Recorder {
         jobs: Arc<Mutex<Vec<Job>>>,
         app: Option<String>,
+        fullscreen: bool,
     }
 
     impl Executor for Recorder {
@@ -438,6 +492,9 @@ mod tests {
         fn foreground_app(&mut self) -> Option<String> {
             self.app.clone()
         }
+        fn fullscreen_game(&mut self) -> bool {
+            self.fullscreen
+        }
     }
 
     fn frame(t: u64, n: u32, x: f32, y: f32) -> TouchFrame {
@@ -455,7 +512,7 @@ mod tests {
         let engine = Engine::spawn(
             Arc::new(SharedConfig::new(cfg)),
             rx,
-            move || Box::new(Recorder { jobs: rec, app }),
+            move || Box::new(Recorder { jobs: rec, app, fullscreen: false }),
             Arc::new(move |e| ev.lock().unwrap().push(e)),
         );
         for f in frames {
@@ -583,7 +640,7 @@ mod tests {
         let engine = Engine::spawn(
             Arc::new(SharedConfig::new(Config::default())),
             rx,
-            move || Box::new(Recorder { jobs: rec, app: None }),
+            move || Box::new(Recorder { jobs: rec, app: None, fullscreen: false }),
             Arc::new(|_| {}),
         );
         engine.release_mouse(Duration::from_secs(2));
@@ -601,6 +658,50 @@ mod tests {
         assert_eq!(jobs.lock().unwrap().last(), Some(&Job::MouseButton(false)));
         drop(tx);
         engine.join();
+    }
+
+    fn run_engine_fullscreen(cfg: Config, frames: Vec<TouchFrame>) -> Vec<Job> {
+        let jobs = Arc::new(Mutex::new(Vec::new()));
+        let (tx, rx) = unbounded();
+        let rec = jobs.clone();
+        let engine = Engine::spawn(
+            Arc::new(SharedConfig::new(cfg)),
+            rx,
+            move || Box::new(Recorder { jobs: rec, app: None, fullscreen: true }),
+            Arc::new(|_| {}),
+        );
+        for f in frames {
+            tx.send(f).unwrap();
+        }
+        drop(tx);
+        engine.join();
+        let jobs = jobs.lock().unwrap().clone();
+        jobs
+    }
+
+    #[test]
+    fn full_screen_games_pause_actions_and_drags() {
+        let mut cfg = Config::default();
+        cfg.settings.drag_release_ms = 0;
+        let drag =
+            vec![frame(0, 3, 0.0, 0.0), frame(10, 3, 12.0, 0.0), frame(20, 3, 20.0, 0.0), frame(30, 0, 0.0, 0.0)];
+        assert!(run_engine_fullscreen(cfg.clone(), tap3()).is_empty(), "no action runs");
+        assert!(run_engine_fullscreen(cfg.clone(), drag.clone()).is_empty(), "the drag never presses the button");
+
+        cfg.settings.pause_in_fullscreen = false;
+        assert!(!run_engine_fullscreen(cfg, drag).is_empty(), "unless the user turned pausing off");
+    }
+
+    #[test]
+    fn double_tap_runs_its_own_action() {
+        let mut cfg = Config::default();
+        cfg.bindings.clear();
+        cfg.set_binding(Trigger::Tap(3), Action::Mute, false);
+        cfg.set_binding(Trigger::DoubleTap(3), Action::Lock, false);
+        let frames =
+            vec![frame(0, 3, 0.0, 0.0), frame(50, 0, 0.0, 0.0), frame(150, 3, 0.0, 0.0), frame(200, 0, 0.0, 0.0)];
+        let (jobs, _) = run_engine(cfg, frames);
+        assert_eq!(jobs, vec![Job::Run(Action::Lock)], "one double tap, not two single taps");
     }
 
     #[test]
