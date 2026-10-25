@@ -1766,6 +1766,8 @@
     flashKey: '',
     flashCount: 0,
   };
+  // Canvases that rest while nothing is on the pad; a new frame wakes them.
+  const frameWakers = new Set();
 
   function buildLive() {
     const page = $('#page-live');
@@ -1797,7 +1799,7 @@
           h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onClick: () => { store.recent = []; renderFeed(); } }, 'Clear')),
         liveUI.feedEmpty, liveUI.list));
     page.append(liveUI.empty, liveUI.main);
-    new ResizeObserver(() => { liveUI.sizeDirty = true; }).observe(liveUI.pad);
+    new ResizeObserver(() => { liveUI.sizeDirty = true; liveView.kick(); }).observe(liveUI.pad);
     liveUI.built = true;
   }
 
@@ -1845,6 +1847,7 @@
       if (t.length > 40) t.shift();
     }
     if (liveUI.mm && (f.width_mm !== liveUI.mm.w || f.height_mm !== liveUI.mm.h) && store.page === 'live') renderLive();
+    frameWakers.forEach((wake) => wake());
   }
 
   function onGesture(p) {
@@ -2041,7 +2044,10 @@
     let lastCount = -1;
     let lastRateUpdate = 0;
 
-    function readColors() { colors = themeColors(); }
+    function readColors() { colors = themeColors(); kick(); }
+
+    // Draw again if the canvas is resting (see the end of draw()).
+    function kick() { if (running && !raf) raf = requestAnimationFrame(draw); }
 
     function start() {
       if (running) return;
@@ -2049,22 +2055,24 @@
       readColors();
       liveUI.sizeDirty = true;
       wantLive('page', true);
-      raf = requestAnimationFrame(draw);
+      frameWakers.add(kick);
+      kick();
     }
     function stop() {
       if (!running) return;
       running = false;
       cancelAnimationFrame(raf);
+      raf = 0;
+      frameWakers.delete(kick);
       wantLive('page', false);
     }
     // Hidden window: stop drawing (syncLive() pauses the stream itself).
-    function pause() { if (running) cancelAnimationFrame(raf); }
-    function resume() { if (running) { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); } }
+    function pause() { cancelAnimationFrame(raf); raf = 0; }
+    function resume() { kick(); }
 
     function draw() {
-      if (!running) return;
-      raf = requestAnimationFrame(draw);
-      if (!liveUI.built || liveUI.main.hidden) return;
+      raf = 0;
+      if (!running || !liveUI.built || liveUI.main.hidden) return;
       const cv = liveUI.canvas;
       const dpr = window.devicePixelRatio || 1;
       if (liveUI.sizeDirty) {
@@ -2088,9 +2096,13 @@
         while (live.frameTimes.length && now - live.frameTimes[0] > 1000) live.frameTimes.shift();
         liveUI.stats.rate.firstChild.textContent = String(live.frameTimes.length);
       }
+      // Keep drawing while fingers are down or trails fade; otherwise rest
+      // until the next frame arrives, so an idle Live page costs no CPU.
+      if (count > 0 || live.trails.size > 0) raf = requestAnimationFrame(draw);
+      else liveUI.stats.rate.firstChild.textContent = '0';
     }
 
-    return { start, stop, pause, resume, readColors };
+    return { start, stop, pause, resume, readColors, kick };
   })();
 
   /*
@@ -2868,12 +2880,23 @@
   }
 
   function heroEl() {
-    return h('div', { class: 'tour-hero', 'aria-hidden': 'true' },
+    const el = h('div', { class: 'tour-hero', 'aria-hidden': 'true' },
       applyTravelVars(frag(heroSVG())),
       h('div', { class: 'tour-hero-chips' },
         h('span', { class: 'chip hero-chip hero-chip-a' }, ico('play-pause', 15), 'Play / pause'),
         h('span', { class: 'chip hero-chip hero-chip-b' }, ico('volume', 15), 'Volume +4%'),
         h('span', { class: 'chip hero-chip hero-chip-c' }, ico('zoom-in', 15), 'Zoom in')));
+    // Three loops, then rest on the first act so an open tutorial doesn't keep
+    // the CPU busy; pointing at it plays the loop again.
+    let timer = 0;
+    const play = () => {
+      el.classList.remove('is-resting');
+      clearTimeout(timer);
+      timer = setTimeout(() => el.classList.add('is-resting'), 3 * 8000);
+    };
+    el.addEventListener('pointerenter', play);
+    play();
+    return el;
   }
 
   const DONE_SVG = '<svg class="done-svg" viewBox="0 0 96 96" focusable="false">'
@@ -2895,10 +2918,11 @@
     el.style.aspectRatio = `${mm.w} / ${mm.h}`;
     el.style.setProperty('--aspect', String(mm.w / mm.h));
     let raf = 0, running = false, dirty = true, colors = null, last = -1;
-    const ro = new ResizeObserver(() => { dirty = true; });
+    const ro = new ResizeObserver(() => { dirty = true; kick(); });
+    function kick() { if (running && !raf) raf = requestAnimationFrame(frame); }
     function frame() {
+      raf = 0;
       if (!running) return;
-      raf = requestAnimationFrame(frame);
       if (dirty) {
         dirty = false;
         const dpr = window.devicePixelRatio || 1;
@@ -2911,6 +2935,8 @@
         el.classList.toggle('has-touch', n > 0);
         if (opts.onCount) opts.onCount(n);
       }
+      // Rest while nothing is on the pad; the next frame wakes it.
+      if (n > 0 || live.trails.size > 0) raf = requestAnimationFrame(frame);
     }
     return {
       el,
@@ -2920,11 +2946,14 @@
         colors = themeColors();
         ro.observe(el);
         wantLive('tour', true);
-        raf = requestAnimationFrame(frame);
+        frameWakers.add(kick);
+        kick();
       },
       stop() {
         running = false;
         cancelAnimationFrame(raf);
+        raf = 0;
+        frameWakers.delete(kick);
         ro.disconnect();
         wantLive('tour', false);
       },

@@ -571,6 +571,9 @@ a { color: var(--accent-text); }
 :is(.card:hover, .card:focus-visible, .card.is-fired, .card.intro, .illo-live) .illo--hold .illo-ring { animation: illo-ring 2.2s linear infinite; }
 :is(.card:hover, .card:focus-visible, .card.is-fired, .card.intro, .illo-live) .illo--hold .illo-f { animation: illo-hold-press 2.2s var(--ease) infinite; }
 :is(.card:hover, .card:focus-visible, .card.is-fired, .card.intro, .illo-live) .illo--drag .illo-move { animation: illo-drag 2.8s var(--ease-in-out) infinite; }
+/* Hovered or focused cards (and the editor's header) play their demo twice,
+   then rest, so a pointer left on a card doesn't keep the window busy. */
+:is(.card:hover, .card:focus-visible) .illo *, .illo-live .illo * { animation-iteration-count: 2 !important; }
 :is(.card.intro, .card.is-fired) .illo * { animation-iteration-count: 1 !important; }
 .card.intro .illo * { animation-delay: calc(var(--i, 0) * 110ms + 250ms) !important; }
 
@@ -1146,7 +1149,7 @@ a { color: var(--accent-text); }
   position: absolute; left: 50%; top: 40%; width: 560px; height: 560px; border-radius: 50%;
   transform: translate(-50%, -50%); pointer-events: none;
   background: radial-gradient(circle, var(--accent-soft), transparent 65%);
-  animation: tour-breathe 9s ease-in-out infinite;
+  animation: tour-breathe 9s ease-in-out 3;
 }
 @keyframes tour-breathe { 50% { transform: translate(-50%, -50%) scale(1.12); opacity: .7; } }
 
@@ -1225,6 +1228,9 @@ a { color: var(--accent-text); }
 .hero-chip-a { animation: hero-chip-a 8s var(--ease) infinite; }
 .hero-chip-b { animation: hero-chip-b 8s var(--ease) infinite; }
 .hero-chip-c { animation: hero-chip-c 8s var(--ease) infinite; }
+/* After a few loops the hero rests on its first act (see heroEl()). */
+.tour-hero.is-resting * { animation: none !important; }
+.tour-hero.is-resting :is(.hero-act-a, .hero-chip-a) { opacity: 1; }
 @keyframes hero-chip-a { 0%, 12% { opacity: 0; transform: translateY(8px) scale(.96); } 15%, 27% { opacity: 1; transform: none; } 31%, 100% { opacity: 0; transform: translateY(-4px); } }
 @keyframes hero-chip-b { 0%, 44% { opacity: 0; transform: translateY(8px) scale(.96); } 47%, 58% { opacity: 1; transform: none; } 62%, 100% { opacity: 0; transform: translateY(-4px); } }
 @keyframes hero-chip-c { 0%, 80% { opacity: 0; transform: translateY(8px) scale(.96); } 83%, 93% { opacity: 1; transform: none; } 97%, 100% { opacity: 0; transform: translateY(-4px); } }
@@ -1291,7 +1297,7 @@ a { color: var(--accent-text); }
 .tour-status.is-ok .tour-status-icon { background: var(--green); color: #fff; }
 .tour-status.is-ok .tour-status-icon .icon { stroke-width: 2.6; }
 .tour-pulse { position: relative; width: 10px; height: 10px; border-radius: 50%; background: var(--amber); }
-.tour-pulse::after { content: ""; position: absolute; inset: 0; border-radius: 50%; animation: amber-pulse 1.4s ease-out infinite; }
+.tour-pulse::after { content: ""; position: absolute; inset: 0; border-radius: 50%; animation: amber-pulse 1.4s ease-out 5; }
 @keyframes amber-pulse { from { box-shadow: 0 0 0 0 var(--amber-border); } to { box-shadow: 0 0 0 10px transparent; } }
 .tour-status-body { flex: 1; min-width: 0; }
 .tour-status-title { font-weight: 650; }
