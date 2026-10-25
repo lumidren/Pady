@@ -1,174 +1,119 @@
 <p align="center">
-  <img src="crates/pady-app/icons/128x128@2x.png" width="112" alt="Pady icon">
-</p>
-
-<h1 align="center">Pady</h1>
-
-<p align="center">
-  <b>Your touchpad, your shortcuts.</b><br>
-  Map three-, four- and five-finger taps, holds, swipes and drags to anything on Windows and Linux.
+  <img src="docs/banner.svg" alt="Pady: your touchpad, your shortcuts" width="100%">
 </p>
 
 <p align="center">
-  <img src="docs/screenshot.png" width="820" alt="Pady's gesture editor">
+  <a href="https://github.com/lumidren/Pady/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/lumidren/Pady?include_prereleases&sort=semver&color=7c3aed"></a>
+  <a href="https://github.com/lumidren/Pady/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/lumidren/Pady/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Windows and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-6366f1">
+  <img alt="Rust 1.82+" src="https://img.shields.io/badge/rust-1.82%2B-a855f7">
 </p>
 
----
+<p align="center">
+  <b>Pady turns three-, four- and five-finger touches into anything you want</b>: volume, brightness,<br>
+  media keys, shortcuts, apps and links. It adds the three-finger drag Windows never had,<br>
+  per-app gestures, and a guided setup that gets you going in a minute.
+</p>
 
-## What it does
+<p align="center">
+  <a href="https://github.com/lumidren/Pady/releases/latest"><b>⬇ Download for Windows or Linux</b></a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#gestures">Gestures</a> ·
+  <a href="#actions">Actions</a> ·
+  <a href="#faq">FAQ</a>
+</p>
 
-| Gesture | Example action |
+<p align="center">
+  <img src="docs/demo.svg" alt="Four fingers swipe up and the volume rises, a three-finger double tap skips the track, a three-finger drag moves a window" width="88%">
+</p>
+
+## Why Pady
+
+- **More gestures than your OS gives you.** Tap, double tap, triple tap, hold, swipe in four directions, pinch in or out, and drag, each with 3, 4 or 5 fingers. That's 33 gestures you can bind.
+- **Three-finger drag on Windows.** Move windows and select text without pressing the touchpad, like on a Mac.
+- **Scrub, don't spam.** Keep sliding and volume, brightness or zoom keeps stepping. An on-screen pill shows the level without ever stealing focus.
+- **Per-app profiles.** Swipes switch browser tabs in Chrome and desktops everywhere else. Pady can detect the app for you.
+- **Beginner friendly.** A first-run tutorial checks your touchpad, turns off clashing OS gestures, offers starter presets and lets you practise.
+- **Light and private.** Written in Rust. In the tray it's one ~20 MB process that uses no CPU while idle, and it has no telemetry and no accounts.
+
+## Screenshots
+
+| Gestures | Per-app profiles |
 |---|---|
-| **3-finger drag** | Drag windows and select text without holding the button (the macOS feature Windows never got) |
-| **4-finger swipe up / down** | *Scrub* the volume: keep sliding and it keeps stepping |
-| **4-finger swipe left / right** | Dim or brighten the screen, also scrubbable |
-| **3-finger tap** | Play / pause |
-| **4-finger tap** | Open Chrome at a specific link, or bring an app to the front |
-| **4-finger hold** | Lock the screen |
-| **4-finger pinch in / out** | Zoom out / in (`ctrl+minus` / `ctrl+equal`), stepping as you keep pinching |
-
-Every slot (tap, hold, swipe up/down/left/right, pinch in/out and drag, for 3, 4 or 5 fingers) can run any of these:
-
-- **Keyboard shortcut**, e.g. `ctrl+shift+t`, `win+d`, `alt+f4`, recorded straight from your keyboard
-- **Volume** ±N % (exact Core Audio steps on Windows; PipeWire, Pulse or ALSA on Linux) and **mute**
-- **Brightness** ±N % (laptop panels via WMI, or `brightnessctl`/sysfs/logind; external monitors via DDC/CI)
-- **Media keys** (play/pause, next, previous, stop, plus volume keys that show the OS overlay)
-- **Open a link**, in your default browser or a specific one (`chrome`, `firefox`, `edge`, `brave`)
-- **Launch an app**, or **switch to it** (focus it if running, minimise it if it's already in front, launch it if not)
-- **Run a command**
-- **Lock the screen**
-
-On top of that:
-
-- **Per-app profiles.** Give a gesture a different job while Chrome, VS Code or a game is in front, or switch it off there. Everything else falls back to your global bindings.
-- **Level overlay.** While you scrub volume or brightness, a small pill near the bottom of the screen shows the level. It can't take focus or clicks, so the app you're using never notices it.
-- **Live view.** Watch your fingers on a to-scale touchpad and see every gesture Pady recognises, which action it ran and which profile it came from.
-
-Pady lives in the tray, starts with your computer if you want it to, and applies changes instantly, including when you edit the config file by hand.
-
-## How it works
-
-```text
- touchpad ──▶ pady-input ──TouchFrame (mm)──▶ Recognizer ──Gesture──▶ Engine ──Action──▶ pady-actions ──▶ OS
-             Raw Input HID (Windows)                       tap · hold · swipe     bindings   SendInput · Core Audio · WMI
-             evdev multitouch (Linux)                      steps · drag stream               uinput · wpctl · logind
-```
-
-- **Real finger data, not OS gestures.** On Windows, Pady reads the Precision Touchpad's raw HID reports (every finger's position, contact id and palm flag) through Raw Input, so it keeps working while other apps are focused. On Linux it reads the kernel's multitouch protocol from evdev.
-- **Device-independent tuning.** Every report is converted to millimetres from the pad's HID or evdev descriptor, so "swipe 10 mm" feels the same on every laptop.
-- **A tested recognizer.** Movement is measured from fingers present in consecutive frames, so a finger landing or lifting never reads as a jump. Taps tolerate fingers landing one by one, swipes can keep stepping, and drags survive a quick re-grip.
-- **Actions never block touch.** The engine and the action executor run on separate threads, so a slow app launch can't make the next gesture lag.
-
-The repository is a Cargo workspace:
-
-| Crate | What's in it |
-|---|---|
-| `pady-core` | Recognizer, config (TOML), triggers, actions, engine. No OS code, fully unit tested |
-| `pady-input` | Windows Raw Input HID backend and Linux evdev backend, with protocol logic (`hid.rs`, `mt.rs`) tested on every OS |
-| `pady-actions` | Windows and Linux executors, start-with-system, detection of OS gestures that would clash |
-| `pady-cli` | `pady-cli monitor` to watch fingers and gestures live, `pady-cli run` to run headless |
-| `pady-app` | The Tauri 2 desktop app: tray icon plus a settings window (static HTML/CSS/JS in `ui/`) |
+| <img src="docs/screenshots/gestures.png" alt="Gesture cards for four fingers"> | <img src="docs/screenshots/profiles.png" alt="A browser profile overriding some gestures"> |
+| **Live view** | **Guided setup** |
+| <img src="docs/screenshots/live.png" alt="Fingers drawn live on a to-scale touchpad"> | <img src="docs/screenshots/tutorial.png" alt="The first-run tutorial"> |
+| **Settings** | **Level overlay** |
+| <img src="docs/screenshots/settings.png" alt="Gesture tuning sliders"> | <img src="docs/screenshots/overlay.png" alt="The volume pill shown while scrubbing"> |
 
 ## Install
 
-Download the file for your system from the [latest release](https://github.com/lumidren/Pady/releases/latest):
+Download from the [latest release](https://github.com/lumidren/Pady/releases/latest):
 
 | System | File | What happens |
 |---|---|---|
-| **Windows 10 / 11** | `Pady_<version>_x64-setup.exe` | Installs for your user, no admin rights needed. It adds Pady to the Start menu and installs Microsoft WebView2 if it's missing. Nothing else is required. |
-| Windows (managed PCs) | `Pady_<version>_x64_en-US.msi` | Per-machine install for Intune / Group Policy. |
-| **Ubuntu, Debian, Mint** | `Pady_<version>_amd64.deb` | `sudo apt install ./Pady_*_amd64.deb` installs the libraries Pady needs and sets up touchpad access. |
+| **Windows 10 / 11** | `Pady_<version>_x64-setup.exe` | Installs for you only, with no admin prompt, and adds Pady to the Start menu. If Microsoft WebView2 is missing, the installer downloads it. Nothing else is needed. |
+| Windows (managed PCs) | `Pady_<version>_x64_en-US.msi` | Per-machine install for Intune or Group Policy. |
+| **Ubuntu, Debian, Mint** | `Pady_<version>_amd64.deb` | `sudo apt install ./Pady_*_amd64.deb` pulls in every dependency and sets up touchpad access. |
 | **Fedora, openSUSE** | `Pady-<version>-1.x86_64.rpm` | `sudo dnf install ./Pady-*.x86_64.rpm`, same as the .deb. |
-| Any Linux | `Pady_<version>_amd64.AppImage` | `chmod +x` and run it. On first launch, click **Fix permissions** (one password prompt). |
+| Any Linux | `Pady_<version>_amd64.AppImage` | `chmod +x` it and run. The tutorial's **Fix permissions** button sets up access and installs missing helper tools after one password prompt. |
 
-Pady starts in the tray. Turn on **Start with Windows/Linux** in Settings to have it start when you sign in. To uninstall, use *Settings › Apps* on Windows (tick "Delete the application data" to remove your settings too) or your package manager on Linux.
+> [!NOTE]
+> Until releases are code-signed, Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**. Each release lists SHA-256 checksums for every file.
 
-> **Windows SmartScreen:** until the installer is code-signed, Windows may say "Windows protected your PC". Click **More info › Run anyway**. The setup and its checksums come from this repository's release page.
+## Quick start
 
-## Build from source
+1. **Install and open Pady.** The tutorial starts by itself.
+2. **Let it check your touchpad.** On Windows it shows how to switch off the OS's own three- and four-finger gestures, so the two don't fight. On Linux it offers **Fix permissions** if needed.
+3. **Pick a starter preset**: Recommended, Like a Mac, Media, Productivity or Minimal.
+4. **Practise.** The tutorial ticks off each gesture as you do it.
 
-You need [Rust](https://rustup.rs) (1.82 or newer).
+Then change anything: click a card on the **Gestures** page and choose what it does. Pady lives in the tray. Turn on **Start with Windows/Linux** in Settings to have it start when you sign in.
 
-- **Windows:** you also need the *Desktop development with C++* workload from Visual Studio Build Tools. WebView2 ships with Windows 11.
-- **Linux:** install the Tauri system libraries:
-  ```bash
-  sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
-  ```
+## Gestures
 
-```bash
-git clone https://github.com/lumidren/Pady
-cd Pady
-cargo run -p pady-app --release        # the desktop app
-cargo run -p pady-cli -- monitor       # or: watch your fingers in the terminal
-```
+Every gesture works with 3, 4 or 5 fingers. Fewer fingers stay with your OS for pointing and scrolling.
 
-To build the installers yourself, run this inside `crates/pady-app`:
+| Gesture | Config name | Notes |
+|---|---|---|
+| Tap | `tap:N` | Touch and lift quickly. |
+| Double tap | `doubletap:N` | Once a double or triple tap is bound, single taps wait a moment (300 ms by default) to tell them apart. |
+| Triple tap | `tripletap:N` | |
+| Hold | `hold:N` | Rest the fingers without moving (600 ms by default). |
+| Swipe | `swipe:N:up` · `down` · `left` · `right` | With **repeat**, it keeps firing as you keep sliding. |
+| Pinch | `pinch:N:in` · `out` | Fingers moving together or apart, with optional repeat. |
+| Drag | `drag:N` | Holds the left mouse button while the fingers move. Takes over swipes for that finger count. |
 
-```bash
-npx @tauri-apps/cli@2 build --bundles nsis,msi        # Windows
-npx @tauri-apps/cli@2 build --bundles deb,rpm,appimage # Linux
-```
+## Actions
 
-[RELEASING.md](RELEASING.md) covers tagging a release, the CI pipeline and code signing.
+| Action | What it does |
+|---|---|
+| Keyboard shortcut | Any combo, e.g. `ctrl+shift+t`, `win+d`, `alt+f4`. Record it straight from your keyboard. |
+| Volume ± / Mute | Exact steps on the default output device, with the level overlay. |
+| Brightness ± | Laptop screens (WMI on Windows; brightnessctl, sysfs or logind on Linux) and external monitors (DDC/CI). |
+| Media keys | Play/pause, next, previous, stop, and volume keys with the OS overlay. |
+| Open a link | In your default browser or a specific one (Chrome, Edge, Firefox, Brave). |
+| Launch an app | A program, path or URI such as `ms-settings:`. |
+| Switch to an app | Brings it to the front, minimises it if it's already in front, and launches it if it isn't running. |
+| Run a command | Anything your shell can run. |
+| Lock the screen | |
+| Drag | Three-finger drag style. Holds the left button while moving. |
 
-## Setup
+## Starter presets
 
-### Windows
+| Preset | In short |
+|---|---|
+| **Recommended** | Three-finger drag; three-finger tap plays or pauses and double tap skips the track; four-finger swipes change volume and brightness; four-finger pinch zooms. |
+| **Like a Mac** | Three-finger drag, four-finger swipes for task view, the desktop and switching desktops, pinch to zoom. |
+| **Media** | Single, double and triple taps play, skip and go back; four-finger swipes change the volume and track. |
+| **Productivity** | Desktops, task view, screenshots and lock on four fingers, plus three-finger drag. |
+| **Minimal** | Only three-finger drag. |
 
-Windows keeps running its own touchpad gestures alongside Pady; apps can read touchpad input but can't block it. For every finger count you rebind, open **Settings › Bluetooth & devices › Touchpad** and set *Three-finger gestures* and/or *Four-finger gestures* to **Nothing**. Pady detects when this is still needed and shows a banner with a button that opens the right page.
+Pick one in the tutorial or in Settings, or run `pady-cli config preset media`.
 
-Five-finger gestures have no Windows equivalent, so they never clash.
+## Per-app profiles
 
-### Linux
-
-Pady needs to read your touchpad and to send keys and pointer motion through `/dev/uinput`. The .deb and .rpm packages install a udev rule ([`packaging/linux/70-pady.rules`](packaging/linux/70-pady.rules)) that grants this to whoever is signed in at the computer. No group changes or re-login are needed. With the AppImage or a source build, click **Fix permissions** in Pady, or run `pady-cli fix-permissions`, to install the same rule.
-
-GNOME uses three-finger swipes and KDE Plasma uses four-finger swipes for their own gestures; Pady warns you when your bindings overlap them. Switching to an app (`focus_or_launch`) works on X11 and XWayland apps through `wmctrl`; on native Wayland it falls back to launching.
-
-## Configuration
-
-Everything you set in the window is saved to a readable TOML file:
-
-- Windows: `%APPDATA%\Pady\config.toml`
-- Linux: `~/.config/pady/config.toml`
-
-```toml
-[settings]
-enabled = true
-tap_max_ms = 220          # a tap must lift within this…
-tap_slop_mm = 4.0         # …and not wander further than this
-swipe_threshold_mm = 10.0 # travel before a swipe or drag starts
-swipe_step_mm = 7.0       # spacing between repeats while sliding
-hold_ms = 600
-drag_speed = 9.0          # cursor pixels per mm while dragging
-drag_acceleration = 1.0
-drag_release_ms = 350     # lift and re-place within this to keep dragging
-
-[[binding]]
-trigger = "drag:3"
-action = { type = "drag" }
-
-[[binding]]
-trigger = "swipe:4:up"
-action = { type = "volume", step = 4 }
-repeat = true
-
-[[binding]]
-trigger = "tap:4"
-action = { type = "open_url", url = "https://youtube.com", browser = "chrome" }
-
-[[binding]]
-trigger = "hold:3"
-action = { type = "focus_or_launch", program = "code" }
-```
-
-**Triggers:** `tap:N`, `hold:N`, `swipe:N:up|down|left|right`, `pinch:N:in|out` and `drag:N`, where N is 3 to 5. Swipes and pinches with `repeat = true` keep firing every `swipe_step_mm` while the fingers keep moving. A `drag:N` binding takes over all movement with N fingers, so swipes with that finger count are disabled. The app flags them.
-
-**Actions:** `none`, `keys{combo}`, `volume{step}`, `mute`, `brightness{step}`, `media{key}`, `open_url{url, browser?}`, `launch{program, args?}`, `focus_or_launch{program, args?}`, `run{command}`, `lock` and `drag`.
-
-### Per-app profiles
-
-A profile overrides global bindings, trigger by trigger, while one of its apps is in front. App names match the executable, ignoring case, folder and `.exe`. A binding with `type = "none"` switches that gesture off in those apps.
+A profile changes some gestures while specific apps are in front; everything else follows **All apps**. In the app, click **New profile** and use **Detect app**: switch to the app and Pady records its name. A gesture can also be switched off in an app.
 
 ```toml
 [[profile]]
@@ -180,47 +125,129 @@ trigger = "swipe:4:left"
 action = { type = "keys", combo = "ctrl+shift+tab" }   # previous tab
 
 [[profile.binding]]
-trigger = "swipe:4:right"
-action = { type = "keys", combo = "ctrl+tab" }         # next tab
-
-[[profile.binding]]
 trigger = "tap:4"
 action = { type = "none" }                             # off in the browser
 ```
 
-You don't need to know exe names: in the profile editor, click **Detect app** and switch to the app, or run `pady-cli app` and switch between apps to see their names.
+## Configuration
 
-Drag can't be overridden per app: Pady has to decide whether moving fingers drag before it knows where the gesture is going. On Linux, finding the app in front works on X11/XWayland (`xdotool` or `xprop`) and on KDE Wayland with `kdotool`.
+Everything you set in the window is saved to a readable TOML file. Edit it by hand if you like; changes apply instantly.
+
+- Windows: `%APPDATA%\Pady\config.toml`
+- Linux: `~/.config/pady/config.toml`
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `tap_max_ms` | 220 | A tap must lift within this many milliseconds… |
+| `tap_slop_mm` | 4 | …and no finger may wander further than this. |
+| `multi_tap_ms` | 300 | Longest gap between the taps of a double or triple tap. |
+| `hold_ms` | 600 | Resting this long without moving counts as a hold. |
+| `swipe_threshold_mm` | 10 | Travel before a swipe or drag starts. |
+| `swipe_step_mm` | 7 | Spacing between repeats while sliding or pinching. |
+| `pinch_threshold_mm` | 8 | Change in finger spread before a pinch starts. |
+| `drag_speed` | 9 | Cursor pixels per millimetre while dragging. |
+| `drag_acceleration` | 1 | How much faster quick flicks move the cursor. |
+| `drag_release_ms` | 350 | Lift and re-place within this to keep dragging. |
+| `show_overlay` | true | Show the level pill for volume and brightness. |
+| `pause_in_fullscreen` | true | Ignore gestures while a game runs in exclusive full screen. |
 
 ## Command line
 
 ```text
-pady-cli devices          List detected touchpads
+pady-cli doctor           Check config, touchpad, clashing OS gestures and permissions
 pady-cli monitor          Show fingers and recognised gestures live (no actions run)
 pady-cli run              Run Pady headless with your config
-pady-cli action <toml>    Run one action now: pady-cli action '{ type = "volume", step = 5 }'
 pady-cli app              Print the app in front as you switch (names for profiles)
-pady-cli doctor           Check config, touchpad, clashing OS gestures and permissions
-pady-cli fix-permissions  Linux: install the udev rule Pady needs (asks for a password)
-pady-cli config show      Print the active config
+pady-cli presets          List starter presets
+pady-cli config preset <id>   Apply a preset
+pady-cli action <toml>    Run one action now: pady-cli action '{ type = "volume", step = 5 }'
+pady-cli fix-permissions  Linux: install the udev rule and helper tools Pady needs
 ```
 
-## Development
+## FAQ
+
+<details>
+<summary><b>Windows still switches apps when I swipe with three fingers</b></summary>
+
+Windows runs its own touchpad gestures alongside Pady, and apps can read touchpad input but not block it. Open **Settings › Bluetooth & devices › Touchpad › Three-finger gestures** (and four-finger) and set *Swipes* and *Taps* to **Nothing**. Pady shows a banner with a button to that page whenever this is needed. Five-finger gestures never clash.
+</details>
+
+<details>
+<summary><b>Nothing happens on Linux</b></summary>
+
+Run `pady-cli doctor`. If Pady can't read the touchpad or send keys, click **Fix permissions** in the app or run `pady-cli fix-permissions`. The .deb and .rpm packages do this when installed. GNOME uses three-finger swipes and KDE uses four-finger swipes for their own gestures, so pick other finger counts or turn theirs off.
+</details>
+
+<details>
+<summary><b>Does it work on Wayland?</b></summary>
+
+Gestures and all actions work. Switching to an app and per-app profiles need to know which window is in front. That works for X11 and XWayland apps, and on KDE Plasma with `kdotool`; on other Wayland desktops those two features fall back gracefully.
+</details>
+
+<details>
+<summary><b>Which touchpads are supported?</b></summary>
+
+On Windows, any **Precision Touchpad**, which covers most laptops from the last several years. On Linux, any multitouch touchpad the kernel exposes through evdev, including ones that report fewer finger slots than fingers.
+</details>
+
+<details>
+<summary><b>How much memory does it use?</b></summary>
+
+With the window closed, Pady runs without any web view: one process using about 20–40 MB (under 8 MB of it private), and no CPU time at all while you aren't touching the pad. Opening the window starts WebView2, which takes a few hundred MB more until you close the window again. Measured on Windows 11 with Pady 0.3.0.
+</details>
+
+<details>
+<summary><b>Where are the logs?</b></summary>
+
+Windows: `%LOCALAPPDATA%\com.lumidren.pady\logs`. Linux: `~/.local/share/com.lumidren.pady/logs`. They hold gestures and errors, never what you type.
+</details>
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Touchpad] -->|Raw Input HID · evdev| B(pady-input)
+    B -->|TouchFrame in mm| C(Recognizer)
+    C -->|Gesture| D(Engine)
+    D -->|binding for the app in front| E(pady-actions)
+    E --> F[Keys · volume · brightness · apps · links]
+    D -->|level| G(Overlay)
+```
+
+- **Real finger data.** Pady reads each finger's position from the touchpad, converted to millimetres, so thresholds feel the same on every laptop.
+- **A tested recognizer.** It measures movement only from fingers present in consecutive frames, so fingers landing or lifting never look like a jump. About 150 unit tests cover taps, multi-taps, holds, swipes, pinches and drags, the config format, the Linux multitouch decoder and the overlay.
+- **Actions never block touch.** Recognition and actions run on separate threads. The engine sleeps until the next frame or the next timer that's due.
+
+| Crate | Purpose |
+|---|---|
+| `pady-core` | Recognizer, config, presets and engine. Platform-independent and fully unit-tested. |
+| `pady-input` | Windows Raw Input and Linux evdev touchpad backends. |
+| `pady-actions` | Keys, audio, brightness, apps, autostart and permissions per OS. |
+| `pady-overlay` | The native Windows level overlay (no web view). |
+| `pady-cli` | The terminal tool. |
+| `pady-app` | The Tauri desktop app and its UI. |
+
+## Build from source
+
+You need [Rust](https://rustup.rs) 1.82+.
+
+- **Windows:** Visual Studio Build Tools (*Desktop development with C++*).
+- **Linux:** `sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev`
 
 ```bash
-cargo test --workspace                 # recognizer, config, HID and multitouch protocol tests
-cargo clippy --workspace --all-targets
-node scripts/make-icons.mjs            # regenerate the app icons
+git clone https://github.com/lumidren/Pady
+cd Pady
+cargo run -p pady-app --release
 ```
 
-To preview the UI in a browser without the backend, open `crates/pady-app/ui/index.html` directly. A built-in mock backend simulates a touchpad with moving fingers.
+To build the installers yourself, run this in `crates/pady-app`: `npx @tauri-apps/cli@2 build` (add `--bundles nsis,msi` on Windows, or `deb,rpm,appimage` on Linux). [RELEASING.md](RELEASING.md) covers releases and code signing; [CONTRIBUTING.md](CONTRIBUTING.md) covers development, including the UI preview that runs without the backend.
 
 ## Roadmap
 
 - Rotate gestures and diagonal swipes
-- Edge swipes (start a swipe from the touchpad's edge for a separate set of bindings)
-- Double taps and tap-then-drag combinations
-- Exclusive mode on Linux (grab the touchpad and re-emit pointer motion) to fully replace desktop gestures
-- Pause automatically while a full-screen game is in front
-- Import and export of configs, and shareable profile presets
+- Edge swipes (starting from the touchpad's edge)
+- Exclusive mode on Linux, to fully replace desktop gestures
+- Import and export of profiles
 - Signed installers and auto-update
+
+Ideas welcome! Open an [issue](https://github.com/lumidren/Pady/issues/new/choose).

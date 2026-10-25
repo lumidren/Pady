@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="t d">
+  <title id="t">Pady</title>
+  <desc id="d">Your touchpad, your shortcuts. Multi-finger gestures for Windows and Linux.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d0d18"/>
+      <stop offset="1" stop-color="#171028"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.78" cy="0.45" r="0.55">
+      <stop offset="0" stop-color="#7c3aed" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#7c3aed" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.12" cy="0.2" r="0.4">
+      <stop offset="0" stop-color="#6366f1" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#6366f1" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#a855f7"/>
+    </linearGradient>
+    <linearGradient id="trail" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#a5b4fc" stop-opacity="0"/>
+      <stop offset="1" stop-color="#a5b4fc" stop-opacity="0.55"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="320" rx="24" fill="url(#bg)"/>
+  <rect width="1280" height="320" rx="24" fill="url(#glow)"/>
+  <rect width="1280" height="320" rx="24" fill="url(#glow2)"/>
+  <rect x="0.5" y="0.5" width="1279" height="319" rx="23.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <!-- App icon -->
+  <g transform="translate(88 80)">
+    <rect width="160" height="160" rx="36" fill="url(#tile)"/>
+    <rect x="30" y="44" width="100" height="74" rx="14" fill="none" stroke="#ffffff" stroke-opacity="0.92" stroke-width="7"/>
+    <g fill="#ffffff">
+      <circle cx="58" cy="76" r="9"/>
+      <circle cx="80" cy="76" r="9"/>
+      <circle cx="102" cy="76" r="9"/>
+    </g>
+    <g fill="#ffffff" fill-opacity="0.35">
+      <circle cx="58" cy="92" r="6"/>
+      <circle cx="80" cy="92" r="6"/>
+      <circle cx="102" cy="92" r="6"/>
+    </g>
+  </g>
+
+  <!-- Wordmark -->
+  <g font-family="'Segoe UI Variable Display','Segoe UI',Inter,system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif">
+    <text x="292" y="168" fill="#ffffff" font-size="104" font-weight="700" letter-spacing="-2">Pady</text>
+    <text x="296" y="214" fill="#d4d4e8" font-size="30" font-weight="600">Your touchpad, your shortcuts.</text>
+    <text x="296" y="252" fill="#9d9db8" font-size="20">Three-, four- and five-finger gestures for Windows and Linux</text>
+  </g>
+
+  <!-- Touchpad with fingers swiping up -->
+  <g transform="translate(880 66)">
+    <rect width="300" height="190" rx="26" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.16" stroke-width="2"/>
+    <g>
+      <rect x="83" y="96" width="14" height="58" rx="7" fill="url(#trail)"/>
+      <rect x="123" y="86" width="14" height="58" rx="7" fill="url(#trail)"/>
+      <rect x="163" y="86" width="14" height="58" rx="7" fill="url(#trail)"/>
+      <rect x="203" y="96" width="14" height="58" rx="7" fill="url(#trail)"/>
+    </g>
+    <g fill="#c4b5fd">
+      <circle cx="90" cy="96" r="15"/>
+      <circle cx="130" cy="86" r="15"/>
+      <circle cx="170" cy="86" r="15"/>
+      <circle cx="210" cy="96" r="15"/>
+    </g>
+    <g fill="#ffffff" fill-opacity="0.9">
+      <circle cx="90" cy="96" r="6"/>
+      <circle cx="130" cy="86" r="6"/>
+      <circle cx="170" cy="86" r="6"/>
+      <circle cx="210" cy="96" r="6"/>
+    </g>
+    <!-- Volume pill -->
+    <g transform="translate(40 206)">
+      <rect width="220" height="40" rx="20" fill="#16161e" fill-opacity="0.95" stroke="#ffffff" stroke-opacity="0.12"/>
+      <path d="M22 16h5l7-6v20l-7-6h-5z" fill="#ffffff" fill-opacity="0.85"/>
+      <rect x="48" y="18" width="120" height="5" rx="2.5" fill="#ffffff" fill-opacity="0.15"/>
+      <rect x="48" y="18" width="84" height="5" rx="2.5" fill="url(#tile)"/>
+      <text x="198" y="26" text-anchor="middle" fill="#ffffff" font-size="15" font-weight="600" font-family="'Segoe UI',Inter,system-ui,sans-serif">70%</text>
+    </g>
+  </g>
+</svg>

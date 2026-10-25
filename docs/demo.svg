@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="360" viewBox="0 0 880 360" role="img" aria-labelledby="t d">
+  <title id="t">Pady in action</title>
+  <desc id="d">Four fingers swipe up on a touchpad and the volume rises; three fingers double-tap and the next track plays; three fingers drag a window.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d0d18"/>
+      <stop offset="1" stop-color="#151025"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#a855f7"/>
+    </linearGradient>
+    <radialGradient id="finger">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.45" stop-color="#c4b5fd"/>
+      <stop offset="1" stop-color="#8b5cf6" stop-opacity="0.35"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="880" height="360" rx="22" fill="url(#bg)"/>
+  <rect x="0.5" y="0.5" width="879" height="359" rx="21.5" fill="none" stroke="#fff" stroke-opacity="0.08"/>
+
+  <g font-family="'Segoe UI Variable Text','Segoe UI',Inter,system-ui,-apple-system,sans-serif">
+    <!-- Touchpad -->
+    <rect x="60" y="60" width="380" height="240" rx="28" fill="#fff" fill-opacity="0.035" stroke="#fff" stroke-opacity="0.16" stroke-width="2"/>
+    <text x="250" y="330" text-anchor="middle" fill="#8f8fae" font-size="15">your touchpad</text>
+
+    <!-- Scene 1 (0–3 s): four fingers swipe up, volume rises -->
+    <g opacity="0">
+      <animate attributeName="opacity" dur="9s" repeatCount="indefinite" keyTimes="0;0.03;0.3;0.33;1" values="0;1;1;0;0"/>
+      <g>
+        <animateTransform attributeName="transform" type="translate" dur="9s" repeatCount="indefinite"
+          keyTimes="0;0.06;0.27;1" values="0 40;0 40;0 -40;0 -40"/>
+        <circle cx="175" cy="190" r="17" fill="url(#finger)"/>
+        <circle cx="225" cy="176" r="17" fill="url(#finger)"/>
+        <circle cx="275" cy="176" r="17" fill="url(#finger)"/>
+        <circle cx="325" cy="190" r="17" fill="url(#finger)"/>
+      </g>
+      <g transform="translate(510 120)">
+        <text x="0" y="0" fill="#fff" font-size="22" font-weight="600">4-finger swipe up</text>
+        <text x="0" y="30" fill="#a5a5c4" font-size="17">→ Volume, keeps rising while you slide</text>
+        <g transform="translate(0 60)">
+          <rect width="300" height="52" rx="26" fill="#16161e" stroke="#fff" stroke-opacity="0.12"/>
+          <path d="M26 20h6l9-8v28l-9-8h-6z" fill="#fff" fill-opacity="0.9"/>
+          <rect x="58" y="23.5" width="170" height="5" rx="2.5" fill="#fff" fill-opacity="0.15"/>
+          <rect x="58" y="23.5" width="40" height="5" rx="2.5" fill="url(#accent)">
+            <animate attributeName="width" dur="9s" repeatCount="indefinite" keyTimes="0;0.06;0.27;1" values="40;40;150;150"/>
+          </rect>
+          <text x="262" y="32" text-anchor="middle" fill="#fff" font-size="17" font-weight="600">↑</text>
+        </g>
+      </g>
+    </g>
+
+    <!-- Scene 2 (3–6 s): three-finger double tap, next track -->
+    <g opacity="0">
+      <animate attributeName="opacity" dur="9s" repeatCount="indefinite" keyTimes="0;0.33;0.36;0.63;0.66;1" values="0;0;1;1;0;0"/>
+      <g>
+        <circle cx="200" cy="180" r="17" fill="url(#finger)">
+          <animate attributeName="r" dur="9s" repeatCount="indefinite" keyTimes="0;0.4;0.42;0.44;0.47;0.49;0.51;1" values="17;17;11;17;17;11;17;17"/>
+        </circle>
+        <circle cx="250" cy="168" r="17" fill="url(#finger)">
+          <animate attributeName="r" dur="9s" repeatCount="indefinite" keyTimes="0;0.4;0.42;0.44;0.47;0.49;0.51;1" values="17;17;11;17;17;11;17;17"/>
+        </circle>
+        <circle cx="300" cy="180" r="17" fill="url(#finger)">
+          <animate attributeName="r" dur="9s" repeatCount="indefinite" keyTimes="0;0.4;0.42;0.44;0.47;0.49;0.51;1" values="17;17;11;17;17;11;17;17"/>
+        </circle>
+      </g>
+      <g transform="translate(510 140)">
+        <text x="0" y="0" fill="#fff" font-size="22" font-weight="600">3-finger double tap</text>
+        <text x="0" y="30" fill="#a5a5c4" font-size="17">→ Next track</text>
+        <g transform="translate(0 52)" fill="url(#accent)">
+          <path d="M0 0l26 16-26 16z"/>
+          <path d="M26 0l26 16-26 16z"/>
+          <rect x="54" y="0" width="7" height="32" rx="2"/>
+          <animateTransform attributeName="transform" type="translate" dur="9s" repeatCount="indefinite"
+            keyTimes="0;0.51;0.54;0.57;1" values="0 52;0 52;12 52;0 52;0 52"/>
+        </g>
+      </g>
+    </g>
+
+    <!-- Scene 3 (6–9 s): three-finger drag moves a window -->
+    <g opacity="0">
+      <animate attributeName="opacity" dur="9s" repeatCount="indefinite" keyTimes="0;0.66;0.69;0.97;1" values="0;0;1;1;0"/>
+      <g>
+        <animateTransform attributeName="transform" type="translate" dur="9s" repeatCount="indefinite"
+          keyTimes="0;0.72;0.93;1" values="-40 0;-40 0;60 0;60 0"/>
+        <circle cx="200" cy="180" r="17" fill="url(#finger)"/>
+        <circle cx="250" cy="168" r="17" fill="url(#finger)"/>
+        <circle cx="300" cy="180" r="17" fill="url(#finger)"/>
+      </g>
+      <g transform="translate(510 110)">
+        <text x="0" y="0" fill="#fff" font-size="22" font-weight="600">3-finger drag</text>
+        <text x="0" y="30" fill="#a5a5c4" font-size="17">→ Moves windows, selects text</text>
+        <g>
+          <animateTransform attributeName="transform" type="translate" dur="9s" repeatCount="indefinite"
+            keyTimes="0;0.72;0.93;1" values="0 56;0 56;110 56;110 56"/>
+          <rect width="190" height="120" rx="12" fill="#1d1d2b" stroke="#fff" stroke-opacity="0.14"/>
+          <rect width="190" height="26" rx="12" fill="#2a2a3d"/>
+          <rect y="14" width="190" height="12" fill="#2a2a3d"/>
+          <circle cx="16" cy="13" r="4" fill="#fb7185"/>
+          <circle cx="30" cy="13" r="4" fill="#fbbf24"/>
+          <circle cx="44" cy="13" r="4" fill="#34d399"/>
+          <rect x="16" y="44" width="120" height="8" rx="4" fill="#fff" fill-opacity="0.14"/>
+          <rect x="16" y="62" width="150" height="8" rx="4" fill="#fff" fill-opacity="0.1"/>
+          <rect x="16" y="80" width="96" height="8" rx="4" fill="#fff" fill-opacity="0.1"/>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>
