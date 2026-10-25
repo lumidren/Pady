@@ -54,6 +54,48 @@ impl fmt::Display for Direction {
     }
 }
 
+/// Fingers moving together (`In`) or apart (`Out`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PinchDirection {
+    In,
+    Out,
+}
+
+impl PinchDirection {
+    pub const ALL: [PinchDirection; 2] = [PinchDirection::In, PinchDirection::Out];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PinchDirection::In => "in",
+            PinchDirection::Out => "out",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "in" => Some(PinchDirection::In),
+            "out" => Some(PinchDirection::Out),
+            _ => None,
+        }
+    }
+
+    /// `In` when the fingers' spread shrank.
+    pub fn from_change(spread_change: f32) -> Self {
+        if spread_change < 0.0 {
+            PinchDirection::In
+        } else {
+            PinchDirection::Out
+        }
+    }
+}
+
+impl fmt::Display for PinchDirection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// What the recognizer saw. Discrete gestures map to [`crate::Trigger`]s;
 /// drags are a start / move / end stream that the engine turns into a held
 /// mouse button.
@@ -71,6 +113,12 @@ pub enum Gesture {
     Swipe {
         fingers: u8,
         direction: Direction,
+        step: u32,
+    },
+    /// Like a swipe, `step` counts repeats while the fingers keep pinching.
+    Pinch {
+        fingers: u8,
+        direction: PinchDirection,
         step: u32,
     },
     DragStart {

@@ -1,4 +1,4 @@
-use crate::gesture::{Direction, Gesture};
+use crate::gesture::{Direction, Gesture, PinchDirection};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::str::FromStr;
@@ -6,12 +6,13 @@ use std::str::FromStr;
 /// A gesture slot that can be bound to an action.
 ///
 /// Written in config files as compact strings: `tap:3`, `hold:4`,
-/// `swipe:3:up`, `drag:3`.
+/// `swipe:3:up`, `pinch:4:in`, `drag:3`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Trigger {
     Tap(u8),
     Hold(u8),
     Swipe(u8, Direction),
+    Pinch(u8, PinchDirection),
     Drag(u8),
 }
 
@@ -21,8 +22,13 @@ impl Trigger {
 
     pub fn fingers(self) -> u8 {
         match self {
-            Trigger::Tap(n) | Trigger::Hold(n) | Trigger::Swipe(n, _) | Trigger::Drag(n) => n,
+            Trigger::Tap(n) | Trigger::Hold(n) | Trigger::Swipe(n, _) | Trigger::Pinch(n, _) | Trigger::Drag(n) => n,
         }
+    }
+
+    /// Swipes and pinches can keep firing while the fingers keep moving.
+    pub fn can_repeat(self) -> bool {
+        matches!(self, Trigger::Swipe(..) | Trigger::Pinch(..))
     }
 
     /// The trigger a discrete gesture fires, if any. Drag movement is a
@@ -32,6 +38,7 @@ impl Trigger {
             Gesture::Tap { fingers } => Some(Trigger::Tap(fingers)),
             Gesture::Hold { fingers } => Some(Trigger::Hold(fingers)),
             Gesture::Swipe { fingers, direction, .. } => Some(Trigger::Swipe(fingers, direction)),
+            Gesture::Pinch { fingers, direction, .. } => Some(Trigger::Pinch(fingers, direction)),
             Gesture::DragStart { fingers } => Some(Trigger::Drag(fingers)),
             Gesture::DragMove { .. } | Gesture::DragEnd => None,
         }
@@ -41,6 +48,7 @@ impl Trigger {
     pub fn all_for(fingers: u8) -> Vec<Trigger> {
         let mut v = vec![Trigger::Tap(fingers), Trigger::Hold(fingers)];
         v.extend(Direction::ALL.iter().map(|&d| Trigger::Swipe(fingers, d)));
+        v.extend(PinchDirection::ALL.iter().map(|&d| Trigger::Pinch(fingers, d)));
         v.push(Trigger::Drag(fingers));
         v
     }
@@ -50,6 +58,7 @@ impl Trigger {
             Trigger::Tap(n) => format!("{n}-finger tap"),
             Trigger::Hold(n) => format!("{n}-finger hold"),
             Trigger::Swipe(n, d) => format!("{n}-finger swipe {d}"),
+            Trigger::Pinch(n, d) => format!("{n}-finger pinch {d}"),
             Trigger::Drag(n) => format!("{n}-finger drag"),
         }
     }
@@ -61,13 +70,14 @@ impl fmt::Display for Trigger {
             Trigger::Tap(n) => write!(f, "tap:{n}"),
             Trigger::Hold(n) => write!(f, "hold:{n}"),
             Trigger::Swipe(n, d) => write!(f, "swipe:{n}:{d}"),
+            Trigger::Pinch(n, d) => write!(f, "pinch:{n}:{d}"),
             Trigger::Drag(n) => write!(f, "drag:{n}"),
         }
     }
 }
 
 #[derive(Debug, thiserror::Error, PartialEq)]
-#[error("invalid trigger `{0}` (expected e.g. tap:3, hold:4, swipe:3:up, drag:3)")]
+#[error("invalid trigger `{0}` (expected e.g. tap:3, hold:4, swipe:3:up, pinch:4:in, drag:3)")]
 pub struct ParseTriggerError(pub String);
 
 impl FromStr for Trigger {
@@ -86,6 +96,7 @@ impl FromStr for Trigger {
             ("hold", 2) => Ok(Trigger::Hold(fingers)),
             ("drag", 2) => Ok(Trigger::Drag(fingers)),
             ("swipe", 3) => Direction::parse(parts[2]).map(|d| Trigger::Swipe(fingers, d)).ok_or_else(err),
+            ("pinch", 3) => PinchDirection::parse(parts[2]).map(|d| Trigger::Pinch(fingers, d)).ok_or_else(err),
             _ => Err(err()),
         }
     }
@@ -120,12 +131,21 @@ mod tests {
     #[test]
     fn parsing_is_forgiving_about_case_and_spaces() {
         assert_eq!(" Swipe : 4 : LEFT ".parse(), Ok(Trigger::Swipe(4, Direction::Left)));
+        assert_eq!("PINCH:3:Out".parse(), Ok(Trigger::Pinch(3, PinchDirection::Out)));
     }
 
     #[test]
     fn rejects_bad_input() {
-        for bad in ["", "tap", "tap:2", "tap:6", "swipe:3", "swipe:3:north", "pinch:3", "tap:3:up"] {
+        for bad in ["", "tap", "tap:2", "tap:6", "swipe:3", "swipe:3:north", "pinch:3", "pinch:3:up", "tap:3:up"] {
             assert!(bad.parse::<Trigger>().is_err(), "{bad} should not parse");
         }
+    }
+
+    #[test]
+    fn only_continuous_triggers_repeat() {
+        assert!(Trigger::Swipe(3, Direction::Up).can_repeat());
+        assert!(Trigger::Pinch(3, PinchDirection::In).can_repeat());
+        assert!(!Trigger::Tap(3).can_repeat());
+        assert!(!Trigger::Drag(3).can_repeat());
     }
 }
