@@ -3,8 +3,10 @@
 //! Two threads:
 //! * the **engine thread** owns the [`Recognizer`], reads frames and turns
 //!   gestures into [`Job`]s;
-//! * the **action thread** owns the platform [`Executor`] and runs jobs in
-//!   order, so a slow action (launching an app) never delays touch handling.
+//! * the **action thread** owns the platform [`Executor`], resolves each
+//!   gesture to a binding (asking which app is in front, for per-app
+//!   profiles) and runs jobs in order, so a slow action never delays touch
+//!   handling.
 
 use crate::action::Action;
 use crate::config::{Config, SharedConfig};
@@ -20,13 +22,45 @@ use std::time::Duration;
 
 pub type ActionError = Box<dyn std::error::Error + Send + Sync>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LevelKind {
+    Volume,
+    Brightness,
+}
+
+/// The level a volume or brightness action left behind, for the overlay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct Level {
+    pub kind: LevelKind,
+    pub percent: u8,
+    pub muted: bool,
+}
+
+impl Level {
+    pub fn volume(percent: f32, muted: bool) -> Self {
+        Level { kind: LevelKind::Volume, percent: percent.round().clamp(0.0, 100.0) as u8, muted }
+    }
+
+    pub fn brightness(percent: f32) -> Self {
+        Level { kind: LevelKind::Brightness, percent: percent.round().clamp(0.0, 100.0) as u8, muted: false }
+    }
+}
+
 /// Carries out actions on the host OS. Created on, and confined to, the
 /// action thread, so implementations may hold thread-affine handles (COM).
 pub trait Executor {
-    fn run(&mut self, action: &Action) -> Result<(), ActionError>;
+    /// Run an action. Volume and brightness actions return the new level
+    /// when the OS reports it.
+    fn run(&mut self, action: &Action) -> Result<Option<Level>, ActionError>;
     fn mouse_button(&mut self, down: bool) -> Result<(), ActionError>;
     /// Relative cursor movement in pixels.
     fn mouse_move(&mut self, dx: i32, dy: i32) -> Result<(), ActionError>;
+    /// Executable name of the app in front (e.g. `chrome.exe`), for per-app
+    /// profiles. Only asked when the config has profiles.
+    fn foreground_app(&mut self) -> Option<String> {
+        None
+    }
 }
 
 /// Executor that only logs; used by `pady monitor` and tests.
@@ -34,9 +68,9 @@ pub trait Executor {
 pub struct LogExecutor;
 
 impl Executor for LogExecutor {
-    fn run(&mut self, action: &Action) -> Result<(), ActionError> {
+    fn run(&mut self, action: &Action) -> Result<Option<Level>, ActionError> {
         log::info!("would run: {}", action.label());
-        Ok(())
+        Ok(None)
     }
     fn mouse_button(&mut self, down: bool) -> Result<(), ActionError> {
         log::info!("would {} left button", if down { "press" } else { "release" });
@@ -49,7 +83,13 @@ impl Executor for LogExecutor {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Job {
+    /// Run this action now (the UI's "Test" button).
     Run(Action),
+    /// A gesture fired; resolve its binding for the app in front and run it.
+    Fire {
+        gesture: Gesture,
+        trigger: Trigger,
+    },
     MouseButton(bool),
     MouseMove(i32, i32),
 }
@@ -65,7 +105,10 @@ pub enum EngineEvent {
         trigger: Option<String>,
         /// Label of the action that ran, if one was bound.
         action: Option<String>,
+        /// Name of the per-app profile the binding came from.
+        profile: Option<String>,
     },
+    Level(Level),
     ActionFailed {
         action: String,
         error: String,
@@ -95,9 +138,10 @@ impl Engine {
         let (jobs_tx, jobs_rx) = unbounded::<Job>();
 
         let action_observer = observer.clone();
+        let action_config = config.clone();
         let action_thread = std::thread::Builder::new()
             .name("pady-actions".into())
-            .spawn(move || run_actions(make_executor(), jobs_rx, action_observer))
+            .spawn(move || ActionLoop::new(make_executor(), action_config, action_observer).run(jobs_rx))
             .expect("spawn action thread");
 
         let engine_jobs = jobs_tx.clone();
@@ -125,16 +169,84 @@ impl Engine {
     }
 }
 
-fn run_actions(mut exec: Box<dyn Executor>, jobs: Receiver<Job>, observer: Observer) {
-    for job in jobs {
-        let (label, result) = match &job {
-            Job::Run(action) => (action.label(), exec.run(action)),
-            Job::MouseButton(down) => ("Mouse button".to_string(), exec.mouse_button(*down)),
-            Job::MouseMove(dx, dy) => ("Mouse move".to_string(), exec.mouse_move(*dx, *dy)),
+struct ActionLoop {
+    exec: Box<dyn Executor>,
+    shared: Arc<SharedConfig>,
+    generation: u64,
+    config: Config,
+    observer: Observer,
+}
+
+impl ActionLoop {
+    fn new(exec: Box<dyn Executor>, shared: Arc<SharedConfig>, observer: Observer) -> Self {
+        ActionLoop { exec, generation: shared.generation(), config: shared.get(), shared, observer }
+    }
+
+    fn run(mut self, jobs: Receiver<Job>) {
+        for job in jobs {
+            match job {
+                Job::Run(action) => self.execute(&action),
+                Job::Fire { gesture, trigger } => self.fire(gesture, trigger),
+                Job::MouseButton(down) => {
+                    let result = self.exec.mouse_button(down);
+                    self.report("Mouse button", result);
+                }
+                Job::MouseMove(dx, dy) => {
+                    let result = self.exec.mouse_move(dx, dy);
+                    self.report("Mouse move", result);
+                }
+            }
+        }
+    }
+
+    fn fire(&mut self, gesture: Gesture, trigger: Trigger) {
+        let generation = self.shared.generation();
+        if generation != self.generation {
+            self.generation = generation;
+            self.config = self.shared.get();
+        }
+        let app = if self.config.profiles.is_empty() { None } else { self.exec.foreground_app() };
+        let step = match gesture {
+            Gesture::Swipe { step, .. } | Gesture::Pinch { step, .. } => step,
+            _ => 0,
         };
+        let resolved = self
+            .config
+            .resolve(trigger, app.as_deref())
+            .filter(|(b, _)| step == 0 || b.repeat)
+            .map(|(b, p)| (b.action.clone(), p.map(|p| p.name.clone())));
+
+        // Unbound repeat steps are noise; everything else is worth showing.
+        if step > 0 && resolved.is_none() {
+            return;
+        }
+        let (action, profile) = match resolved {
+            Some((action, profile)) => (Some(action), profile),
+            None => (None, None),
+        };
+        (self.observer)(EngineEvent::Gesture {
+            gesture,
+            trigger: Some(trigger.to_string()),
+            action: action.as_ref().map(Action::label),
+            profile,
+        });
+        if let Some(action) = action {
+            self.execute(&action);
+        }
+    }
+
+    fn execute(&mut self, action: &Action) {
+        match self.exec.run(action) {
+            Ok(Some(level)) => (self.observer)(EngineEvent::Level(level)),
+            Ok(None) => {}
+            Err(e) => self.report(&action.label(), Err(e)),
+        }
+    }
+
+    fn report(&self, label: &str, result: Result<(), ActionError>) {
         if let Err(e) = result {
             log::warn!("{label} failed: {e}");
-            observer(EngineEvent::ActionFailed { action: label, error: e.to_string() });
+            (self.observer)(EngineEvent::ActionFailed { action: label.to_string(), error: e.to_string() });
         }
     }
 }
@@ -174,7 +286,6 @@ struct EngineLoop {
     jobs: Sender<Job>,
     observer: Observer,
     pointer: Pointer,
-    last_frame_time: u64,
 }
 
 impl EngineLoop {
@@ -188,7 +299,6 @@ impl EngineLoop {
             jobs,
             observer,
             pointer: Pointer::default(),
-            last_frame_time: 0,
         }
     }
 
@@ -223,7 +333,6 @@ impl EngineLoop {
     }
 
     fn on_frame(&mut self, frame: TouchFrame) {
-        self.last_frame_time = frame.time_ms;
         let gestures = if self.config.settings.enabled { self.recognizer.update(&frame) } else { Vec::new() };
         let t = frame.time_ms;
         (self.observer)(EngineEvent::Frame(frame));
@@ -244,38 +353,26 @@ impl EngineLoop {
                 if px != 0 || py != 0 {
                     let _ = self.jobs.send(Job::MouseMove(px, py));
                 }
-                return; // too chatty to report
             }
-            Gesture::DragStart { .. } => {
+            Gesture::DragStart { fingers } => {
                 self.pointer.reset(t);
                 let _ = self.jobs.send(Job::MouseButton(true));
+                (self.observer)(EngineEvent::Gesture {
+                    gesture,
+                    trigger: Some(Trigger::Drag(fingers).to_string()),
+                    action: Some(Action::Drag.label()),
+                    profile: None,
+                });
             }
             Gesture::DragEnd => {
                 let _ = self.jobs.send(Job::MouseButton(false));
+                (self.observer)(EngineEvent::Gesture { gesture, trigger: None, action: None, profile: None });
             }
-            _ => {}
-        }
-
-        let trigger = Trigger::from_gesture(&gesture);
-        let mut ran = None;
-        match gesture {
-            Gesture::DragStart { .. } => ran = Some(Action::Drag.label()),
-            Gesture::DragEnd => {}
             _ => {
-                if let Some(binding) = trigger.and_then(|t| self.config.binding(t)) {
-                    let is_repeat = matches!(gesture, Gesture::Swipe { step, .. } if step > 0);
-                    if !is_repeat || binding.repeat {
-                        ran = Some(binding.action.label());
-                        let _ = self.jobs.send(Job::Run(binding.action.clone()));
-                    }
+                if let Some(trigger) = Trigger::from_gesture(&gesture) {
+                    let _ = self.jobs.send(Job::Fire { gesture, trigger });
                 }
             }
-        }
-
-        // Unbound repeat steps are noise; everything else is worth showing.
-        let is_silent_step = matches!(gesture, Gesture::Swipe { step, .. } if step > 0) && ran.is_none();
-        if !is_silent_step {
-            (self.observer)(EngineEvent::Gesture { gesture, trigger: trigger.map(|t| t.to_string()), action: ran });
         }
     }
 }
@@ -283,27 +380,35 @@ impl EngineLoop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{Binding, Profile};
     use crate::frame::Contact;
     use crate::gesture::Direction;
     use std::sync::Mutex;
 
-    struct Recorder(Arc<Mutex<Vec<Job>>>);
+    struct Recorder {
+        jobs: Arc<Mutex<Vec<Job>>>,
+        app: Option<String>,
+    }
 
     impl Executor for Recorder {
-        fn run(&mut self, action: &Action) -> Result<(), ActionError> {
-            self.0.lock().unwrap().push(Job::Run(action.clone()));
-            if matches!(action, Action::Run { .. }) {
-                return Err("boom".into());
+        fn run(&mut self, action: &Action) -> Result<Option<Level>, ActionError> {
+            self.jobs.lock().unwrap().push(Job::Run(action.clone()));
+            match action {
+                Action::Run { .. } => Err("boom".into()),
+                Action::Volume { step } => Ok(Some(Level::volume(50.0 + *step as f32, false))),
+                _ => Ok(None),
             }
-            Ok(())
         }
         fn mouse_button(&mut self, down: bool) -> Result<(), ActionError> {
-            self.0.lock().unwrap().push(Job::MouseButton(down));
+            self.jobs.lock().unwrap().push(Job::MouseButton(down));
             Ok(())
         }
         fn mouse_move(&mut self, dx: i32, dy: i32) -> Result<(), ActionError> {
-            self.0.lock().unwrap().push(Job::MouseMove(dx, dy));
+            self.jobs.lock().unwrap().push(Job::MouseMove(dx, dy));
             Ok(())
+        }
+        fn foreground_app(&mut self) -> Option<String> {
+            self.app.clone()
         }
     }
 
@@ -312,16 +417,17 @@ mod tests {
         TouchFrame { time_ms: t, contacts, width_mm: 100.0, height_mm: 60.0 }
     }
 
-    fn run_engine(cfg: Config, frames: Vec<TouchFrame>) -> (Vec<Job>, Vec<EngineEvent>) {
+    fn run_engine_in(app: Option<&str>, cfg: Config, frames: Vec<TouchFrame>) -> (Vec<Job>, Vec<EngineEvent>) {
         let jobs = Arc::new(Mutex::new(Vec::new()));
         let events = Arc::new(Mutex::new(Vec::new()));
         let (tx, rx) = unbounded();
         let rec = jobs.clone();
         let ev = events.clone();
+        let app = app.map(str::to_string);
         let engine = Engine::spawn(
             Arc::new(SharedConfig::new(cfg)),
             rx,
-            move || Box::new(Recorder(rec)),
+            move || Box::new(Recorder { jobs: rec, app }),
             Arc::new(move |e| ev.lock().unwrap().push(e)),
         );
         for f in frames {
@@ -334,6 +440,14 @@ mod tests {
         (jobs, events)
     }
 
+    fn run_engine(cfg: Config, frames: Vec<TouchFrame>) -> (Vec<Job>, Vec<EngineEvent>) {
+        run_engine_in(None, cfg, frames)
+    }
+
+    fn tap3() -> Vec<TouchFrame> {
+        vec![frame(0, 3, 0.0, 0.0), frame(60, 0, 0.0, 0.0)]
+    }
+
     #[test]
     fn swipe_repeat_scrubs_volume() {
         let mut cfg = Config::default();
@@ -342,7 +456,7 @@ mod tests {
         cfg.set_binding(Trigger::Swipe(3, Direction::Down), Action::Volume { step: -2 }, false);
         let step = cfg.settings.swipe_step_mm;
         let thr = cfg.settings.swipe_threshold_mm;
-        let (jobs, _) = run_engine(
+        let (jobs, events) = run_engine(
             cfg,
             vec![
                 frame(0, 3, 0.0, 0.0),
@@ -355,6 +469,8 @@ mod tests {
             ],
         );
         assert_eq!(jobs, vec![Job::Run(Action::Volume { step: 2 }); 3]);
+        let levels: Vec<_> = events.iter().filter(|e| matches!(e, EngineEvent::Level(_))).collect();
+        assert_eq!(levels.len(), 3, "every volume change reports its level for the overlay");
     }
 
     #[test]
@@ -379,7 +495,7 @@ mod tests {
     fn disabled_engine_still_reports_frames_but_never_acts() {
         let mut cfg = Config::default();
         cfg.settings.enabled = false;
-        let (jobs, events) = run_engine(cfg, vec![frame(0, 3, 0.0, 0.0), frame(50, 0, 0.0, 0.0)]);
+        let (jobs, events) = run_engine(cfg, tap3());
         assert!(jobs.is_empty());
         assert_eq!(events.iter().filter(|e| matches!(e, EngineEvent::Frame(_))).count(), 2);
     }
@@ -388,8 +504,35 @@ mod tests {
     fn failures_are_reported() {
         let mut cfg = Config::default();
         cfg.set_binding(Trigger::Tap(3), Action::Run { command: "nope".into() }, false);
-        let (_, events) = run_engine(cfg, vec![frame(0, 3, 0.0, 0.0), frame(60, 0, 0.0, 0.0)]);
+        let (_, events) = run_engine(cfg, tap3());
         assert!(events.iter().any(|e| matches!(e, EngineEvent::ActionFailed { error, .. } if error == "boom")));
+    }
+
+    fn with_browser_profile() -> Config {
+        let mut cfg = Config::default();
+        cfg.set_binding(Trigger::Tap(3), Action::Mute, false);
+        cfg.profiles.push(Profile {
+            name: "Browser".into(),
+            apps: vec!["chrome.exe".into()],
+            bindings: vec![Binding { trigger: Trigger::Tap(3), action: Action::Lock, repeat: false }],
+        });
+        cfg
+    }
+
+    #[test]
+    fn profile_binding_wins_for_its_app() {
+        let (jobs, events) = run_engine_in(Some("chrome.exe"), with_browser_profile(), tap3());
+        assert_eq!(jobs, vec![Job::Run(Action::Lock)]);
+        assert!(events.iter().any(|e| matches!(
+            e,
+            EngineEvent::Gesture { profile: Some(p), .. } if p == "Browser"
+        )));
+    }
+
+    #[test]
+    fn other_apps_fall_back_to_global_bindings() {
+        let (jobs, _) = run_engine_in(Some("code.exe"), with_browser_profile(), tap3());
+        assert_eq!(jobs, vec![Job::Run(Action::Mute)]);
     }
 
     #[test]
