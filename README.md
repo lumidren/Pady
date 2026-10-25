@@ -184,6 +184,7 @@ pady-cli monitor          Show fingers and recognised gestures live (no actions 
 pady-cli run              Run Pady headless with your config
 pady-cli action <toml>    Run one action now: pady-cli action '{ type = "volume", step = 5 }'
 pady-cli app              Print the app in front as you switch (names for profiles)
+pady-cli doctor           Check config, touchpad, clashing OS gestures and permissions
 pady-cli config show      Print the active config
 ```
 

@@ -6,6 +6,7 @@
 - **Pinch gestures**: `pinch:N:in` and `pinch:N:out` for 3–5 fingers. With `repeat`, a single pinch keeps stepping, so the new default 4-finger pinch zooms smoothly with `ctrl+minus` / `ctrl+equal`.
 - **Per-app profiles**: override any tap, hold, swipe or pinch while specific apps are in front, or switch a gesture off there. The profile editor can detect an app when you switch to it, and `pady-cli app` prints app names as you switch.
 - **Level overlay**: while volume or brightness changes, a pill near the bottom of the screen under your cursor shows the level. It can't take focus or clicks. Toggle it with `show_overlay`.
+- `pady-cli doctor`: a one-screen health check covering config, touchpad, clashing OS gestures, app detection and autostart.
 - `pinch_threshold_mm` setting.
 - Linux: palm rejection, touchpads plugged in after start are picked up, and per-app profiles on X11/XWayland and KDE Wayland.
 

@@ -6,6 +6,7 @@
 //! pady-cli run              run Pady headless with your config (actions run)
 //! pady-cli action <toml>    run one action now, e.g. '{ type = "volume", step = 5 }'
 //! pady-cli app              print the app in front as you switch, for per-app profiles
+//! pady-cli doctor           check that everything Pady needs is in place
 //! pady-cli config [path|show|reset]
 //! ```
 
@@ -25,6 +26,7 @@ USAGE:
     pady-cli run              Run Pady headless with your config (actions run)
     pady-cli action <toml>    Run one action now, e.g. pady-cli action '{ type = \"volume\", step = 5 }'
     pady-cli app              Print the app in front as you switch (names for per-app profiles)
+    pady-cli doctor           Check that everything Pady needs is in place
     pady-cli config path      Print the config file location
     pady-cli config show      Print the active config
     pady-cli config reset     Overwrite the config with defaults
@@ -41,6 +43,7 @@ fn main() -> ExitCode {
         ["run"] => watch(true),
         ["action", toml] => action(toml),
         ["app"] => foreground_apps(),
+        ["doctor"] => doctor(),
         ["config", "path"] | ["config"] => config_path(),
         ["config", "show"] => config_show(),
         ["config", "reset"] => config_reset(),
@@ -65,6 +68,88 @@ fn load_config() -> Result<(std::path::PathBuf, Config), String> {
     let path = Config::default_path().map_err(|e| e.to_string())?;
     let cfg = Config::load_or_create(&path).map_err(|e| e.to_string())?;
     Ok((path, cfg))
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Check {
+    Ok,
+    Problem,
+    Info,
+}
+
+/// One screen answering "why doesn't my gesture work?": config, touchpad,
+/// OS gestures that clash, app detection for profiles, and autostart.
+fn doctor() -> CliResult {
+    let mut problems = 0usize;
+    let mut line = |check: Check, what: &str, detail: &str| {
+        let mark = match check {
+            Check::Ok => "✓",
+            Check::Problem => {
+                problems += 1;
+                "✗"
+            }
+            Check::Info => "·",
+        };
+        let detail = detail.replace('\n', "\n                  ");
+        println!("{mark} {what:<15} {detail}");
+    };
+
+    let path = Config::default_path().map_err(|e| e.to_string())?;
+    let cfg = if !path.exists() {
+        line(Check::Ok, "config", &format!("{} doesn't exist yet; defaults apply", path.display()));
+        Config::default()
+    } else {
+        match Config::load(&path) {
+            Ok(cfg) => {
+                let counts = format!("{} bindings, {} profiles", cfg.bindings.len(), cfg.profiles.len());
+                line(Check::Ok, "config", &format!("{} ({counts})", path.display()));
+                cfg
+            }
+            Err(e) => {
+                line(Check::Problem, "config", &e.to_string());
+                Config::default()
+            }
+        }
+    };
+
+    let (tx, _rx) = unbounded();
+    match pady_input::start(tx) {
+        Ok(input) => {
+            for d in input.devices() {
+                let size = format!("{:.0} × {:.0} mm, up to {} fingers", d.width_mm, d.height_mm, d.max_contacts);
+                line(Check::Ok, "touchpad", &format!("{} ({size})", d.name));
+            }
+        }
+        Err(e) => line(Check::Problem, "touchpad", &e.to_string()),
+    }
+
+    let conflicts = pady_actions::conflicts(&cfg);
+    if conflicts.is_empty() {
+        line(Check::Ok, "os gestures", "nothing else reacts to your gestures");
+    }
+    for c in conflicts {
+        line(Check::Problem, "os gestures", &format!("{}\n{}", c.message, c.fix));
+    }
+
+    match pady_actions::foreground_app() {
+        Some(app) => line(Check::Ok, "app detection", &format!("works (the app in front is {app})")),
+        None if cfg.profiles.is_empty() => {
+            line(Check::Info, "app detection", "unavailable here; only per-app profiles need it")
+        }
+        None => line(Check::Problem, "app detection", "unavailable here, so your per-app profiles won't apply"),
+    }
+
+    let autostart = if pady_actions::autostart_enabled() { "on" } else { "off" };
+    line(Check::Info, "autostart", &format!("{autostart} (change it in the app's Settings)"));
+
+    println!();
+    match problems {
+        0 => {
+            println!("Everything looks good.");
+            Ok(())
+        }
+        n => Err(format!("{n} problem{} found", if n == 1 { "" } else { "s" })),
+    }
 }
 
 /// Print the app in front whenever it changes, with the profile it would
