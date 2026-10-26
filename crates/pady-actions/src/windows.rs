@@ -1,7 +1,7 @@
 //! Windows executor.
 //!
 //! * keys, media keys and the mouse go through `SendInput`;
-//! * volume uses the Core Audio endpoint API for exact steps;
+//! * volume uses the volume keys, so Windows shows its own volume slider;
 //! * brightness uses WMI (laptop panels) and falls back to DDC/CI
 //!   (external monitors);
 //! * apps and links go through `ShellExecuteW`, which resolves App Paths, so
@@ -21,11 +21,9 @@ use windows::Win32::Devices::Display::{
 };
 use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, MAX_PATH, RECT};
 use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR};
-use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
-use windows::Win32::Media::Audio::{eConsole, eRender, IMMDeviceEnumerator, MMDeviceEnumerator};
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoSetProxyBlanket, CLSCTX_ALL, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
-    EOAC_NONE, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE,
+    CoCreateInstance, CoInitializeEx, CoSetProxyBlanket, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, EOAC_NONE,
+    RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE,
 };
 use windows::Win32::System::Registry::{
     RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
@@ -70,14 +68,13 @@ impl Default for WindowsExecutor {
 
 impl Executor for WindowsExecutor {
     fn run(&mut self, action: &Action) -> Result<Option<Level>, ActionError> {
-        match action {
-            Action::Volume { step } => return self.change_volume(*step).map(Some),
-            Action::Mute => return self.toggle_mute().map(Some),
-            Action::Brightness { step } => return self.change_brightness(*step).map(Some),
-            _ => {}
+        if let Action::Brightness { step } = action {
+            return self.change_brightness(*step).map(Some);
         }
         match action {
-            Action::None | Action::Drag | Action::Volume { .. } | Action::Mute | Action::Brightness { .. } => Ok(()),
+            Action::None | Action::Drag | Action::Brightness { .. } => Ok(()),
+            Action::Volume { step } => change_volume(*step),
+            Action::Mute => tap_vk(VK_VOLUME_MUTE),
             Action::Keys { combo } => send_combo(&combo.parse::<KeyCombo>()?),
             Action::Media { key } => tap_vk(media_vk(*key)),
             Action::OpenUrl { url, browser } => match browser.as_deref().filter(|b| !b.trim().is_empty()) {
@@ -299,46 +296,15 @@ fn key_vk(key: Key) -> VIRTUAL_KEY {
 }
 
 // ---------------------------------------------------------------------------
-// Volume (Core Audio)
+// Volume
 
-impl WindowsExecutor {
-    fn endpoint_volume(&self) -> Result<IAudioEndpointVolume, ActionError> {
-        if !self.com_ready {
-            return Err("COM is not available on the action thread".into());
-        }
-        unsafe {
-            let devices: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-            let speaker = devices.GetDefaultAudioEndpoint(eRender, eConsole)?;
-            Ok(speaker.Activate(CLSCTX_ALL, None)?)
-        }
-    }
-
-    fn change_volume(&mut self, step: i32) -> Result<Level, ActionError> {
-        let vol = self.endpoint_volume()?;
-        unsafe {
-            let current = vol.GetMasterVolumeLevelScalar()? * 100.0;
-            // Snap to the step grid so 4% steps land on 0, 4, 8… not 37, 41…
-            let next = (((current + step as f32) / step.unsigned_abs().max(1) as f32).round()
-                * step.unsigned_abs().max(1) as f32)
-                .clamp(0.0, 100.0);
-            vol.SetMasterVolumeLevelScalar(next / 100.0, std::ptr::null())?;
-            let mut muted = vol.GetMute()?.as_bool();
-            if step > 0 && muted {
-                vol.SetMute(false, std::ptr::null())?;
-                muted = false;
-            }
-            Ok(Level::volume(next, muted))
-        }
-    }
-
-    fn toggle_mute(&mut self) -> Result<Level, ActionError> {
-        let vol = self.endpoint_volume()?;
-        unsafe {
-            let muted = !vol.GetMute()?.as_bool();
-            vol.SetMute(muted, std::ptr::null())?;
-            Ok(Level::volume(vol.GetMasterVolumeLevelScalar()? * 100.0, muted))
-        }
-    }
+/// Volume goes through the real volume keys (2% each), so Windows shows its
+/// own volume slider, exactly as with the keyboard, and unmutes on the way up.
+fn change_volume(step: i32) -> Result<(), ActionError> {
+    let vk = if step >= 0 { VK_VOLUME_UP } else { VK_VOLUME_DOWN };
+    let presses = step.unsigned_abs().div_ceil(2).clamp(1, 50) as usize;
+    let inputs: Vec<INPUT> = (0..presses).flat_map(|_| [key_input(vk, false), key_input(vk, true)]).collect();
+    send(&inputs)
 }
 
 // ---------------------------------------------------------------------------

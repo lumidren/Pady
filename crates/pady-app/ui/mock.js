@@ -39,7 +39,7 @@
   const DEFAULT_SETTINGS = {
     enabled: true, tap_max_ms: 220, tap_slop_mm: 4.0, multi_tap_ms: 300, swipe_threshold_mm: 10.0, swipe_step_mm: 7.0,
     pinch_threshold_mm: 8.0, hold_ms: 600, drag_speed: 9.0, drag_acceleration: 1.0, drag_release_ms: 350,
-    show_overlay: true, pause_in_fullscreen: true, onboarded: false,
+    show_overlay: linux, pause_in_fullscreen: true, onboarded: false,
   };
   const DEFAULT_BINDINGS = [
     { trigger: 'drag:3', action: { type: 'drag' } },

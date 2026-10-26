@@ -2144,7 +2144,7 @@
   // Fallbacks if the backend's settings predate a field (same values as pady-core's defaults).
   const SETTING_DEFAULTS = {
     tap_max_ms: 220, tap_slop_mm: 4, multi_tap_ms: 300, swipe_threshold_mm: 10, swipe_step_mm: 7, pinch_threshold_mm: 8,
-    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: true, pause_in_fullscreen: true,
+    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true,
   };
   // Starter-set icons by preset id (unknown ids get a generic one).
   const PRESET_ICONS = { recommended: 'sparkle', macos: 'command', media: 'play-pause', productivity: 'taskview', minimal: 'minimal' };
@@ -2222,7 +2222,7 @@
             h('label', { class: 'row', style: { cursor: 'pointer' } },
               h('div', { class: 'row-text' }, setUI.autostartTitle, h('div', { class: 'row-sub' }, 'Runs quietly in the tray after you sign in.')),
               h('span', { class: 'switch' }, setUI.autostart, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' })))),
-            settingToggle('show_overlay', 'Show volume & brightness overlay', 'A small level pill near the bottom of the screen while a gesture changes them.'),
+            settingToggle('show_overlay', 'Show Pady\'s level pill', 'Pady\'s own volume & brightness pill near the bottom of the screen. On Windows, volume always shows Windows\' own slider.'),
             setUI.pauseRow = settingToggle('pause_in_fullscreen', 'Pause in full-screen games', 'Pady ignores gestures while a game runs in exclusive full screen.'),
             h('div', { class: 'row' },
               h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Tutorial'), h('div', { class: 'row-sub' }, 'A quick, hands-on tour of the basics.')),
