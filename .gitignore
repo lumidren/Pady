@@ -4,3 +4,4 @@
 crates/pady-app/gen/
 .DS_Store
 Thumbs.db
+_site/
