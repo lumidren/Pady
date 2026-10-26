@@ -17,6 +17,7 @@
 
 <p align="center">
   <a href="https://github.com/lumidren/Pady/releases/latest"><b>⬇ Download for Windows or Linux</b></a> ·
+  <a href="https://lumidren.github.io/Pady/">Website &amp; live demo</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#gestures">Gestures</a> ·
   <a href="#actions">Actions</a> ·
