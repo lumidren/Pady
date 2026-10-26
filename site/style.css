@@ -114,6 +114,20 @@ details:first-of-type { margin-top: 36px; }
 summary { cursor: pointer; font-weight: 600; }
 details p { color: var(--text-2); margin: 12px 0 0; }
 
+/* Maker */
+.maker {
+  display: flex; align-items: center; gap: 24px; padding: 28px 32px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid rgba(124, 108, 255, 0.35); box-shadow: 0 0 60px rgba(124, 108, 255, 0.1);
+}
+.maker img { flex: none; border-radius: 14px; }
+.maker > div:nth-child(2) { flex: 1; }
+.maker-kicker { margin: 0; color: var(--accent-text); font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.maker h3 { font-size: 26px; margin: 2px 0 6px; }
+.maker p { color: var(--text-2); margin: 0; }
+.maker-links { display: flex; gap: 10px; flex: none; }
+.maker-links .btn { min-height: 46px; padding: 10px 22px; font-size: 15px; }
+@media (max-width: 860px) { .maker { flex-direction: column; text-align: center; } }
+
 /* Ending */
 .final { text-align: center; padding-bottom: 40px; }
 .final .btn { margin-top: 28px; }
