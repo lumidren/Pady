@@ -16,6 +16,7 @@
   <header class="nav">
     <a class="brand" href="#top"><img src="demo/logo.svg" alt="" width="28" height="28">Pady</a>
     <nav>
+      <a href="#download">Download</a>
       <a href="#demo">Demo</a>
       <a href="#how">How it works</a>
       <a href="#gestures">Gestures</a>
@@ -44,6 +45,7 @@
         <li><b>33</b> gestures</li>
         <li><b>1 minute</b> guided setup</li>
       </ul>
+      <img class="hero-demo" src="docs/demo.svg" alt="Four fingers swipe up and the volume rises, a three-finger double tap skips the track, a three-finger drag moves a window">
     </section>
 
     <section id="demo" class="section">
@@ -70,6 +72,25 @@
       </div>
     </section>
 
+    <section class="section">
+      <h2>Why not just Windows' gestures?</h2>
+      <p class="sub">Windows lets you put a shortcut on a few three- and four-finger gestures. Pady starts where that stops.</p>
+      <div class="compare">
+        <table>
+          <thead><tr><th></th><th>Windows built-in</th><th class="us">Pady</th></tr></thead>
+          <tbody>
+            <tr><td>Three-finger drag</td><td>—</td><td class="us">✓</td></tr>
+            <tr><td>Fingers</td><td>3 and 4</td><td class="us">3, 4 and 5</td></tr>
+            <tr><td>Double &amp; triple taps, holds</td><td>—</td><td class="us">✓</td></tr>
+            <tr><td>Pinch with 3+ fingers</td><td>—</td><td class="us">✓</td></tr>
+            <tr><td>Different gestures per app</td><td>—</td><td class="us">✓</td></tr>
+            <tr><td>Open apps and links directly</td><td>—</td><td class="us">✓</td></tr>
+            <tr><td>Works on Linux too</td><td>—</td><td class="us">✓</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section id="gestures" class="section">
       <h2>Every gesture, with 3, 4 or 5 fingers</h2>
       <p class="sub">One and two fingers stay with your OS for pointing and scrolling. Everything above that is yours.</p>
@@ -89,6 +110,18 @@
     </section>
 
     <section class="section">
+      <h2>Pick a starting point</h2>
+      <p class="sub">The setup offers five starter sets. Pick one, then change anything.</p>
+      <div class="presets">
+        <div class="card"><span class="badge">Best start</span><h3>Recommended</h3><p>Three-finger drag, taps for play/pause and next track, four-finger swipes for volume and brightness, pinch to zoom.</p></div>
+        <div class="card"><h3>Like a Mac</h3><p>Three-finger drag, four-finger swipes between desktops and to task view, pinch to zoom.</p></div>
+        <div class="card"><h3>Media</h3><p>Taps control playback, four-finger swipes scrub the volume and skip tracks.</p></div>
+        <div class="card"><h3>Productivity</h3><p>Task view, show desktop, switching desktops, quick screenshots and lock.</p></div>
+        <div class="card"><h3>Minimal</h3><p>Just three-finger drag. Start small and add your own.</p></div>
+      </div>
+    </section>
+
+    <section class="section">
       <h2>Screenshots</h2>
       <div class="shots">
         <figure><img src="docs/screenshots/gestures.png" alt="Gesture cards" loading="lazy"><figcaption>Gestures</figcaption></figure>
@@ -100,12 +133,51 @@
       </div>
     </section>
 
+    <section id="download" class="section">
+      <h2>Download</h2>
+      <p class="sub" id="dl-version">Free, for Windows 10/11 and Linux. Every file comes with SHA-256 checksums.</p>
+      <div class="downloads">
+        <div class="card dl-card" data-os="windows">
+          <h3>Windows</h3>
+          <p class="req">Windows 10 or 11 with a Precision Touchpad (most laptops from the last several years).</p>
+          <a class="btn btn-primary dl-file" data-asset="setup" href="https://github.com/lumidren/Pady/releases/latest">Download installer<small>.exe · no admin needed</small></a>
+          <p class="alt">Managing many PCs? <a class="dl-file" data-asset="msi" href="https://github.com/lumidren/Pady/releases/latest">Get the MSI</a>.</p>
+        </div>
+        <div class="card dl-card" data-os="linux">
+          <h3>Linux</h3>
+          <p class="req">Any x86-64 distro with a multitouch touchpad. X11 and Wayland.</p>
+          <div class="tabs" role="tablist">
+            <button role="tab" data-tab="deb" aria-selected="true">Ubuntu / Debian / Mint</button>
+            <button role="tab" data-tab="rpm" aria-selected="false">Fedora / openSUSE</button>
+            <button role="tab" data-tab="appimage" aria-selected="false">Any distro</button>
+          </div>
+          <div class="tab" data-panel="deb">
+            <a class="btn btn-primary dl-file" data-asset="deb" href="https://github.com/lumidren/Pady/releases/latest">Download .deb</a>
+            <p class="alt">Then install it with its dependencies:</p>
+            <pre><code>sudo apt install ./Pady_*_amd64.deb</code><button class="copy">Copy</button></pre>
+          </div>
+          <div class="tab" data-panel="rpm" hidden>
+            <a class="btn btn-primary dl-file" data-asset="rpm" href="https://github.com/lumidren/Pady/releases/latest">Download .rpm</a>
+            <p class="alt">Then install it with its dependencies:</p>
+            <pre><code>sudo dnf install ./Pady-*.x86_64.rpm</code><button class="copy">Copy</button></pre>
+          </div>
+          <div class="tab" data-panel="appimage" hidden>
+            <a class="btn btn-primary dl-file" data-asset="appimage" href="https://github.com/lumidren/Pady/releases/latest">Download AppImage</a>
+            <p class="alt">Make it runnable and start it. The setup's <b>Fix permissions</b> button sets up touchpad access:</p>
+            <pre><code>chmod +x Pady_*_amd64.AppImage &amp;&amp; ./Pady_*_amd64.AppImage</code><button class="copy">Copy</button></pre>
+          </div>
+        </div>
+      </div>
+      <p class="note-center">Prefer the terminal? <code>pady-cli</code> is on the <a href="https://github.com/lumidren/Pady/releases/latest">release page</a> for both systems.</p>
+    </section>
+
     <section id="faq" class="section narrow">
       <h2>FAQ</h2>
       <details><summary>Is it free?</summary><p>Yes. Pady is free and open source, with no ads, no accounts and no telemetry.</p></details>
       <details><summary>Windows says "Windows protected your PC"</summary><p>New apps without a paid code-signing certificate get that warning. Click <b>More info → Run anyway</b>. Every release lists SHA-256 checksums so you can check the file.</p></details>
       <details><summary>Windows still switches apps when I swipe with three fingers</summary><p>Windows runs its own gestures alongside Pady. Pady's setup shows you exactly which ones to turn off (<b>Settings › Bluetooth &amp; devices › Touchpad</b>), with a button straight to that page. Five-finger gestures never clash.</p></details>
       <details><summary>Which touchpads work?</summary><p>On Windows, any Precision Touchpad, which is most laptops from the last several years. On Linux, any multitouch touchpad, including ones that track fewer fingers than they report.</p></details>
+      <details><summary>Which Linux distros are supported?</summary><p>Ubuntu, Debian, Mint, Pop!_OS and friends get the .deb; Fedora and openSUSE the .rpm; everything else the AppImage. Both packages pull in what Pady needs and set up touchpad access, so it works right after installing.</p></details>
       <details><summary>Does it work on Wayland?</summary><p>Gestures and all actions do. Per-app profiles and "switch to app" need to know which window is in front: that works for X11 and XWayland apps, and on KDE Plasma.</p></details>
       <details><summary>How much does it slow my PC down?</summary><p>It doesn't. In the tray Pady is one process using about 20 MB and no CPU while you're not touching the pad. The settings window uses more while it's open and frees it all when you close it.</p></details>
       <details><summary>Is it safe?</summary><p>Pady reads only the touchpad, never the keyboard, works entirely offline, and is checked with fuzz tests and dependency audits. The details are in the <a href="https://github.com/lumidren/Pady/blob/main/SECURITY.md">security notes</a>.</p></details>

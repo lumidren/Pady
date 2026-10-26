@@ -43,3 +43,48 @@
     })
     .catch(() => {});
 })();
+
+// Download section: real file links and sizes, distro tabs, copy buttons.
+(function () {
+  'use strict';
+  const ua = navigator.userAgent;
+  const yours = /Windows/i.test(ua) ? 'windows' : /Linux|X11/i.test(ua) && !/Android/i.test(ua) ? 'linux' : null;
+  if (yours) document.querySelector(`.dl-card[data-os="${yours}"]`).classList.add('is-yours');
+
+  const tabs = [...document.querySelectorAll('.tabs [data-tab]')];
+  const pick = (name) => {
+    for (const t of tabs) t.setAttribute('aria-selected', String(t.dataset.tab === name));
+    for (const p of document.querySelectorAll('.tab')) p.hidden = p.dataset.panel !== name;
+  };
+  for (const t of tabs) t.addEventListener('click', () => pick(t.dataset.tab));
+  if (/Fedora|Red Hat|openSUSE|SUSE/i.test(ua)) pick('rpm');
+
+  for (const b of document.querySelectorAll('.copy')) {
+    b.addEventListener('click', () => {
+      navigator.clipboard.writeText(b.previousElementSibling.textContent).then(() => {
+        b.textContent = 'Copied';
+        setTimeout(() => (b.textContent = 'Copy'), 1500);
+      }, () => {});
+    });
+  }
+
+  const patterns = { setup: /x64-setup\.exe$/, msi: /\.msi$/, deb: /\.deb$/, rpm: /\.rpm$/, appimage: /\.AppImage$/ };
+  fetch('https://api.github.com/repos/lumidren/Pady/releases/latest')
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((release) => {
+      for (const a of document.querySelectorAll('.dl-file[data-asset]')) {
+        const asset = release.assets.find((x) => patterns[a.dataset.asset].test(x.name));
+        if (!asset) continue;
+        a.href = asset.browser_download_url;
+        if (a.classList.contains('btn')) {
+          const size = (asset.size / 1048576).toFixed(1) + ' MB';
+          const small = a.querySelector('small');
+          if (small) small.textContent += ' · ' + size;
+          else a.insertAdjacentHTML('beforeend', `<small>${asset.name} · ${size}</small>`);
+        }
+      }
+      document.getElementById('dl-version').textContent =
+        `Pady ${release.tag_name}, free for Windows 10/11 and Linux. Every file comes with SHA-256 checksums.`;
+    })
+    .catch(() => {});
+})();
