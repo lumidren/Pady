@@ -10,9 +10,9 @@
 </p>
 
 <p align="center">
-  <b>Pady turns three-, four- and five-finger touches into anything you want</b>: volume, brightness,<br>
-  media keys, shortcuts, apps and links. It adds the three-finger drag Windows never had,<br>
-  per-app gestures, and a guided setup that gets you going in a minute.
+  <b>Three-finger drag, finally.</b> Plus 32 more gestures you can point at anything:<br>
+  volume, brightness, media keys, shortcuts, apps, links. Per app, if you're picky.<br>
+  Windows &amp; Linux · written in Rust · 20 MB in the tray · set up in a minute.
 </p>
 
 <p align="center">
