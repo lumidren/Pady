@@ -78,6 +78,20 @@ impl Action {
         }
     }
 
+    /// Volume or brightness: actions that move a level up or down.
+    pub fn is_level(&self) -> bool {
+        matches!(self, Action::Volume { .. } | Action::Brightness { .. })
+    }
+
+    /// The same level change, in gliding-sized (2%) steps.
+    pub fn glide_step(&self) -> Action {
+        match *self {
+            Action::Volume { step } => Action::Volume { step: 2 * step.signum() },
+            Action::Brightness { step } => Action::Brightness { step: 2 * step.signum() },
+            ref other => other.clone(),
+        }
+    }
+
     pub fn is_none(&self) -> bool {
         matches!(self, Action::None)
     }

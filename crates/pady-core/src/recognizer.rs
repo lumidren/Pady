@@ -43,7 +43,13 @@ pub struct RecognizerSettings {
     pub multi_tap_ms: u64,
     /// Indexed by finger count: the most taps in a row that are bound (1–3).
     pub multi_tap_fingers: [u8; 6],
+    /// Indexed by finger count: swipes scrub a level (volume, brightness), so
+    /// they repeat every [`GLIDE_DIVISOR`]th of `swipe_step_mm` and glide.
+    pub glide_fingers: [bool; 6],
 }
+
+/// Gliding swipes repeat this many times as often as other swipes.
+pub const GLIDE_DIVISOR: f32 = 3.5;
 
 impl Default for RecognizerSettings {
     fn default() -> Self {
@@ -205,7 +211,9 @@ impl Recognizer {
                         Axis::Vertical => dy,
                     };
                     let direction = axis_direction(axis, progress);
-                    for _ in 0..take_steps(&mut progress, self.settings.swipe_step_mm) {
+                    let glide = self.settings.glide_fingers.get(self.fingers as usize).copied().unwrap_or(false);
+                    let size = self.settings.swipe_step_mm / if glide { GLIDE_DIVISOR } else { 1.0 };
+                    for _ in 0..take_steps(&mut progress, size) {
                         step += 1;
                         out.push(Gesture::Swipe { fingers: self.fingers, direction, step });
                     }
@@ -502,7 +510,20 @@ mod tests {
             pinch_fingers: [false; 6],
             multi_tap_ms: 300,
             multi_tap_fingers: [1; 6],
+            glide_fingers: [false; 6],
         }
+    }
+
+    #[test]
+    fn gliding_swipes_repeat_more_often() {
+        let repeats = |glide: bool| {
+            let mut s = Script::new(RecognizerSettings { glide_fingers: [glide; 6], ..settings() });
+            // Past the 10 mm threshold, then 10.5 mm more in two moves.
+            s.frame(0, 4, 0.0, 0.0).frame(10, 4, 0.0, -10.5).frame(20, 4, 0.0, -15.5).frame(30, 4, 0.0, -21.0).lift(40);
+            s.out.iter().filter(|g| matches!(g, Gesture::Swipe { step, .. } if *step > 0)).count()
+        };
+        assert_eq!(repeats(false), 2, "5 mm steps");
+        assert_eq!(repeats(true), 7, "5 / 3.5 mm steps");
     }
 
     /// Scripted fingers: each call places `n` fingers at (x, y) offsets.

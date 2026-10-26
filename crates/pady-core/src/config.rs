@@ -31,7 +31,8 @@ pub struct Settings {
     /// Keep the mouse button held this long after lifting, so a drag can be
     /// continued by putting the fingers back down (0 = release immediately).
     pub drag_release_ms: u64,
-    /// Show a small on-screen level while volume or brightness changes.
+    /// Show Pady's own level pill while volume or brightness changes (off by
+    /// default on Windows, which shows its own volume slider).
     pub show_overlay: bool,
     /// Longest gap (lift to next touch) between the taps of a double or
     /// triple tap. Only matters when one is bound.
@@ -55,7 +56,8 @@ impl Default for Settings {
             drag_speed: 9.0,
             drag_acceleration: 1.0,
             drag_release_ms: 350,
-            show_overlay: true,
+            // Windows shows its own volume slider; Linux desktops vary, so Pady's pill helps there.
+            show_overlay: !cfg!(windows),
             multi_tap_ms: 300,
             pause_in_fullscreen: true,
             onboarded: false,
@@ -325,6 +327,21 @@ impl Config {
     }
 
     /// Finger counts with a pinch bound anywhere (globally or in a profile).
+    /// Finger counts with a repeating swipe that changes volume or
+    /// brightness: those swipes glide in small steps, like a slider.
+    pub fn glide_fingers(&self) -> [bool; 6] {
+        let mut out = [false; 6];
+        let all = self.bindings.iter().chain(self.profiles.iter().flat_map(|p| &p.bindings));
+        for b in all.filter(|b| b.repeat && Action::is_level(&b.action)) {
+            if let Trigger::Swipe(n, _) = b.trigger {
+                if let Some(slot) = out.get_mut(n as usize) {
+                    *slot = true;
+                }
+            }
+        }
+        out
+    }
+
     pub fn pinch_fingers(&self) -> [bool; 6] {
         let mut out = [false; 6];
         let all = self.bindings.iter().chain(self.profiles.iter().flat_map(|p| &p.bindings));
@@ -379,6 +396,7 @@ impl Config {
             pinch_fingers: self.pinch_fingers(),
             multi_tap_ms: s.multi_tap_ms,
             multi_tap_fingers: self.multi_tap_fingers(),
+            glide_fingers: self.glide_fingers(),
         }
     }
 }

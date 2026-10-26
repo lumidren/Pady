@@ -297,6 +297,9 @@ impl ActionLoop {
             Resolution::Off { profile } => (None, Some(profile.name.clone())),
             _ => (None, None),
         };
+        let glides = matches!(gesture, Gesture::Swipe { fingers, .. }
+            if self.config.glide_fingers().get(fingers as usize).copied().unwrap_or(false));
+        let action = action.map(|a| if glides && a.is_level() { a.glide_step() } else { a });
         (self.observer)(EngineEvent::Gesture {
             gesture,
             trigger: Some(trigger.to_string()),
@@ -553,9 +556,10 @@ mod tests {
                 frame(50, 0, 0.0, 0.0),
             ],
         );
-        assert_eq!(jobs, vec![Job::Run(Action::Volume { step: 2 }); 3]);
+        // Volume swipes glide: 2% every step_mm / 3.5 (14.1 mm = 7 steps after the first).
+        assert_eq!(jobs, vec![Job::Run(Action::Volume { step: 2 }); 8]);
         let levels: Vec<_> = events.iter().filter(|e| matches!(e, EngineEvent::Level(_))).collect();
-        assert_eq!(levels.len(), 3, "every volume change reports its level for the overlay");
+        assert_eq!(levels.len(), 8, "every volume change reports its level for the overlay");
     }
 
     #[test]
