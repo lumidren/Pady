@@ -252,3 +252,9 @@ To build the installers yourself, run this in `crates/pady-app`: `npx @tauri-app
 - Signed installers and auto-update
 
 Ideas welcome! Open an [issue](https://github.com/lumidren/Pady/issues/new/choose).
+
+## Made by
+
+**lumidren**, designed, coded and shipped solo, because the Mac trackpad shouldn't get to have all the fun.
+
+[LinkedIn](https://www.linkedin.com/in/lumidren) · [GitHub](https://github.com/lumidren) · [Website](https://lumidren.github.io/Pady/)
