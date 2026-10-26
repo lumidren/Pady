@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 (2026-10-27)
+
+### Changed
+- **Volume uses Windows' own slider.** Volume and mute gestures press the real volume keys, so Windows shows its familiar volume flyout, and each step takes well under a millisecond instead of about 13 ms. Pady's own level pill is now off by default on Windows (it stays on by default on Linux, and is still a setting).
+- **Volume and brightness swipes glide.** A repeating swipe bound to volume or brightness now steps 2% at a time every couple of millimetres, so the level follows your finger like a slider instead of jumping 4% every 7 mm.
+
 ## 0.3.1 (2026-10-25)
 
 ### Performance
