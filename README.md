@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/banner.svg" alt="Pady: your touchpad, your shortcuts" width="100%">
+  <img src="docs/banner.svg" alt="Pady: your touchpad, finally awake" width="100%">
 </p>
 
 <p align="center">
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <b>Three-finger drag, finally.</b> Plus 32 more gestures you can point at anything:<br>
+  <b>Your touchpad, finally awake.</b> Three-finger drag, plus 32 more gestures you can point at anything:<br>
   volume, brightness, media keys, shortcuts, apps, links. Per app, if you're picky.<br>
   Windows &amp; Linux · written in Rust · 20 MB in the tray · set up in a minute.
 </p>
