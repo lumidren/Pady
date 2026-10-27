@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 (2026-10-27)
+
+### Added
+- **Browse for an app.** "Launch an app" and "Switch to an app" have a Browse… button that opens a file picker for apps and shortcuts (the Start menu on Windows).
+- **Apps by name.** Type an app's name as it appears in Start (like `Antigravity`) and Pady finds its Start menu shortcut. "Switch to an app" also recognises shortcuts.
+
+### Changed
+- New motto: *Your touchpad, finally awake.*
+
 ## 0.4.6 (2026-10-27)
 
 ### Changed
