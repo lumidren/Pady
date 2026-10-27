@@ -33,4 +33,4 @@ tauri-plugin-dialog = "2"
 
 [target.'cfg(windows)'.dependencies.windows]
 workspace = true
-features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"]
+features = ["Win32_Foundation", "Win32_System_Memory", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"]

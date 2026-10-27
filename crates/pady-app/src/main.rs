@@ -6,6 +6,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod responsive;
 mod update;
 
 use crossbeam_channel::Sender;
@@ -606,6 +607,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
 
 fn main() {
     init_logging();
+    responsive::keep_responsive();
     let start_hidden = std::env::args().any(|a| a == "--hidden");
 
     tauri::Builder::default()
