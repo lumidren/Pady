@@ -113,22 +113,14 @@ details:first-of-type { margin-top: 36px; }
 summary { cursor: pointer; font-weight: 600; }
 details p { color: var(--text-2); margin: 12px 0 0; }
 
-/* Maker card (compact) */
-.maker {
-  max-width: 520px; margin: 0 auto; text-align: center; padding: 28px 24px; border-radius: 20px;
-  background: radial-gradient(circle at 50% -40%, rgba(177, 78, 240, 0.3), transparent 62%), var(--surface);
-  border: 1px solid rgba(124, 108, 255, 0.45); box-shadow: 0 0 60px rgba(124, 108, 255, 0.12);
-}
-.maker-kicker { margin: 0; color: var(--accent-text); font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-.maker-name { font-size: 40px; font-weight: 800; margin-top: 4px; }
-.maker-line { color: var(--text-2); font-size: 15px; margin: 6px 0 0; }
-.maker-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 18px; }
-.maker-stats div { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 12px; padding: 10px 4px; }
-.maker-stats b { display: block; font-size: 20px; font-weight: 800; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.maker-stats span { color: var(--text-3); font-size: 12px; }
-.maker-links { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
-.maker-links .btn { min-height: 42px; padding: 8px 22px; font-size: 15px; }
-@media (max-width: 860px) { .maker-stats { grid-template-columns: 1fr 1fr; } }
+/* Maker */
+.maker { text-align: center; }
+.maker-dots { display: flex; gap: 10px; justify-content: center; margin-bottom: 14px; }
+.maker-dots i { width: 14px; height: 14px; border-radius: 50%; background: #8b5cf6; box-shadow: 0 0 14px #8b5cf6; }
+.maker-dots i:nth-child(2) { transform: translateY(-6px); }
+.maker-title { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+.maker-sub { margin: 6px 0 0; color: var(--text-3); font-size: 14px; }
+.maker-sub .sep { margin: 0 8px; opacity: 0.6; }
 
 /* Ending */
 .final { text-align: center; padding-bottom: 40px; }
