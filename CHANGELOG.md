@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Security
+- **The updater no longer includes the `zip` library**, which had three known vulnerabilities (RUSTSEC-2026-0367, -0368, -0369). Pady's updates are a plain setup `.exe` or AppImage, so the zip support was never used.
+- CI checks every dependency against the RustSec advisory database on each push and once a week.
+
 ## 0.5.1 (2026-10-27)
 
 ### Fixed
