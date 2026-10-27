@@ -134,6 +134,24 @@ pub enum EngineEvent {
 
 pub type Observer = Arc<dyn Fn(EngineEvent) + Send + Sync>;
 
+/// Hooks into the OS scheduler, so the engine itself stays OS independent.
+/// The defaults do nothing.
+#[derive(Clone, Copy, Debug)]
+pub struct Scheduling {
+    /// Runs first on the engine and action threads, e.g. to raise their
+    /// priority so gestures stay instant while the computer is busy.
+    pub thread_start: fn(),
+    /// `true` asks for millisecond-accurate timers while a hold, multi-tap
+    /// or drag-release timer is pending; `false` gives them back.
+    pub precise_timers: fn(bool),
+}
+
+impl Default for Scheduling {
+    fn default() -> Self {
+        Scheduling { thread_start: || {}, precise_timers: |_| {} }
+    }
+}
+
 pub struct Engine {
     jobs: Sender<Job>,
     engine_thread: JoinHandle<()>,
@@ -152,19 +170,39 @@ impl Engine {
     where
         F: FnOnce() -> Box<dyn Executor> + Send + 'static,
     {
+        Engine::spawn_with(config, frames, make_executor, observer, Scheduling::default())
+    }
+
+    /// [`Engine::spawn`], with hooks into the OS scheduler.
+    pub fn spawn_with<F>(
+        config: Arc<SharedConfig>,
+        frames: Receiver<TouchFrame>,
+        make_executor: F,
+        observer: Observer,
+        scheduling: Scheduling,
+    ) -> Engine
+    where
+        F: FnOnce() -> Box<dyn Executor> + Send + 'static,
+    {
         let (jobs_tx, jobs_rx) = unbounded::<Job>();
 
         let action_observer = observer.clone();
         let action_config = config.clone();
         let action_thread = std::thread::Builder::new()
             .name("pady-actions".into())
-            .spawn(move || ActionLoop::new(make_executor(), action_config, action_observer).run(jobs_rx))
+            .spawn(move || {
+                (scheduling.thread_start)();
+                ActionLoop::new(make_executor(), action_config, action_observer).run(jobs_rx)
+            })
             .expect("spawn action thread");
 
         let engine_jobs = jobs_tx.clone();
         let engine_thread = std::thread::Builder::new()
             .name("pady-engine".into())
-            .spawn(move || EngineLoop::new(config, engine_jobs, observer).run(frames))
+            .spawn(move || {
+                (scheduling.thread_start)();
+                EngineLoop::new(config, engine_jobs, observer, scheduling.precise_timers).run(frames)
+            })
             .expect("spawn engine thread");
 
         Engine { jobs: jobs_tx, engine_thread, action_thread }
@@ -362,10 +400,13 @@ struct EngineLoop {
     jobs: Sender<Job>,
     observer: Observer,
     pointer: Pointer,
+    precise_timers: fn(bool),
+    /// Are precise timers requested right now?
+    precise: bool,
 }
 
 impl EngineLoop {
-    fn new(shared: Arc<SharedConfig>, jobs: Sender<Job>, observer: Observer) -> Self {
+    fn new(shared: Arc<SharedConfig>, jobs: Sender<Job>, observer: Observer, precise_timers: fn(bool)) -> Self {
         let config = shared.get();
         EngineLoop {
             generation: shared.generation(),
@@ -375,6 +416,16 @@ impl EngineLoop {
             jobs,
             observer,
             pointer: Pointer::default(),
+            precise_timers,
+            precise: false,
+        }
+    }
+
+    /// Asks for precise timers only while one is pending, so idle costs nothing.
+    fn want_precise_timers(&mut self, want: bool) {
+        if want != self.precise {
+            self.precise = want;
+            (self.precise_timers)(want);
         }
     }
 
@@ -383,7 +434,9 @@ impl EngineLoop {
             self.refresh_config();
             // Sleep until the next frame or the next due timer (hold, drag
             // release, multi-tap); with nothing pending there are no wake-ups.
-            let received = match self.recognizer.next_deadline() {
+            let deadline = self.recognizer.next_deadline();
+            self.want_precise_timers(deadline.is_some());
+            let received = match deadline {
                 Some(due) => frames.recv_timeout(Duration::from_millis(due.saturating_sub(now_ms()))),
                 None => frames.recv().map_err(|_| RecvTimeoutError::Disconnected),
             };
@@ -396,6 +449,7 @@ impl EngineLoop {
                 Err(RecvTimeoutError::Disconnected) => break,
             }
         }
+        self.want_precise_timers(false);
         // Deliver what is still pending (a tap waiting for a second one, a drag).
         let mut gestures = self.recognizer.tick(u64::MAX);
         gestures.extend(self.recognizer.reset());
@@ -634,6 +688,46 @@ mod tests {
     fn other_apps_fall_back_to_global_bindings() {
         let (jobs, _) = run_engine_in(Some("code.exe"), with_browser_profile(), tap3());
         assert_eq!(jobs, vec![Job::Run(Action::Mute)]);
+    }
+
+    #[test]
+    fn scheduling_hooks_run_and_precise_timers_are_balanced() {
+        use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
+        static STARTS: AtomicUsize = AtomicUsize::new(0);
+        static PRECISE: AtomicIsize = AtomicIsize::new(0);
+        static REQUESTS: AtomicUsize = AtomicUsize::new(0);
+        let scheduling = Scheduling {
+            thread_start: || {
+                STARTS.fetch_add(1, Ordering::SeqCst);
+            },
+            precise_timers: |on| {
+                PRECISE.fetch_add(if on { 1 } else { -1 }, Ordering::SeqCst);
+                if on {
+                    REQUESTS.fetch_add(1, Ordering::SeqCst);
+                }
+            },
+        };
+        let jobs = Arc::new(Mutex::new(Vec::new()));
+        let (tx, rx) = unbounded::<TouchFrame>();
+        let rec = jobs.clone();
+        let engine = Engine::spawn_with(
+            Arc::new(SharedConfig::new(Config::default())),
+            rx,
+            move || Box::new(Recorder { jobs: rec, app: None, fullscreen: false }),
+            Arc::new(|_| {}),
+            scheduling,
+        );
+        // Fingers resting: a hold timer is pending, so precise timers are on.
+        tx.send(frame(0, 3, 0.0, 0.0)).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while REQUESTS.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(PRECISE.load(Ordering::SeqCst), 1, "on while a timer is pending");
+        drop(tx);
+        engine.join();
+        assert_eq!(STARTS.load(Ordering::SeqCst), 2, "engine and action threads");
+        assert_eq!(PRECISE.load(Ordering::SeqCst), 0, "given back when the engine stops");
     }
 
     #[test]

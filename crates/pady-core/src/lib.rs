@@ -22,7 +22,7 @@ pub mod trigger;
 
 pub use action::{Action, MediaKey};
 pub use config::{Binding, Config, ConfigError, Profile, Resolution, Settings, SharedConfig};
-pub use engine::{Ack, ActionError, Engine, EngineEvent, Executor, Job, Level, LevelKind};
+pub use engine::{Ack, ActionError, Engine, EngineEvent, Executor, Job, Level, LevelKind, Scheduling};
 pub use frame::{now_ms, Contact, TouchFrame};
 pub use gesture::{Direction, Gesture, PinchDirection};
 pub use keys::{Key, KeyCombo, Modifiers};
