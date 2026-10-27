@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/lumidren/Pady/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/lumidren/Pady?include_prereleases&sort=semver&color=7c3aed"></a>
+  <a href="https://github.com/lumidren/Pady/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/lumidren/Pady/total?color=8b5cf6"></a>
   <a href="https://github.com/lumidren/Pady/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/lumidren/Pady/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Windows and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-6366f1">
   <img alt="Rust 1.82+" src="https://img.shields.io/badge/rust-1.82%2B-a855f7">
@@ -60,6 +61,9 @@ Download from the [latest release](https://github.com/lumidren/Pady/releases/lat
 | **Ubuntu, Debian, Mint** | `Pady_<version>_amd64.deb` | `sudo apt install ./Pady_*_amd64.deb` pulls in every dependency and sets up touchpad access. |
 | **Fedora, openSUSE** | `Pady-<version>-1.x86_64.rpm` | `sudo dnf install ./Pady-*.x86_64.rpm`, same as the .deb. |
 | Any Linux | `Pady_<version>_amd64.AppImage` | `chmod +x` it and run. The tutorial's **Fix permissions** button sets up access and installs missing helper tools after one password prompt. |
+
+> [!WARNING]
+> **Windows: turn off Windows' own touchpad gestures first**, or Windows and Pady will both react to the same swipe. Open **Settings › Bluetooth & devices › Touchpad**, then under **Three-finger gestures** and **Four-finger gestures** set **Swipes** and **Taps** to **Nothing**. Pady's first-run setup walks you through it.
 
 > [!NOTE]
 > Windows may show *"Windows protected your PC"* for new apps. Click **More info → Run anyway**. Each release lists SHA-256 checksums for every file.
