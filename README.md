@@ -62,7 +62,7 @@ Download from the [latest release](https://github.com/lumidren/Pady/releases/lat
 | Any Linux | `Pady_<version>_amd64.AppImage` | `chmod +x` it and run. The tutorial's **Fix permissions** button sets up access and installs missing helper tools after one password prompt. |
 
 > [!NOTE]
-> Until releases are code-signed, Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**. Each release lists SHA-256 checksums for every file.
+> Windows may show *"Windows protected your PC"* for new apps. Click **More info → Run anyway**. Each release lists SHA-256 checksums for every file.
 
 ## Quick start
 
@@ -244,14 +244,6 @@ cargo run -p pady-app --release
 ```
 
 To build the installers yourself, run this in `crates/pady-app`: `npx @tauri-apps/cli@2 build` (add `--bundles nsis,msi` on Windows, or `deb,rpm,appimage` on Linux). [RELEASING.md](RELEASING.md) covers releases and code signing; [CONTRIBUTING.md](CONTRIBUTING.md) covers development, including the UI preview that runs without the backend.
-
-## Roadmap
-
-- Rotate gestures and diagonal swipes
-- Edge swipes (starting from the touchpad's edge)
-- Exclusive mode on Linux, to fully replace desktop gestures
-- Import and export of profiles
-- Signed installers and auto-update
 
 Ideas welcome! Open an [issue](https://github.com/lumidren/Pady/issues/new/choose).
 
