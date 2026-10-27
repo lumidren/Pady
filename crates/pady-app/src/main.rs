@@ -578,6 +578,20 @@ impl Write for Tee {
     }
 }
 
+/// Let the user pick an app or shortcut for "Launch" / "Switch to an app".
+#[tauri::command]
+async fn pick_program(app: AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut dialog = app.dialog().file().set_title("Choose an app or shortcut");
+    if cfg!(windows) {
+        dialog = dialog.add_filter("Apps and shortcuts", &["exe", "lnk", "bat", "cmd", "url"]);
+        if let Some(menu) = dirs::data_dir().map(|d| d.join(r"Microsoft\Windows\Start Menu\Programs")) {
+            dialog = dialog.set_directory(menu);
+        }
+    }
+    dialog.blocking_pick_file().map(|path| path.to_string())
+}
+
 /// A newer release, if there is one (also announced as `pady://update`).
 #[tauri::command]
 async fn check_update(app: AppHandle) -> Result<Option<update::Available>, String> {
@@ -599,6 +613,7 @@ fn main() {
         // shows the running instance instead of doubling every gesture.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(update::Updates::default())
         .invoke_handler(tauri::generate_handler![
             get_state,
@@ -615,6 +630,7 @@ fn main() {
             apply_preset,
             check_update,
             install_update,
+            pick_program,
         ])
         .setup(move |app| {
             let config_path = Config::default_path()?;

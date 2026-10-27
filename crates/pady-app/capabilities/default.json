@@ -20,6 +20,7 @@
     "allow-fix-permissions",
     "allow-apply-preset",
     "allow-check-update",
-    "allow-install-update"
+    "allow-install-update",
+    "allow-pick-program"
   ]
 }

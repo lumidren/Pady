@@ -1189,12 +1189,19 @@
         prog.addEventListener('input', () => set({ program: prog.value }));
         args.addEventListener('input', () => { const list = M.parseArgs(args.value); if (list.length) set({ args: list }); else { delete ed.draft.args; set({}); } });
         if (ed.autofocusField && !a.program) setTimeout(() => prog.focus(), 30);
+        const browse = h('button', { class: 'btn btn--sm', type: 'button', onClick: async () => {
+          try {
+            const picked = await call('pick_program', null, { errorTitle: 'Couldn\u2019t open the file picker' });
+            if (picked) { prog.value = picked; set({ program: picked }); }
+          } catch (_) { /* toast shown */ }
+        } }, ico('folder', 14), 'Browse\u2026');
         const help = a.type === 'focus_or_launch'
           ? 'Brings the app to the front. If it’s already in front, minimises it. If it isn’t running, launches it.'
-          : (linux ? 'A program on your PATH or a full path.' : 'A program on your PATH, a full path, or a URI such as ms-settings:display.');
+          : (linux ? 'A program on your PATH or a full path.' : 'An app’s name as it appears in Start, a full path, or a URI such as ms-settings:display.');
         return h('div', null,
           h('div', { class: 'about-type', style: { 'margin-bottom': '12px' } }, ico(a.type === 'focus_or_launch' ? 'switch' : 'apps', 18), h('div', null, help)),
-          h('div', { class: 'field' }, h('span', { class: 'label' }, 'Program'), prog),
+          h('div', { class: 'field' }, h('span', { class: 'label' }, 'Program'), h('div', { class: 'input-row' }, prog, browse),
+            linux ? null : h('span', { class: 'help' }, 'Type an app’s name (like Antigravity) or pick it with Browse.')),
           h('div', { class: 'field' }, h('span', { class: 'label' }, 'Arguments (optional)'), args, h('span', { class: 'help' }, 'Separate with spaces; use quotes for values with spaces.')));
       }
 

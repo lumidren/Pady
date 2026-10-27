@@ -795,6 +795,8 @@ a { color: var(--accent-text); }
 .toast-title { font-weight: 600; }
 .toast-text { color: var(--text-2); margin-top: 1px; word-break: break-word; }
 .toast-action { margin-top: 8px; }
+.input-row { display: flex; gap: 8px; align-items: stretch; }
+.input-row .input { flex: 1; min-width: 0; }
 .toast-close { margin: -4px -4px 0 0; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--text-3); display: grid; place-items: center; }
 .toast-close:hover { background: var(--hover); color: var(--text); }
 

@@ -401,6 +401,7 @@
     },
     check_update: () => (q.has('update') ? { version: '9.9.9', notes: null, can_install: !linux } : null),
     install_update: () => new Promise((done) => setTimeout(done, 1500)),
+    pick_program: () => (linux ? '/usr/bin/firefox' : 'C:\\Users\\you\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Antigravity.lnk'),
     // Replace the All-apps bindings with a starter set; settings and profiles stay.
     apply_preset: ({ id }) => {
       const preset = PRESETS.find((p) => p.id === id);

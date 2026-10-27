@@ -16,6 +16,7 @@ const COMMANDS: &[&str] = &[
     "apply_preset",
     "check_update",
     "install_update",
+    "pick_program",
 ];
 
 fn main() {
