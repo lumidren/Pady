@@ -113,5 +113,16 @@
         "bundleMediaFramework": false
       }
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRFQTM5NUY2QThGRjZDRTcKUldUbmJQK285cFdqVGd3U21PeVJBSkxZRWZtRVc4ZVlvSm9UYXFrY2c5NEJMYkRzeTB6V2lTSGUK",
+      "endpoints": [
+        "https://github.com/lumidren/Pady/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

@@ -9,6 +9,7 @@
   const paths = {
     gestures: '<rect x="2.5" y="4.5" width="19" height="15" rx="3.5"/><circle cx="8" cy="12.5" r="1.4"/><circle cx="12" cy="11" r="1.4"/><circle cx="16" cy="12.5" r="1.4"/>',
     live: '<path d="M2.5 12h4l2.5-6.5 5 13 2.5-6.5h5"/>',
+    download: '<path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/>',
     settings: '<path d="M4 6.5h9M17 6.5h3M4 12h3M11 12h9M4 17.5h11M19 17.5h1"/><circle cx="15" cy="6.5" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17.5" r="2"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.8v.01"/>',
     volume: '<path d="M11 5 6.5 9H3.5v6h3L11 19z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18.5 6a8.5 8.5 0 0 1 0 12"/>',

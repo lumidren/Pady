@@ -18,6 +18,8 @@
     "allow-open-touchpad-settings",
     "allow-detect-app",
     "allow-fix-permissions",
-    "allow-apply-preset"
+    "allow-apply-preset",
+    "allow-check-update",
+    "allow-install-update"
   ]
 }

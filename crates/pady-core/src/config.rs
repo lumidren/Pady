@@ -41,6 +41,8 @@ pub struct Settings {
     pub pause_in_fullscreen: bool,
     /// The first-run tutorial has been completed or skipped.
     pub onboarded: bool,
+    /// Look for a new version on GitHub twice a day.
+    pub check_updates: bool,
 }
 
 impl Default for Settings {
@@ -61,6 +63,7 @@ impl Default for Settings {
             multi_tap_ms: 300,
             pause_in_fullscreen: true,
             onboarded: false,
+            check_updates: true,
         }
     }
 }

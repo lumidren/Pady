@@ -14,6 +14,8 @@ const COMMANDS: &[&str] = &[
     "detect_app",
     "fix_permissions",
     "apply_preset",
+    "check_update",
+    "install_update",
 ];
 
 fn main() {

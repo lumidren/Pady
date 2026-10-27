@@ -193,14 +193,15 @@
      4. Toasts, modal, save indicator
      ===================================================================== */
 
-  function toast({ kind = 'success', title, text, timeout }) {
+  function toast({ kind = 'success', title, text, timeout, action }) {
     const root = $('#toasts');
     const glyph = kind === 'error' ? 'warning' : kind === 'info' ? 'zap' : 'check';
     const el = h('div', { class: `toast toast--${kind}`, role: kind === 'error' ? 'alert' : 'status' },
       h('span', { class: 'toast-icon' }, ico(glyph, 13)),
       h('div', { class: 'toast-body' },
         title ? h('div', { class: 'toast-title' }, title) : null,
-        text ? h('div', { class: 'toast-text' }, text) : null),
+        text ? h('div', { class: 'toast-text' }, text) : null,
+        action ? h('button', { class: 'btn btn--sm btn--primary toast-action', type: 'button', onClick: () => { dismiss(); action.onClick(); } }, action.label) : null),
       h('button', { class: 'toast-close', type: 'button', 'aria-label': 'Dismiss', onClick: () => dismiss() }, ico('x', 14)));
     root.append(el);
     while (root.children.length > 4) root.firstElementChild.remove();
@@ -2144,7 +2145,7 @@
   // Fallbacks if the backend's settings predate a field (same values as pady-core's defaults).
   const SETTING_DEFAULTS = {
     tap_max_ms: 220, tap_slop_mm: 4, multi_tap_ms: 300, swipe_threshold_mm: 10, swipe_step_mm: 7, pinch_threshold_mm: 8,
-    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true,
+    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true, check_updates: true,
   };
   // Starter-set icons by preset id (unknown ids get a generic one).
   const PRESET_ICONS = { recommended: 'sparkle', macos: 'command', media: 'play-pause', productivity: 'taskview', minimal: 'minimal' };
@@ -2223,6 +2224,7 @@
               h('div', { class: 'row-text' }, setUI.autostartTitle, h('div', { class: 'row-sub' }, 'Runs quietly in the tray after you sign in.')),
               h('span', { class: 'switch' }, setUI.autostart, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' })))),
             settingToggle('show_overlay', 'Show Pady\'s level pill', 'Pady\'s own volume & brightness pill near the bottom of the screen. On Windows, volume always shows Windows\' own slider.'),
+            settingToggle('check_updates', 'Check for updates', 'Looks for a new version on GitHub twice a day and lets you install it with one click.'),
             setUI.pauseRow = settingToggle('pause_in_fullscreen', 'Pause in full-screen games', 'Pady ignores gestures while a game runs in exclusive full screen.'),
             h('div', { class: 'row' },
               h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Tutorial'), h('div', { class: 'row-sub' }, 'A quick, hands-on tour of the basics.')),
@@ -2409,6 +2411,7 @@
             h('button', { class: 'btn btn--sm btn--primary', type: 'button', onClick: () => openTutorial({ firstRun: false }) }, ico('graduation', 14), 'Show the tutorial'),
             h('span', { class: 'link-text selectable' }, ico('github', 14), 'github.com/lumidren/Pady'),
             h('span', { class: 'link-text' }, ico(linux ? 'terminal' : 'desktop', 14), linux ? 'Linux' : 'Windows')))),
+      updatesPanel(),
       h('section', { class: 'panel', style: { 'margin-bottom': '16px' } },
         h('div', { class: 'panel-head' }, h('div', null, h('div', { class: 'panel-title' }, 'How it works'), h('div', { class: 'panel-sub' }, 'From fingertips to actions in a few milliseconds'))),
         h('div', { class: 'flow' },
@@ -2960,6 +2963,57 @@
     };
   }
 
+  /* ---------- Updates ---------- */
+
+  const updates = { available: null, checking: false, installing: false, note: '' };
+
+  function announceUpdate(u) {
+    if (!u || (updates.available && updates.available.version === u.version)) return;
+    updates.available = u;
+    toast({
+      kind: 'info', title: `Pady ${u.version} is available`, timeout: 15000,
+      text: u.can_install ? 'Update now, or later from the tray menu.' : 'Update with your package manager, or download it from lumidren.github.io/Pady.',
+      action: u.can_install ? { label: 'Update now', onClick: installUpdate } : null,
+    });
+    if (store.page === 'about') renderAbout();
+  }
+
+  async function checkUpdate(manual) {
+    updates.checking = true; updates.note = '';
+    if (store.page === 'about') renderAbout();
+    try {
+      const u = await call('check_update', null, { quiet: !manual, errorTitle: 'Couldn’t check for updates' });
+      if (u) announceUpdate(u);
+      else updates.note = 'Pady is up to date.';
+    } catch (_) {
+      updates.note = manual ? 'Couldn’t reach GitHub. Check your connection.' : '';
+    }
+    updates.checking = false;
+    if (store.page === 'about') renderAbout();
+  }
+
+  async function installUpdate() {
+    updates.installing = true;
+    if (store.page === 'about') renderAbout();
+    toast({ kind: 'info', title: 'Downloading the update…', text: 'Pady restarts by itself when it’s done.', timeout: 20000 });
+    try { await call('install_update', null, { errorTitle: 'Couldn’t install the update' }); } catch (_) { /* toast shown */ }
+    updates.installing = false;
+    if (store.page === 'about') renderAbout();
+  }
+
+  function updatesPanel() {
+    const u = updates.available;
+    const status = u ? `Pady ${u.version} is available.` : updates.checking ? 'Checking…' : updates.note || `You have Pady ${store.app.version}.`;
+    const button = u && u.can_install
+      ? h('button', { class: 'btn btn--sm btn--primary', type: 'button', disabled: updates.installing, onClick: installUpdate }, ico('download', 14), updates.installing ? 'Updating…' : `Update to ${u.version}`)
+      : h('button', { class: 'btn btn--sm', type: 'button', disabled: updates.checking, onClick: () => checkUpdate(true) }, ico('reset', 14), 'Check for updates');
+    return h('section', { class: 'panel', style: { 'margin-bottom': '16px' } },
+      h('div', { class: 'panel-head' },
+        h('div', null, h('div', { class: 'panel-title' }, 'Updates'), h('div', { class: 'panel-sub' }, status)),
+        button),
+      u && !u.can_install ? h('p', { class: 'panel-sub', style: { padding: '0 20px 16px' } }, 'Update with your package manager, or download it from lumidren.github.io/Pady.') : null);
+  }
+
   /* =====================================================================
      12. Events & boot
      ===================================================================== */
@@ -2969,6 +3023,7 @@
     on('pady://state', (e) => applyState(e.payload));
     on('pady://frame', (e) => onFrame(e.payload));
     on('pady://gesture', (e) => onGesture(e.payload));
+    on('pady://update', (e) => announceUpdate(e.payload));
     on('pady://action-failed', (e) => {
       const p = e.payload || {};
       toast({ kind: 'error', title: p.action ? `“${p.action}” failed` : 'Action failed', text: p.error });
@@ -3005,6 +3060,7 @@
       route(PAGES.includes(initial) ? initial : 'gestures');
       // `=== false`: a backend without the field never shows the tutorial.
       if (state.config.settings.onboarded === false) openTutorial({ firstRun: true });
+      if (state.config.settings.check_updates !== false) checkUpdate(false);
     } catch (e) {
       $('#boot').replaceChildren(h('div', { class: 'empty' },
         h('div', { class: 'empty-icon' }, ico('warning', 28)),

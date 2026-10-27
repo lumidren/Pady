@@ -6,6 +6,8 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod update;
+
 use crossbeam_channel::Sender;
 use pady_actions::Conflict;
 use pady_core::engine::Observer;
@@ -438,7 +440,7 @@ fn spawn_watcher(app: AppHandle) {
 
 /// Open the settings window, creating it if needed. It's destroyed when
 /// closed, so a Pady sitting in the tray holds no WebView (or its memory).
-fn show_main(app: &AppHandle) {
+pub(crate) fn show_main(app: &AppHandle) {
     let window = match app.get_webview_window("main") {
         Some(window) => window,
         None => {
@@ -472,8 +474,10 @@ fn build_tray(app: &AppHandle) -> tauri::Result<CheckMenuItem<Wry>> {
     let enabled = app.state::<Pady>().config.get().settings.enabled;
     let toggle = CheckMenuItem::with_id(app, "toggle", "Gestures on", true, enabled, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open Pady…", true, None::<&str>)?;
+    let updates = MenuItem::with_id(app, "update", update::TRAY_LABEL, true, None::<&str>)?;
+    *lock(&app.state::<update::Updates>().tray_item) = Some(updates.clone());
     let quit = MenuItem::with_id(app, "quit", "Quit Pady", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&toggle, &open, &PredefinedMenuItem::separator(app)?, &quit])?;
+    let menu = Menu::with_items(app, &[&toggle, &open, &updates, &PredefinedMenuItem::separator(app)?, &quit])?;
 
     let mut tray = TrayIconBuilder::with_id("pady")
         .tooltip("Pady — touchpad gestures")
@@ -482,6 +486,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<CheckMenuItem<Wry>> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "toggle" => toggle_enabled(app),
             "open" => show_main(app),
+            "update" => update::tray_clicked(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -541,6 +546,18 @@ impl Write for Tee {
     }
 }
 
+/// A newer release, if there is one (also announced as `pady://update`).
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Result<Option<update::Available>, String> {
+    update::check(&app).await
+}
+
+/// Download, verify and install the newer release, then restart.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    update::install(app).await
+}
+
 fn main() {
     init_logging();
     let start_hidden = std::env::args().any(|a| a == "--hidden");
@@ -549,6 +566,8 @@ fn main() {
         // A second launch (e.g. from the Start menu while autostarted) just
         // shows the running instance instead of doubling every gesture.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(update::Updates::default())
         .invoke_handler(tauri::generate_handler![
             get_state,
             save_config,
@@ -562,6 +581,8 @@ fn main() {
             detect_app,
             fix_permissions,
             apply_preset,
+            check_update,
+            install_update,
         ])
         .setup(move |app| {
             let config_path = Config::default_path()?;
@@ -607,6 +628,7 @@ fn main() {
             *lock(&app.state::<Pady>().tray_toggle) = Some(toggle);
             app.state::<Pady>().sync_tray();
             spawn_watcher(app.handle().clone());
+            update::spawn_checks(app.handle().clone());
 
             if !start_hidden {
                 show_main(app.handle());
