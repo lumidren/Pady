@@ -28,7 +28,9 @@ env_logger.workspace = true
 dirs.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-single-instance = "2"
-tauri-plugin-updater = "2"
+# Updates ship as a plain setup .exe and AppImage, so the zip feature (and its
+# zip/tar/flate2 dependencies) is left out.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-dialog = "2"
 
 [target.'cfg(windows)'.dependencies.windows]
