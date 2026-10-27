@@ -68,6 +68,11 @@ h1 { font-size: clamp(44px, 8vw, 84px); font-weight: 800; }
 .facts b { color: var(--text); }
 
 /* Demo */
+.video-frame {
+  margin-top: 40px; border-radius: 18px; overflow: hidden; border: 1px solid var(--border);
+  background: #000; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+}
+.video-frame video { display: block; width: 100%; height: auto; }
 .demo-frame {
   margin: 40px auto 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(124, 108, 255, 0.12);

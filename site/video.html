@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pady in 60 seconds</title>
+<style>
+:root {
+  --bg: #0b0c11; --surface: #13141c; --surface-2: #1a1b26; --border: rgba(255, 255, 255, 0.08);
+  --text: #f1f1f6; --text-2: #a9aabb; --text-3: #7c7d90; --accent: #7c6cff; --accent-text: #b9b0ff;
+  --grad: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #b14ef0 100%);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font: 16px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Ubuntu, sans-serif; -webkit-font-smoothing: antialiased; }
+.page { max-width: 1100px; margin: 0 auto; padding: 24px 16px 40px; }
+.page h1 { font-size: 20px; margin: 0 0 14px; font-weight: 600; color: var(--text-2); }
+
+/* Player */
+.player { border-radius: 18px; overflow: hidden; border: 1px solid var(--border); background: #000; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5); }
+.screen { position: relative; aspect-ratio: 16 / 9; overflow: hidden; cursor: pointer; background: var(--bg); }
+#stage { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; transform-origin: 0 0; overflow: hidden; background: var(--bg); }
+.controls { display: flex; align-items: center; gap: 14px; padding: 12px 16px; background: var(--surface); border-top: 1px solid var(--border); }
+.play { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 0; cursor: pointer; background: var(--grad); color: #fff; display: grid; place-items: center; }
+.play svg { width: 18px; height: 18px; fill: currentColor; }
+.time { flex: none; font-variant-numeric: tabular-nums; color: var(--text-2); font-size: 13.5px; min-width: 86px; }
+.bar { position: relative; flex: 1; height: 28px; cursor: pointer; touch-action: none; }
+.bar-track { position: absolute; left: 0; right: 0; top: 12px; height: 4px; border-radius: 4px; background: var(--surface-2); }
+.bar-fill { position: absolute; left: 0; top: 12px; height: 4px; border-radius: 4px; background: var(--grad); }
+.bar-tick { position: absolute; top: 9px; width: 2px; height: 10px; border-radius: 2px; background: rgba(255, 255, 255, 0.25); }
+.bar-knob { position: absolute; top: 7px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 4px rgba(124, 108, 255, 0.35); }
+.chapters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.chapters button {
+  font: inherit; font-size: 13.5px; padding: 7px 14px; border-radius: 999px; cursor: pointer;
+  color: var(--text-2); background: var(--surface); border: 1px solid var(--border);
+}
+.chapters button span { color: var(--text-3); margin-right: 6px; font-variant-numeric: tabular-nums; }
+.chapters button.on { color: #fff; border-color: rgba(124, 108, 255, 0.6); background: rgba(124, 108, 255, 0.15); }
+.hint { color: var(--text-3); font-size: 13px; margin-top: 12px; }
+@media (max-width: 600px) { .time { min-width: 0; font-size: 12px; } .controls { gap: 10px; padding: 10px 12px; } }
+
+/* Export: just the 1280x720 stage */
+body.export .page { padding: 0; max-width: none; }
+body.export .page > :not(.player), body.export .controls { display: none; }
+body.export .player { border: 0; border-radius: 0; box-shadow: none; width: 1280px; }
+body.export .screen { width: 1280px; height: 720px; aspect-ratio: auto; }
+
+/* Stage */
+.glow { position: absolute; width: 760px; height: 760px; border-radius: 50%; filter: blur(110px); opacity: 0.32; pointer-events: none; }
+.glow.a { background: #6366f1; }
+.glow.b { background: #b14ef0; }
+.scene { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; }
+.grad-text { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.h2 { font-size: 52px; font-weight: 700; letter-spacing: -0.02em; margin: 0; text-align: center; }
+.cap { font-size: 22px; color: var(--text-2); margin: 12px 0 0; text-align: center; }
+.top { position: absolute; top: 64px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; }
+.body { position: absolute; top: 230px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; }
+
+.logo { width: 132px; height: 132px; border-radius: 34px; background: var(--grad); display: flex; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 20px 60px rgba(124, 108, 255, 0.45); }
+.logo i { width: 22px; height: 22px; border-radius: 50%; background: #fff; display: block; }
+
+.pad { position: relative; border-radius: 22px; background: linear-gradient(180deg, #1b1c27, #14151e); border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 20px 50px rgba(0, 0, 0, 0.4); }
+.pad-label { position: absolute; bottom: -34px; left: 0; right: 0; text-align: center; font-size: 15px; color: var(--text-3); }
+.finger { position: absolute; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #c4b8ff, #7c6cff 60%, #5b4bd6); box-shadow: 0 0 0 6px rgba(124, 108, 255, 0.18), 0 0 30px rgba(124, 108, 255, 0.6); }
+.dots { display: inline-flex; gap: 4px; }
+.dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); display: block; }
+
+/* Gesture grid */
+.grid { display: grid; grid-template-columns: 130px repeat(11, 82px); gap: 8px; }
+.grid-h { font-size: 13px; color: var(--text-3); text-align: center; line-height: 1.25; align-self: end; padding-bottom: 4px; }
+.grid-r { display: flex; flex-direction: column; justify-content: center; gap: 6px; font-size: 15px; color: var(--text-2); }
+.cell { height: 58px; border-radius: 12px; display: grid; place-items: center; font-size: 22px; color: var(--text-3); background: var(--surface); border: 1px solid var(--border); }
+.cell.on { color: #fff; background: rgba(124, 108, 255, 0.2); border-color: rgba(124, 108, 255, 0.55); box-shadow: 0 0 24px rgba(124, 108, 255, 0.2); }
+
+/* Gesture editor */
+.editor { position: relative; width: 860px; padding: 30px 34px; border-radius: 22px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 30px 70px rgba(0, 0, 0, 0.45); }
+.ed-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.ed-label { font-size: 14px; color: var(--text-3); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+.ed-box { height: 58px; border-radius: 14px; background: var(--surface-2); border: 1px solid rgba(255, 255, 255, 0.1); display: flex; align-items: center; gap: 12px; padding: 0 18px; font-size: 21px; font-weight: 600; }
+.ed-box.sel { justify-content: space-between; }
+.ed-box.sel::after { content: ""; width: 10px; height: 10px; border-right: 2px solid var(--text-3); border-bottom: 2px solid var(--text-3); transform: rotate(45deg) translateY(-3px); }
+.ed-detail { margin-top: 22px; height: 70px; border-radius: 14px; background: rgba(124, 108, 255, 0.08); border: 1px solid rgba(124, 108, 255, 0.25); display: flex; align-items: center; gap: 14px; padding: 0 20px; font-size: 20px; color: var(--text-2); }
+.ed-detail b { color: var(--text); }
+.key { display: inline-block; padding: 5px 12px; border-radius: 8px; background: #22232f; border: 1px solid rgba(255, 255, 255, 0.14); border-bottom-width: 3px; font-size: 18px; font-weight: 600; color: var(--text); }
+.menu { position: absolute; z-index: 2; width: 380px; padding: 6px; border-radius: 14px; background: #1d1e2a; border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6); transform-origin: top center; }
+.menu div { padding: 4px 14px; border-radius: 8px; font-size: 16px; line-height: 24px; color: var(--text-2); }
+.menu div.hi { background: rgba(124, 108, 255, 0.25); color: #fff; }
+.cursor { position: absolute; z-index: 3; width: 22px; height: 22px; }
+.ed-foot { margin-top: 30px; font-size: 21px; color: var(--text-2); text-align: center; }
+.ed-foot b { color: var(--text); }
+
+/* Combos */
+.eq { display: flex; align-items: center; gap: 30px; }
+.term { display: flex; flex-direction: column; align-items: center; width: 250px; }
+.term .n { font-size: 120px; font-weight: 800; line-height: 1; letter-spacing: -0.04em; }
+.term .l { font-size: 20px; color: var(--text-2); text-align: center; margin-top: 10px; line-height: 1.3; }
+.times { font-size: 54px; color: var(--text-3); font-weight: 300; }
+
+/* Desktop for drag */
+.desk { position: relative; width: 600px; height: 360px; border-radius: 16px; overflow: hidden; background: linear-gradient(135deg, #1e1b4b, #312e81 50%, #4c1d95); border: 1px solid rgba(255, 255, 255, 0.1); }
+.desk-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 30px; background: rgba(10, 10, 20, 0.6); }
+.win { position: absolute; width: 240px; height: 150px; border-radius: 10px; background: #f4f4f8; overflow: hidden; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45); }
+.win-title { height: 26px; background: #e2e2ea; display: flex; align-items: center; gap: 6px; padding: 0 10px; }
+.win-title i { width: 9px; height: 9px; border-radius: 50%; background: #c8c8d4; display: block; }
+.win-line { height: 9px; border-radius: 5px; background: #dcdce6; margin: 14px 14px 0; }
+
+/* Sliders */
+.sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 26px; }
+.sl { width: 470px; padding: 16px 22px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); }
+.sl-top { display: flex; justify-content: space-between; font-size: 18px; font-weight: 600; }
+.sl-top span:last-child { color: var(--accent-text); font-variant-numeric: tabular-nums; }
+.sl-track { position: relative; height: 6px; border-radius: 6px; background: var(--surface-2); margin-top: 14px; }
+.sl-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; background: var(--grad); }
+.sl-knob { position: absolute; top: -6px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 5px rgba(124, 108, 255, 0.3); }
+.toggles { display: flex; gap: 14px; margin-top: 22px; }
+.tg { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); font-size: 16px; color: var(--text-2); }
+.sw { position: relative; width: 40px; height: 22px; border-radius: 22px; background: #2a2b38; }
+.sw i { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; display: block; }
+
+/* Apps */
+.apps { display: flex; align-items: center; gap: 40px; }
+.app { position: relative; width: 330px; padding: 26px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); }
+.app-head { display: flex; align-items: center; gap: 14px; font-size: 24px; font-weight: 700; }
+.app-icon { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; font-size: 22px; font-weight: 800; color: #fff; }
+.app-front { position: absolute; top: -14px; right: 18px; font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--grad); color: #fff; }
+.app-bind { margin-top: 20px; font-size: 17px; color: var(--text-2); }
+.app-bind b { display: block; color: var(--text); font-size: 20px; margin-top: 4px; }
+.app-pop { position: absolute; left: 26px; right: 26px; bottom: -58px; text-align: center; padding: 10px; border-radius: 12px; font-weight: 600; font-size: 18px; background: rgba(124, 108, 255, 0.18); color: #fff; border: 1px solid rgba(124, 108, 255, 0.5); }
+
+/* Presets */
+.presets { display: flex; gap: 16px; }
+.preset { width: 210px; padding: 22px 20px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); }
+.preset b { display: block; font-size: 21px; }
+.preset span { display: block; margin-top: 8px; font-size: 16px; color: var(--text-2); line-height: 1.35; }
+
+/* Outro */
+.wordmark { font-size: 84px; font-weight: 800; letter-spacing: -0.04em; margin: 18px 0 0; line-height: 1; }
+.pills { display: flex; gap: 12px; margin-top: 30px; }
+.pill { padding: 8px 18px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); font-size: 18px; color: var(--text-2); }
+.url { margin-top: 26px; padding: 14px 30px; border-radius: 14px; background: var(--grad); font-size: 26px; font-weight: 700; color: #fff; box-shadow: 0 16px 50px rgba(124, 108, 255, 0.4); }
+.maker { position: absolute; bottom: 30px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--text-3); font-size: 16px; }
+.maker-dots { display: flex; gap: 7px; }
+.maker-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: block; }
+.maker b { color: var(--text-2); }
+</style>
+</head>
+<body>
+<div class="page">
+  <p style="margin:0 0 10px"><a href="./" style="color:var(--accent-text);text-decoration:none">← Back to Pady</a></p>
+  <h1>Pady in 60 seconds</h1>
+  <div class="player">
+    <div class="screen" id="screen"><div id="stage"></div></div>
+    <div class="controls">
+      <button class="play" id="play" type="button" aria-label="Play"></button>
+      <div class="time" id="time">0:00 / 1:00</div>
+      <div class="bar" id="bar" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="60" tabindex="0">
+        <div class="bar-track"></div><div class="bar-fill" id="fill"></div><div class="bar-knob" id="knob"></div>
+      </div>
+    </div>
+  </div>
+  <div class="chapters" id="chapters"></div>
+  <p class="hint">Space plays and pauses, arrow keys skip 5 seconds, click a chapter to jump to it.</p>
+</div>
+<script>
+'use strict';
+const DURATION = 60;
+const CHAPTERS = [
+  { id: 'intro', title: 'Hello', start: 0, end: 5 },
+  { id: 'grid', title: '33 gestures', start: 5, end: 12 },
+  { id: 'pick', title: 'Pick any action', start: 12, end: 24 },
+  { id: 'combos', title: 'Endless combos', start: 24, end: 30 },
+  { id: 'apps', title: 'Per-app gestures', start: 30, end: 37 },
+  { id: 'tune', title: 'Tune the feel', start: 37, end: 44 },
+  { id: 'drag', title: 'Three-finger drag', start: 44, end: 51 },
+  { id: 'presets', title: 'Presets', start: 51, end: 55 },
+  { id: 'outro', title: 'Get Pady', start: 55, end: 60 },
+];
+
+// ---- helpers -------------------------------------------------------------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ramp = (t, a, b) => clamp((t - a) / (b - a));
+const ease = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const out = (x) => 1 - Math.pow(1 - x, 3);
+const lerp = (a, b, x) => a + (b - a) * x;
+/** Fade-and-rise entrance between a and a+d. */
+const enter = (node, t, a, d = 0.6, rise = 24) => {
+  const p = out(ramp(t, a, a + d));
+  node.style.opacity = p;
+  node.style.transform = `translateY(${(1 - p) * rise}px)`;
+};
+const el = (tag, cls, parent, html) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (html != null) n.innerHTML = html;
+  if (parent) parent.appendChild(n);
+  return n;
+};
+/** Sets innerHTML only when it changes, so seeking stays cheap. */
+const html = (node, s) => { if (node._h !== s) { node._h = s; node.innerHTML = s; } };
+const dotsHTML = (n) => `<span class="dots">${'<i></i>'.repeat(n)}</span>`;
+const CURSOR = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 2l15 11-6.5 1.2L16 21l-3 1.4-3.4-6.9L4 19z" fill="#fff" stroke="#111" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+
+const stage = document.getElementById('stage');
+const glowA = el('div', 'glow a', stage);
+const glowB = el('div', 'glow b', stage);
+
+function makePad(parent, w, h, label) {
+  const pad = el('div', 'pad', parent);
+  pad.style.width = w + 'px';
+  pad.style.height = h + 'px';
+  const fingers = Array.from({ length: 5 }, () => el('div', 'finger', pad));
+  if (label) el('div', 'pad-label', pad, label);
+  return { pad, w, h, fingers };
+}
+/** Puts n fingers around (x, y) in 0..1 pad space, in a gentle arc. */
+function setFingers(p, n, x, y, alpha = 1, spread = 54) {
+  p.fingers.forEach((f, i) => {
+    if (i >= n || alpha <= 0) { f.style.display = 'none'; return; }
+    const k = i - (n - 1) / 2;
+    f.style.display = 'block';
+    f.style.left = x * p.w + k * spread + 'px';
+    f.style.top = y * p.h + k * k * 7 + 'px';
+    f.style.opacity = alpha;
+    f.style.transform = `scale(${0.7 + 0.3 * alpha})`;
+  });
+}
+const scenes = {};
+const scene = (id) => (scenes[id] = el('div', 'scene', stage));
+const header = (parent, title, caption) => {
+  const top = el('div', 'top', parent);
+  el('div', 'h2', top, title);
+  if (caption) el('p', 'cap', top, caption);
+  return top;
+};
+
+// ---- 1. Intro --------------------------------------------------------------
+const S1 = scene('intro');
+const s1logo = el('div', 'logo', S1, '<i></i><i></i><i></i>');
+const s1l1 = el('div', 'h2', S1, 'Your touchpad,');
+s1l1.style.cssText += 'font-size:76px;margin-top:44px';
+const s1l2 = el('div', 'h2 grad-text', S1, 'finally awake.');
+s1l2.style.fontSize = '76px';
+const s1tag = el('p', 'cap', S1, 'Touchpad gestures for Windows and Linux. Set up exactly your way.');
+s1tag.style.marginTop = '26px';
+
+// ---- 2. 33 gestures --------------------------------------------------------
+const S2 = scene('grid');
+const s2top = el('div', 'top', S2);
+const s2h = el('div', 'h2', s2top, '<span class="grad-text" id="g-num">0</span> gestures to choose from.');
+const s2num = s2h.querySelector('#g-num');
+const s2cap = el('p', 'cap', s2top, 'Taps, double and triple taps, holds, swipes, pinches and drag, with 3, 4 or 5 fingers.');
+const s2body = el('div', 'body', S2);
+s2body.style.top = '250px';
+const s2grid = el('div', 'grid', s2body);
+const COLS = [['Tap', '•'], ['Double<br>tap', '••'], ['Triple<br>tap', '•••'], ['Hold', '◔'], ['Swipe<br>up', '↑'], ['Swipe<br>down', '↓'], ['Swipe<br>left', '←'], ['Swipe<br>right', '→'], ['Pinch<br>in', '→←'], ['Pinch<br>out', '←→'], ['Drag', '✥']];
+el('div', null, s2grid);
+COLS.forEach(([h]) => el('div', 'grid-h', s2grid, h));
+const CELLS = [];
+[3, 4, 5].forEach((n) => {
+  el('div', 'grid-r', s2grid, `${dotsHTML(n)}<span>${n} fingers</span>`);
+  COLS.forEach(([, sym]) => CELLS.push(el('div', 'cell', s2grid, sym)));
+});
+
+// ---- 3. Pick any action ----------------------------------------------------
+const S3 = scene('pick');
+header(S3, 'Pick a gesture. <span class="grad-text">Pick what it does.</span>');
+const s3body = el('div', 'body', S3);
+s3body.style.top = '190px';
+const ed = el('div', 'editor', s3body);
+const edRow = el('div', 'ed-row', ed);
+const edG = el('div', null, edRow);
+el('div', 'ed-label', edG, 'Gesture');
+const edGesture = el('div', 'ed-box', edG);
+const edA = el('div', null, edRow);
+el('div', 'ed-label', edA, 'Action');
+const edAction = el('div', 'ed-box sel', edA);
+const edDetail = el('div', 'ed-detail', ed);
+const ACTIONS = ['Keyboard shortcut', 'Volume', 'Mute', 'Brightness', 'Media key', 'Open a link', 'Launch an app', 'Switch to an app', 'Run a command', 'Lock the screen', 'Drag'];
+const menu = el('div', 'menu', ed);
+menu.style.cssText += 'left:464px;top:118px';
+const menuItems = ACTIONS.map((a) => el('div', null, menu, a));
+const edCursor = el('div', 'cursor', ed, CURSOR);
+const s3foot = el('div', 'ed-foot', s3body, '<b>11 kinds of actions.</b> Any shortcut, any app, any website, any command.');
+const EXAMPLES = [
+  [5, '5-finger tap', 'Launch an app', 'App: <b>Spotify</b>'],
+  [3, '3-finger double tap', 'Open a link', 'Link: <b>github.com</b>, in <b>Firefox</b>'],
+  [4, '4-finger swipe right', 'Brightness', 'Step: <b>+10%</b> each time, keeps going as you slide'],
+  [4, '4-finger hold', 'Run a command', 'Command: <b>code ~/projects</b>'],
+  [5, '5-finger swipe up', 'Switch to an app', 'App: <b>Discord</b>, opens it if it isn’t running'],
+  [3, '3-finger tap', 'Media key', 'Key: <b>Play / pause</b>'],
+];
+
+// ---- 4. Endless combos -----------------------------------------------------
+const S4 = scene('combos');
+const eq = el('div', 'eq', S4);
+const term = (n, l) => { const d = el('div', 'term', eq); el('div', 'n grad-text', d, n); el('div', 'l', d, l); return d; };
+const T1 = term('33', 'gestures');
+const X1 = el('div', 'times', eq, '×');
+const T2 = term('11', 'kinds of actions');
+const X2 = el('div', 'times', eq, '×');
+const T3 = term('∞', 'shortcuts, apps,<br>links and commands');
+const s4line = el('div', 'h2', S4, 'Make it <span class="grad-text">completely yours.</span>');
+s4line.style.marginTop = '60px';
+
+// ---- 5. Per-app gestures ---------------------------------------------------
+const S5 = scene('apps');
+header(S5, 'Different apps, <span class="grad-text">different gestures.</span>', 'Give any app its own gestures. As many apps as you like.');
+const s5body = el('div', 'body', S5);
+s5body.style.top = '300px';
+const s5apps = el('div', 'apps', s5body);
+function appCard(parent, name, letter, color, action) {
+  const card = el('div', 'app', parent);
+  el('div', 'app-head', card, `<span class="app-icon" style="background:${color}">${letter}</span>${name}`);
+  el('div', 'app-bind', card, `3-finger swipe left<b>${action}</b>`);
+  const front = el('div', 'app-front', card, 'In front');
+  const pop = el('div', 'app-pop', card, '✓ ' + action);
+  return { card, front, pop };
+}
+const s5a = appCard(s5apps, 'Chrome', 'C', '#2563eb', 'Previous tab');
+const s5pad = makePad(s5apps, 260, 170, 'same swipe, both apps');
+const s5b = appCard(s5apps, 'VS Code', '{ }', '#0ea5e9', 'Go back a file');
+s5b.card.querySelector('.app-icon').style.fontSize = '17px';
+
+// ---- 6. Tune the feel ------------------------------------------------------
+const S6 = scene('tune');
+header(S6, 'Tune how it <span class="grad-text">feels.</span>', '10 sliders, from tap speed to drag speed. Plus a switch for everything else.');
+const s6body = el('div', 'body', S6);
+s6body.style.top = '232px';
+const s6grid = el('div', 'sliders', s6body);
+const SLIDERS = [
+  ['Tap speed', 100, 400, 220, 170, (v) => Math.round(v / 10) * 10 + ' ms'],
+  ['Swipe distance', 4, 30, 10, 6, (v) => Math.round(v) + ' mm'],
+  ['Double-tap speed', 150, 600, 300, 380, (v) => Math.round(v / 10) * 10 + ' ms'],
+  ['Pinch distance', 3, 20, 8, 5.5, (v) => (Math.round(v * 2) / 2).toFixed(1) + ' mm'],
+  ['Hold time', 300, 1500, 600, 450, (v) => Math.round(v / 50) * 50 + ' ms'],
+  ['Drag speed', 2, 25, 9, 14, (v) => (Math.round(v * 2) / 2).toFixed(1) + ' px/mm'],
+].map(([name, min, max, from, to, fmt]) => {
+  const card = el('div', 'sl', s6grid);
+  const top = el('div', 'sl-top', card, `<span>${name}</span><span></span>`);
+  const track = el('div', 'sl-track', card);
+  return { card, value: top.lastChild, fill: el('div', 'sl-fill', track), knob: el('div', 'sl-knob', track), min, max, from, to, fmt };
+});
+const s6tg = el('div', 'toggles', s6body);
+const TOGGLES = ['Start with Windows', 'Pause in full-screen games', 'Volume overlay', 'Check for updates']
+  .map((name) => { const d = el('div', 'tg', s6tg, `<span class="sw"><i></i></span>${name}`); return d.querySelector('.sw'); });
+
+// ---- 7. Three-finger drag --------------------------------------------------
+const S7 = scene('drag');
+header(S7, 'And yes: three-finger <span class="grad-text">drag.</span>', 'Move windows and select text without pressing a thing.');
+const s7body = el('div', 'body', S7);
+s7body.style.top = '232px';
+const s7row = el('div', null, s7body);
+s7row.style.cssText = 'display:flex;align-items:center;gap:70px';
+const s7pad = makePad(s7row, 360, 230, 'three fingers on the touchpad');
+const s7desk = el('div', 'desk', s7row);
+el('div', 'desk-bar', s7desk);
+const s7win = el('div', 'win', s7desk, '<div class="win-title"><i></i><i></i><i></i></div><div class="win-line" style="width:70%"></div><div class="win-line" style="width:85%"></div><div class="win-line" style="width:55%"></div>');
+const s7cur = el('div', 'cursor', s7desk, CURSOR);
+
+// ---- 8. Presets ------------------------------------------------------------
+const S8 = scene('presets');
+header(S8, 'Not sure where to start? <span class="grad-text">Pick a preset.</span>', 'Then change anything you like.');
+const s8body = el('div', 'body', S8);
+s8body.style.top = '290px';
+const s8row = el('div', 'presets', s8body);
+const PRESETS = [
+  ['Recommended', 'Drag, media, volume, brightness and zoom'],
+  ['Like a Mac', 'Drag, task view, desktops and pinch to zoom'],
+  ['Media', 'Taps to play, skip and go back'],
+  ['Productivity', 'Desktops, screenshots and lock'],
+  ['Minimal', 'Just three-finger drag'],
+].map(([n, d]) => el('div', 'preset', s8row, `<b>${n}</b><span>${d}</span>`));
+
+// ---- 9. Outro --------------------------------------------------------------
+const S9 = scene('outro');
+S9.style.paddingBottom = '70px';
+const s9logo = el('div', 'logo', S9, '<i></i><i></i><i></i>');
+const s9word = el('div', 'wordmark', S9, 'Pady');
+const s9motto = el('p', 'cap', S9, 'Your touchpad, finally awake.');
+s9motto.style.fontSize = '26px';
+const s9pills = el('div', 'pills', S9, '<span class="pill">Free</span><span class="pill">Windows &amp; Linux</span><span class="pill">Open source</span><span class="pill">No account</span>');
+const s9url = el('div', 'url', S9, 'lumidren.github.io/Pady');
+const s9maker = el('div', 'maker', S9);
+const s9dots = el('div', 'maker-dots', s9maker, '<i></i>'.repeat(10));
+el('div', null, s9maker, 'made by <b>lumidren</b> · <em>Because the Mac trackpad shouldn’t get to have all the fun.</em>');
+
+// ---- render(t): everything on screen is a pure function of t ---------------
+function render(t) {
+  glowA.style.left = 80 + 140 * Math.sin(t / 7) - 380 + 'px';
+  glowA.style.top = 120 + 90 * Math.cos(t / 5) - 380 + 'px';
+  glowB.style.left = 1180 + 120 * Math.cos(t / 6) - 380 + 'px';
+  glowB.style.top = 620 + 80 * Math.sin(t / 8) - 380 + 'px';
+
+  for (const c of CHAPTERS) {
+    const s = scenes[c.id];
+    const fadeIn = c.start === 0 ? ramp(t, 0, 0.5) : ramp(t, c.start, c.start + 0.4);
+    const fadeOut = c.end >= DURATION ? 1 : 1 - ramp(t, c.end - 0.4, c.end);
+    const a = Math.min(fadeIn, fadeOut);
+    s.style.display = a > 0 ? 'flex' : 'none';
+    s.style.opacity = a;
+    s.style.transform = `scale(${1 + 0.02 * (1 - fadeOut)})`;
+  }
+
+  // 1. Intro
+  if (t < 5) {
+    const p = out(ramp(t, 0.1, 0.9));
+    s1logo.style.opacity = p;
+    s1logo.style.transform = `scale(${0.6 + 0.4 * p})`;
+    [...s1logo.children].forEach((d, i) => {
+      const w = Math.max(0, Math.sin(Math.PI * ramp(t, 0.9 + i * 0.18, 1.4 + i * 0.18)));
+      d.style.transform = `translateY(${-10 * w}px) scale(${1 + 0.25 * w})`;
+    });
+    enter(s1l1, t, 1.1, 0.6);
+    enter(s1l2, t, 1.7, 0.6);
+    enter(s1tag, t, 2.5, 0.6, 12);
+  }
+
+  // 2. 33 gestures
+  if (t >= 5 && t < 12) {
+    enter(s2grid, t, 5.2, 0.6, 20);
+    let lit = 0;
+    CELLS.forEach((c, k) => {
+      const on = t >= 5.8 + k * 0.1;
+      c.classList.toggle('on', on);
+      if (on) lit++;
+    });
+    s2num.textContent = lit;
+    enter(s2cap, t, 9.4, 0.6, 10);
+  }
+
+  // 3. Pick any action
+  if (t >= 12 && t < 24) {
+    const l = t - 12;
+    enter(ed, t, 12.3, 0.6, 30);
+    // Cursor: to the action box, down the menu, back up to "Keyboard shortcut".
+    const open = Math.min(out(ramp(l, 1.7, 1.95)), 1 - ramp(l, 4.1, 4.3));
+    menu.style.display = open > 0 ? 'block' : 'none';
+    menu.style.opacity = open;
+    menu.style.transform = `scaleY(${0.85 + 0.15 * open})`;
+    const hover = l < 2.0 ? -1 : l < 3.6 ? Math.floor(ramp(l, 2.0, 3.6) * 10.99) : Math.round(10 * (1 - ease(ramp(l, 3.6, 4.0))));
+    menuItems.forEach((m, i) => m.classList.toggle('hi', i === hover));
+    const curX = l < 1.7 ? lerp(300, 760, ease(ramp(l, 0.9, 1.6))) : 640;
+    const curY = l < 1.7 ? lerp(240, 108, ease(ramp(l, 0.9, 1.6))) : 138 + Math.max(0, hover) * 32;
+    edCursor.style.left = curX + 'px';
+    edCursor.style.top = curY + 'px';
+    edCursor.style.opacity = Math.min(ramp(l, 0.8, 1.0), 1 - ramp(l, 6.0, 6.3));
+    if (l < 4.15) {
+      html(edGesture, `${dotsHTML(4)}4-finger swipe up`);
+      html(edAction, '<span>Volume</span>');
+      html(edDetail, '<span>Step: <b>+2%</b> each time, keeps going as you slide</span>');
+    } else if (l < 6.6) {
+      html(edGesture, `${dotsHTML(4)}4-finger swipe up`);
+      html(edAction, '<span>Keyboard shortcut</span>');
+      const keysShown = ['Ctrl', 'Shift', 'T'].filter((_, i) => l >= 4.6 + i * 0.3);
+      html(edDetail, `<span>Shortcut: ${keysShown.map((k) => `<span class="key">${k}</span>`).join(' + ')}</span>${l >= 5.6 ? '<span style="margin-left:auto">reopens your last closed tab</span>' : ''}`);
+    } else {
+      const i = Math.min(EXAMPLES.length - 1, Math.floor((l - 6.6) / 0.85));
+      const [n, g, a, d] = EXAMPLES[i];
+      html(edGesture, `${dotsHTML(n)}${g}`);
+      html(edAction, `<span>${a}</span>`);
+      html(edDetail, `<span>${d}</span>`);
+      const flash = 1 - ramp((l - 6.6) % 0.85, 0, 0.35);
+      ed.style.boxShadow = `0 30px 70px rgba(0,0,0,.45), 0 0 0 ${2 * flash}px rgba(124,108,255,${0.7 * flash})`;
+    }
+    if (l < 6.6) ed.style.boxShadow = '';
+    enter(s3foot, t, 18.8, 0.6, 12);
+  }
+
+  // 4. Endless combos
+  if (t >= 24 && t < 30) {
+    enter(T1, t, 24.3, 0.5);
+    enter(X1, t, 24.9, 0.4, 0);
+    enter(T2, t, 25.1, 0.5);
+    enter(X2, t, 25.7, 0.4, 0);
+    enter(T3, t, 25.9, 0.5);
+    enter(s4line, t, 27.0, 0.7, 18);
+    const pulse = 1 + 0.05 * Math.max(0, Math.sin(Math.PI * ramp(t, 26.2, 26.8)));
+    T3.firstChild.style.transform = `scale(${pulse})`;
+  }
+
+  // 5. Per-app gestures
+  if (t >= 30 && t < 37) {
+    enter(s5apps, t, 30.4, 0.6, 30);
+    const chromeFront = t < 33.6;
+    s5a.front.style.opacity = chromeFront ? 1 : 0;
+    s5b.front.style.opacity = chromeFront ? 0 : 1;
+    s5a.card.style.borderColor = chromeFront ? 'rgba(124,108,255,.6)' : '';
+    s5b.card.style.borderColor = chromeFront ? '' : 'rgba(124,108,255,.6)';
+    s5a.card.style.opacity = chromeFront ? 1 : 0.5;
+    s5b.card.style.opacity = chromeFront ? 0.5 : 1;
+    const swipe = (a) => ({ down: Math.min(ramp(t, a, a + 0.2), 1 - ramp(t, a + 1.0, a + 1.2)), x: 0.72 - 0.44 * ease(ramp(t, a + 0.2, a + 1.0)) });
+    const s = t < 33.4 ? swipe(31.2) : swipe(34.4);
+    setFingers(s5pad, 3, s.x, 0.5, s.down, 40);
+    const pop = (a) => Math.min(out(ramp(t, a, a + 0.3)), 1 - ramp(t, a + 1.5, a + 1.8));
+    const pa = pop(32.2), pb = pop(35.4);
+    s5a.pop.style.opacity = pa;
+    s5a.pop.style.transform = `translateY(${(1 - pa) * 10}px)`;
+    s5b.pop.style.opacity = pb;
+    s5b.pop.style.transform = `translateY(${(1 - pb) * 10}px)`;
+  }
+
+  // 6. Tune the feel
+  if (t >= 37 && t < 44) {
+    SLIDERS.forEach((s, k) => {
+      enter(s.card, t, 37.3 + k * 0.12, 0.5, 16);
+      const a = 38.4 + k * 0.35;
+      const v = lerp(s.from, s.to, ease(ramp(t, a, a + 1.1)));
+      const pct = ((v - s.min) / (s.max - s.min)) * 100;
+      s.fill.style.width = pct + '%';
+      s.knob.style.left = pct + '%';
+      s.value.textContent = s.fmt(v);
+    });
+    enter(s6tg, t, 40.6, 0.5, 12);
+    TOGGLES.forEach((sw, k) => {
+      const on = ease(ramp(t, 41.3 + k * 0.3, 41.55 + k * 0.3));
+      sw.style.background = `rgba(124,108,255,${on})`;
+      sw.style.boxShadow = on ? `inset 0 0 0 100px rgba(124,108,255,${on})` : '';
+      sw.firstChild.style.left = 3 + 18 * on + 'px';
+    });
+  }
+
+  // 7. Three-finger drag
+  if (t >= 44 && t < 51) {
+    enter(s7row, t, 44.3, 0.6, 30);
+    const u = ease(ramp(t, 45.2, 50.0));
+    const a = u * Math.PI * 2;
+    const x = 0.5 + 0.26 * Math.sin(a);
+    const y = 0.5 + 0.18 * Math.sin(2 * a);
+    const down = Math.min(ramp(t, 44.8, 45.1), 1 - ramp(t, 50.2, 50.5));
+    setFingers(s7pad, 3, x, y, down);
+    const wx = 180 + (x - 0.5) * 330;
+    const wy = 90 + (y - 0.5) * 160;
+    s7win.style.left = wx + 'px';
+    s7win.style.top = wy + 'px';
+    s7win.style.boxShadow = `0 18px 40px rgba(0,0,0,.45), 0 0 0 ${3 * down}px rgba(124,108,255,${0.9 * down})`;
+    s7cur.style.left = wx + 110 + 'px';
+    s7cur.style.top = wy + 8 + 'px';
+  }
+
+  // 8. Presets
+  if (t >= 51 && t < 55) {
+    const hi = Math.floor((t - 52.6) / 0.42);
+    PRESETS.forEach((p, k) => {
+      enter(p, t, 51.3 + k * 0.15, 0.5, 20);
+      const on = t >= 52.6 && hi === k;
+      p.style.borderColor = on ? 'rgba(124,108,255,.7)' : '';
+      p.style.background = on ? 'rgba(124,108,255,.14)' : '';
+    });
+  }
+
+  // 9. Outro
+  if (t >= 55) {
+    const p = out(ramp(t, 55.1, 55.8));
+    s9logo.style.opacity = p;
+    s9logo.style.transform = `scale(${0.7 + 0.3 * p})`;
+    enter(s9word, t, 55.4, 0.5);
+    enter(s9motto, t, 55.8, 0.5);
+    enter(s9pills, t, 56.3, 0.5, 14);
+    enter(s9url, t, 56.8, 0.5, 14);
+    enter(s9maker, t, 57.4, 0.7, 10);
+    [...s9dots.children].forEach((d, i) => {
+      const w = Math.max(0, Math.sin(Math.PI * ramp((t - 57.6) % 2.2, i * 0.08, i * 0.08 + 0.5)));
+      d.style.transform = `translateY(${-6 * w}px)`;
+      d.style.opacity = 0.45 + 0.55 * w;
+    });
+  }
+}
+
+// ---- player --------------------------------------------------------------
+const screen = document.getElementById('screen');
+const playBtn = document.getElementById('play');
+const timeEl = document.getElementById('time');
+const bar = document.getElementById('bar');
+const fill = document.getElementById('fill');
+const knob = document.getElementById('knob');
+const chapEl = document.getElementById('chapters');
+const ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg>';
+const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg>';
+const ICON_REPLAY = '<svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a6 6 0 11-6 6H4a8 8 0 108-8z"/></svg>';
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+let t = 0, playing = false, last = 0;
+for (const c of CHAPTERS) {
+  const tick = el('div', 'bar-tick', bar);
+  tick.style.left = (c.start / DURATION) * 100 + '%';
+  if (c.start === 0) tick.style.display = 'none';
+  const b = el('button', null, chapEl, `<span>${fmt(c.start)}</span>${c.title}`);
+  b.type = 'button';
+  b.onclick = () => { seek(c.start + 0.01); play(); };
+  c.btn = b;
+}
+
+function draw() {
+  render(t);
+  const pct = (t / DURATION) * 100;
+  fill.style.width = pct + '%';
+  knob.style.left = pct + '%';
+  bar.setAttribute('aria-valuenow', Math.round(t));
+  timeEl.textContent = `${fmt(t)} / ${fmt(DURATION)}`;
+  playBtn.innerHTML = playing ? ICON_PAUSE : t >= DURATION ? ICON_REPLAY : ICON_PLAY;
+  playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  for (const c of CHAPTERS) c.btn.classList.toggle('on', (t >= c.start && t < c.end) || (t >= DURATION && c.end === DURATION));
+}
+function seek(s) { t = clamp(s, 0, DURATION); draw(); }
+function frame(now) {
+  if (!playing) return;
+  t += Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (t >= DURATION) { t = DURATION; playing = false; }
+  draw();
+  if (playing) requestAnimationFrame(frame);
+}
+function play() {
+  if (t >= DURATION) t = 0;
+  playing = true;
+  last = performance.now();
+  requestAnimationFrame(frame);
+  draw();
+}
+function pause() { playing = false; draw(); }
+const toggle = () => (playing ? pause() : play());
+
+playBtn.onclick = toggle;
+screen.onclick = toggle;
+const fromPointer = (e) => { const r = bar.getBoundingClientRect(); seek(((e.clientX - r.left) / r.width) * DURATION); };
+bar.addEventListener('pointerdown', (e) => {
+  bar.setPointerCapture(e.pointerId);
+  fromPointer(e);
+  const move = (ev) => fromPointer(ev);
+  bar.addEventListener('pointermove', move);
+  bar.addEventListener('pointerup', () => bar.removeEventListener('pointermove', move), { once: true });
+});
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') { e.preventDefault(); toggle(); }
+  else if (e.code === 'ArrowRight') seek(t + 5);
+  else if (e.code === 'ArrowLeft') seek(t - 5);
+});
+
+function fit() { stage.style.transform = `scale(${screen.clientWidth / 1280})`; }
+const exporting = new URLSearchParams(location.search).has('export');
+if (exporting) {
+  document.body.classList.add('export');
+  // ?export&play: a thumbnail with a play button, for places that can't embed video.
+  if (new URLSearchParams(location.search).has('play')) {
+    el('div', null, stage, '<svg viewBox="0 0 24 24" width="26" height="26" fill="#fff"><path d="M8 5v14l11-7z"/></svg>Watch Pady in 60 seconds').style.cssText =
+      'position:absolute;z-index:9;left:0;right:0;margin:0 auto;bottom:70px;width:max-content;display:flex;align-items:center;gap:12px;padding:14px 28px;border-radius:999px;background:linear-gradient(135deg,#6366f1,#8b5cf6 55%,#b14ef0);color:#fff;font-size:24px;font-weight:700;box-shadow:0 16px 50px rgba(124,108,255,.45)';
+  }
+  window.seekTo = (s) => { t = s; render(t); };
+} else {
+  window.addEventListener('resize', fit);
+  fit();
+  const at = parseFloat(new URLSearchParams(location.search).get('t'));
+  if (at >= 0) seek(at); else draw();
+}
+</script>
+</body>
+</html>
