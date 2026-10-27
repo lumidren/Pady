@@ -2419,6 +2419,7 @@
             h('span', { class: 'link-text selectable' }, ico('github', 14), 'github.com/lumidren/Pady'),
             h('span', { class: 'link-text' }, ico(linux ? 'terminal' : 'desktop', 14), linux ? 'Linux' : 'Windows')))),
       updatesPanel(),
+      feedbackPanel(),
       h('section', { class: 'panel', style: { 'margin-bottom': '16px' } },
         h('div', { class: 'panel-head' }, h('div', null, h('div', { class: 'panel-title' }, 'How it works'), h('div', { class: 'panel-sub' }, 'From fingertips to actions in a few milliseconds'))),
         h('div', { class: 'flow' },
@@ -3007,6 +3008,28 @@
     try { await call('install_update', null, { errorTitle: 'Couldn’t install the update' }); } catch (_) { /* toast shown */ }
     updates.installing = false;
     if (store.page === 'about') renderAbout();
+  }
+
+  /**
+   * Feedback straight from the app: GitHub's issue forms, with the version and
+   * system already filled in (links open in the default browser).
+   */
+  function feedbackPanel() {
+    const s = store.app;
+    const form = (template, fields) => {
+      const q = new URLSearchParams({ template, ...fields });
+      return `https://github.com/lumidren/Pady/issues/new?${q}`;
+    };
+    const open = (url) => call('test_action', { action: { type: 'open_url', url } }, { quiet: true }).catch(() => {});
+    const button = (iconName, label, url, primary) =>
+      h('button', { class: 'btn btn--sm' + (primary ? ' btn--primary' : ''), type: 'button', onClick: () => open(url) }, ico(iconName, 14), label);
+    return h('section', { class: 'panel', style: { 'margin-bottom': '16px' } },
+      h('div', { class: 'panel-head' },
+        h('div', null, h('div', { class: 'panel-title' }, 'Feedback'), h('div', { class: 'panel-sub' }, 'Found a bug or want something new? It opens a short form on GitHub.')),
+        h('div', { class: 'about-links', style: { 'margin-top': '0' } },
+          button('warning', 'Report a bug', form('bug_report.yml', { title: 'Bug: ', version: s.version }), true),
+          button('sparkle', 'Suggest a feature', form('feature_request.yml', { title: 'Idea: ' })),
+          button('info', 'Share feedback', form('beta_feedback.yml', { version: s.version })))));
   }
 
   /** "Made by" at the end of About: three finger dots (links open in the browser). */
