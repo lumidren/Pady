@@ -30,8 +30,13 @@ jobs:
             bundles: deb,rpm,appimage
     runs-on: ${{ matrix.os }}
     env:
-      # Code signing turns on by itself once these repository secrets exist.
+      # Each of these turns on by itself once its repository secret exists.
       HAS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+      HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+      # Signs update files so installed copies of Pady trust them (see RELEASING.md).
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -72,19 +77,20 @@ jobs:
         run: |
           args=(build --bundles "${{ matrix.bundles }}")
           if [ -n "${TAURI_SIGNING_CONFIG:-}" ]; then args+=(--config "$TAURI_SIGNING_CONFIG"); fi
+          if [ "$HAS_UPDATER_KEY" = "true" ]; then args+=(--config '{"bundle":{"createUpdaterArtifacts":true}}'); fi
           npx --yes "$TAURI_CLI" "${args[@]}"
 
       - name: Build pady-cli
         run: cargo build --release --locked -p pady-cli
 
-      - name: Collect files and checksums
+      - name: Collect files
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
           version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
           mkdir dist
-          for f in target/release/bundle/{nsis,msi,deb,rpm,appimage}/*.{exe,msi,deb,rpm,AppImage}; do
+          for f in target/release/bundle/{nsis,msi,deb,rpm,appimage}/*.{exe,msi,deb,rpm,AppImage,sig}; do
             cp "$f" dist/
           done
           if [ "${{ runner.os }}" = "Windows" ]; then
@@ -92,8 +98,49 @@ jobs:
           else
             tar -czf "dist/pady-cli-${version}-linux-x64.tar.gz" -C target/release pady-cli
           fi
-          (cd dist && sha256sum * > "SHA256SUMS-${{ matrix.name }}.txt")
-          ls -l dist
+
+      # Code signing through SignPath (free for open source), once the project
+      # is approved: the setup and MSI go out unsigned, come back signed.
+      - name: Upload installers for signing
+        id: unsigned
+        if: runner.os == 'Windows' && env.HAS_SIGNPATH == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pady-windows-unsigned
+          path: |
+            dist/*.exe
+            dist/*.msi
+      - name: Sign with SignPath
+        if: runner.os == 'Windows' && env.HAS_SIGNPATH == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'Pady' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG || 'installers' }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+      - name: Use the signed installers
+        if: runner.os == 'Windows' && env.HAS_SIGNPATH == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp signed/* dist/
+          # Signing changed the files: sign them again for the updater.
+          if [ "$HAS_UPDATER_KEY" = "true" ]; then
+            for f in dist/*.exe dist/*.msi; do
+              rm -f "$f.sig"
+              npx --yes "$TAURI_CLI" signer sign "$f"
+            done
+          fi
+
+      - name: Checksums
+        shell: bash
+        run: |
+          cd dist && sha256sum $(ls | grep -v '\.sig$') > "SHA256SUMS-${{ matrix.name }}.txt"
+          ls -l
 
       - uses: actions/upload-artifact@v4
         with:
@@ -108,3 +155,49 @@ jobs:
           draft: true
           generate_release_notes: true
           files: dist/*
+
+  # latest.json tells installed copies of Pady about this release (the
+  # updater reads it from releases/latest). Needs the updater signatures.
+  update-manifest:
+    name: Update manifest
+    needs: bundle
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pady-*
+          path: dist
+          merge-multiple: true
+      - name: Write latest.json
+        id: manifest
+        run: |
+          node - <<'JS'
+          const fs = require("fs");
+          const tag = process.env.GITHUB_REF_NAME;
+          const base = `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${tag}`;
+          const files = fs.readdirSync("dist");
+          const platforms = {};
+          const add = (key, re) => {
+            const file = files.find((f) => re.test(f) && files.includes(f + ".sig"));
+            if (file) platforms[key] = { signature: fs.readFileSync(`dist/${file}.sig`, "utf8").trim(), url: `${base}/${file}` };
+          };
+          add("windows-x86_64-nsis", /x64-setup\.exe$/);
+          add("windows-x86_64-msi", /\.msi$/);
+          add("linux-x86_64-appimage", /\.AppImage$/);
+          if (platforms["windows-x86_64-nsis"]) platforms["windows-x86_64"] = platforms["windows-x86_64-nsis"];
+          if (!Object.keys(platforms).length) {
+            console.log("No updater signatures (TAURI_SIGNING_PRIVATE_KEY not set): skipping latest.json");
+            process.exit(0);
+          }
+          const manifest = { version: tag.replace(/^v/, ""), notes: `See https://github.com/${process.env.GITHUB_REPOSITORY}/releases/tag/${tag}`, pub_date: new Date().toISOString(), platforms };
+          fs.writeFileSync("latest.json", JSON.stringify(manifest, null, 2));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, "written=true\n");
+          console.log(JSON.stringify(manifest, null, 2));
+          JS
+      - name: Attach latest.json to the draft release
+        if: steps.manifest.outputs.written == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: latest.json
