@@ -27,6 +27,10 @@
 </p>
 
 <p align="center">
+  <a href="https://lumidren.github.io/Pady/#video"><img src="docs/video/thumbnail.png" alt="Watch Pady in 60 seconds" width="88%"></a>
+</p>
+
+<p align="center">
   <img src="docs/demo.svg" alt="Four fingers swipe up and the volume rises, a three-finger double tap skips the track, a three-finger drag moves a window" width="88%">
 </p>
 
