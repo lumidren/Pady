@@ -2412,7 +2412,6 @@
             h('span', { class: 'link-text selectable' }, ico('github', 14), 'github.com/lumidren/Pady'),
             h('span', { class: 'link-text' }, ico(linux ? 'terminal' : 'desktop', 14), linux ? 'Linux' : 'Windows')))),
       updatesPanel(),
-      makerPanel(),
       h('section', { class: 'panel', style: { 'margin-bottom': '16px' } },
         h('div', { class: 'panel-head' }, h('div', null, h('div', { class: 'panel-title' }, 'How it works'), h('div', { class: 'panel-sub' }, 'From fingertips to actions in a few milliseconds'))),
         h('div', { class: 'flow' },
@@ -2432,7 +2431,8 @@
           tip('One gesture, many jobs.', 'Add a profile on the Gestures page — e.g. make four-finger swipes switch tabs only while your browser is in front.'),
           tip('Drag claims swipes.', 'When 3-finger drag is on, 3-finger swipes are ignored — use 4 fingers for swipes.'),
           tip('Watch it think.', 'The Live page shows every contact and gesture, which makes tuning Settings much easier.'),
-          tip('Plain text config.', 'Everything is stored in config.toml; edits made by hand apply instantly.'))));
+          tip('Plain text config.', 'Everything is stored in config.toml; edits made by hand apply instantly.'))),
+      makerLine());
   }
 
   /* =====================================================================
@@ -3002,18 +3002,13 @@
     if (store.page === 'about') renderAbout();
   }
 
-  /** "Made by" card on the About page (links open in the default browser). */
-  function makerPanel() {
+  /** The quiet "Made by" line at the end of About (links open in the browser). */
+  function makerLine() {
     const open = (url) => call('test_action', { action: { type: 'open_url', url } }, { quiet: true }).catch(() => {});
-    const stat = (n, label) => h('div', { class: 'maker-stat' }, h('b', null, n), h('span', null, label));
-    return h('section', { class: 'panel maker-card' },
-      h('div', { class: 'maker-kicker' }, 'Made by'),
-      h('div', { class: 'maker-name' }, 'lumidren'),
-      h('p', { class: 'maker-line' }, 'Windows didn\u2019t have three-finger drag, so I wrote it. And the rest.', h('br'), 'Because the Mac trackpad shouldn\u2019t get to have all the fun.'),
-      h('div', { class: 'maker-stats' }, stat('1', 'developer'), stat('11k', 'lines of Rust'), stat('165', 'tests'), stat('0%', 'idle CPU')),
-      h('div', { class: 'maker-links' },
-        h('button', { class: 'btn btn--sm btn--primary', type: 'button', onClick: () => open('https://www.linkedin.com/in/lumidren') }, 'LinkedIn'),
-        h('button', { class: 'btn btn--sm', type: 'button', onClick: () => open('https://github.com/lumidren') }, ico('github', 14), 'GitHub')));
+    const link = (label, url) => h('button', { class: 'maker-link', type: 'button', onClick: () => open(url) }, label);
+    return h('footer', { class: 'maker-foot' },
+      h('div', null, 'Made by ', h('span', { class: 'maker-by' }, 'lumidren'), h('span', { class: 'maker-sep' }, '·'), link('LinkedIn', 'https://www.linkedin.com/in/lumidren'), h('span', { class: 'maker-sep' }, '·'), link('GitHub', 'https://github.com/lumidren')),
+      h('div', { class: 'maker-tag' }, 'Because the Mac trackpad shouldn\u2019t get to have all the fun.'));
   }
 
   function updatesPanel() {
