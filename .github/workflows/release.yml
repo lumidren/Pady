@@ -104,7 +104,7 @@ jobs:
       - name: Upload installers for signing
         id: unsigned
         if: runner.os == 'Windows' && env.HAS_SIGNPATH == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pady-windows-unsigned
           path: |
@@ -142,7 +142,7 @@ jobs:
           cd dist && sha256sum $(ls | grep -v '\.sig$') > "SHA256SUMS-${{ matrix.name }}.txt"
           ls -l
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pady-${{ matrix.name }}
           path: dist/*
