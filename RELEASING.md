@@ -22,9 +22,32 @@ To try a build without releasing, run **Actions › Release › Run workflow**. 
 | `Pady_<version>_amd64.AppImage` | Any x86-64 Linux | Portable. On first launch, **Fix permissions** installs the udev rule. |
 | `pady-cli-<version>-*.zip / .tar.gz` | Both | The optional command-line tool. |
 
-## Code signing (Windows)
+## Auto-update
 
-Unsigned installers work, but SmartScreen shows "Windows protected your PC" until a download builds reputation. To sign, add two repository secrets:
+Installed copies of Pady check `releases/latest/download/latest.json` twice a day and offer one-click updates. Update files are signed with Pady's updater key; the app only installs files signed with it (the public key is in `crates/pady-app/tauri.conf.json`).
+
+One-time setup, in **Settings › Secrets and variables › Actions › New repository secret**:
+
+- `TAURI_SIGNING_PRIVATE_KEY`: the contents of the private key file (`~/.tauri/pady-updater.key`).
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: its password (the current key has none, so leave the value empty or skip this secret).
+
+With the key in place, every tagged release also gets `.sig` files and a `latest.json`; publishing the release is what makes it reach everyone. **Keep a backup of the private key**: without it, installed copies can never be updated again (a new key needs a new public key in the app, so people would have to reinstall once).
+
+Windows installs (setup and MSI) and the AppImage update themselves. The .deb and .rpm are told about new versions and update through the package manager or a new download.
+
+## Code signing with SignPath (free for open source)
+
+[SignPath Foundation](https://signpath.org) signs open-source projects for free, which removes the "Windows protected your PC" warning.
+
+1. Apply at [signpath.org/apply](https://signpath.org/apply) with the repository link (Pady is MIT licensed, which they require). Approval takes a little while.
+2. Once approved, in SignPath create the project `Pady`, a signing policy `release-signing` and an artifact configuration `installers` that signs the `.exe` and `.msi` files, and link the GitHub repository as a trusted build system.
+3. In the repository, add the secret `SIGNPATH_API_TOKEN` and the variable `SIGNPATH_ORGANIZATION_ID` (**Settings › Secrets and variables › Actions**). Use the variables `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_SIGNING_POLICY_SLUG` and `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG` only if you named things differently.
+
+The Release workflow then sends the setup and MSI to SignPath, waits for the signed files, re-signs them for the updater and publishes those. Nothing else changes.
+
+## Code signing with your own certificate (Windows)
+
+If you buy a certificate instead, add two repository secrets:
 
 - `WINDOWS_CERTIFICATE`: your code-signing certificate (`.pfx`), base64-encoded, for example `[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))`.
 - `WINDOWS_CERTIFICATE_PASSWORD`: its password.

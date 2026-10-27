@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 (2026-10-27)
+
+### Added
+- **Auto-update.** Pady checks GitHub for a new version twice a day and offers it in the tray menu and as a notice in the window; one click downloads it, verifies its signature, installs it and restarts. Windows installs and the AppImage update themselves; .deb/.rpm installs are told to update through the package manager. Turn checking off in Settings.
+- **MIT license.**
+- The release workflow signs installers through SignPath (free for open source) once the project is set up there, and publishes the files the updater needs.
+
 ## 0.3.2 (2026-10-27)
 
 ### Changed

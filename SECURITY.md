@@ -11,7 +11,7 @@ Pady needs some system access to do its job. It keeps that access as narrow as p
 - **Touchpad input only.** On Windows, Pady registers for the touchpad's Raw Input collection only; it never reads the keyboard. On Linux, the udev rule (`packaging/linux/70-pady.rules`) grants the signed-in user read access to devices tagged as touchpads, not keyboards or mice.
 - **Simulated input.** To run keyboard shortcuts and three-finger drag, Pady sends input: through `SendInput` on Windows, and through `/dev/uinput` on Linux, which the same udev rule opens to the signed-in user.
 - **Administrator rights on Linux, only when asked.** *Fix permissions* runs a fixed script through `pkexec`. It writes Pady's udev rule and a `modules-load.d` file, reloads udev, and installs missing helper packages with the system package manager. The script lives in `crates/pady-actions/src/linux.rs` (`fix_permissions_script`).
-- **No network.** Pady doesn't talk to the internet. It has no telemetry, no update checks and no accounts. The only exceptions are actions you configure yourself, such as opening a link.
+- **Almost no network.** Pady has no telemetry and no accounts. Its only connection is the update check: twice a day it fetches `latest.json` from Pady's GitHub releases (turn it off with **Check for updates** in Settings). Updates are installed only if they're signed with Pady's updater key. Actions you configure yourself, such as opening a link, are the other exception.
 - **Local files only.** Settings live in `%APPDATA%\Pady` or `~/.config/pady`, and logs in the app's local data folder. Logs contain gesture and device information, never what you type.
 
 ## How Pady is hardened
