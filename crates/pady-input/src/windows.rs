@@ -59,6 +59,7 @@ thread_local! {
 }
 
 fn run(frames: Sender<TouchFrame>, devices: Arc<Mutex<Vec<DeviceInfo>>>, ready: Sender<Result<(), InputError>>) {
+    crate::sched::raise_thread_priority();
     let mut parsers = HashMap::new();
     for handle in enumerate_touchpads() {
         if let Some(pad) = Touchpad::open(handle) {

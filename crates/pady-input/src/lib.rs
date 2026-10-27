@@ -10,6 +10,7 @@
 
 pub mod hid;
 pub mod mt;
+pub mod sched;
 
 #[cfg(target_os = "linux")]
 mod linux;
