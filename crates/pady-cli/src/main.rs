@@ -240,7 +240,7 @@ fn watch(run_actions: bool) -> CliResult {
 
     let shared = Arc::new(SharedConfig::new(cfg));
     let engine = if run_actions {
-        Engine::spawn(shared, rx, pady_actions::executor, observer)
+        Engine::spawn_with(shared, rx, pady_actions::executor, observer, pady_input::sched::scheduling())
     } else {
         Engine::spawn(shared, rx, || Box::new(LogExecutor) as Box<dyn Executor>, observer)
     };

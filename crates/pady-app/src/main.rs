@@ -648,11 +648,12 @@ fn main() {
             if let Err(e) = &input {
                 log::warn!("touchpad unavailable: {e}");
             }
-            let engine = Engine::spawn(
+            let engine = Engine::spawn_with(
                 config.clone(),
                 frames_rx,
                 pady_actions::executor,
                 observer(app.handle().clone(), live.clone(), config.clone(), native_overlay),
+                pady_input::sched::scheduling(),
             );
 
             app.manage(Pady {
