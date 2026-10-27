@@ -3002,13 +3002,18 @@
     if (store.page === 'about') renderAbout();
   }
 
-  /** The quiet "Made by" line at the end of About (links open in the browser). */
+  /** The compact "Made by" card at the end of About (links open in the browser). */
   function makerLine() {
     const open = (url) => call('test_action', { action: { type: 'open_url', url } }, { quiet: true }).catch(() => {});
-    const link = (label, url) => h('button', { class: 'maker-link', type: 'button', onClick: () => open(url) }, label);
-    return h('footer', { class: 'maker-foot' },
-      h('div', null, 'Made by ', h('span', { class: 'maker-by' }, 'lumidren'), h('span', { class: 'maker-sep' }, '·'), link('LinkedIn', 'https://www.linkedin.com/in/lumidren'), h('span', { class: 'maker-sep' }, '·'), link('GitHub', 'https://github.com/lumidren')),
-      h('div', { class: 'maker-tag' }, 'Because the Mac trackpad shouldn\u2019t get to have all the fun.'));
+    const stat = (n, label) => h('div', { class: 'maker-stat' }, h('b', null, n), h('span', null, label));
+    return h('section', { class: 'panel maker-card' },
+      h('div', { class: 'maker-kicker' }, 'Made by'),
+      h('div', { class: 'maker-name' }, 'lumidren'),
+      h('p', { class: 'maker-line' }, 'Because the Mac trackpad shouldn\u2019t get to have all the fun.'),
+      h('div', { class: 'maker-stats' }, stat('1', 'developer'), stat('11k', 'lines of Rust'), stat('165', 'tests'), stat('0%', 'idle CPU')),
+      h('div', { class: 'maker-links' },
+        h('button', { class: 'btn btn--sm btn--primary', type: 'button', onClick: () => open('https://www.linkedin.com/in/lumidren') }, 'LinkedIn'),
+        h('button', { class: 'btn btn--sm', type: 'button', onClick: () => open('https://github.com/lumidren') }, ico('github', 14), 'GitHub')));
   }
 
   function updatesPanel() {
