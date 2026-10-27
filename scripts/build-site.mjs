@@ -6,7 +6,8 @@
 //
 // GitHub Pages publishes _site/ (.github/workflows/pages.yml).
 
-import { cpSync, createReadStream, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,16 @@ mkdirSync(OUT);
 cpSync(join(ROOT, "site"), OUT, { recursive: true });
 cpSync(join(ROOT, "crates", "pady-app", "ui"), join(OUT, "demo"), { recursive: true });
 cpSync(join(ROOT, "docs"), join(OUT, "docs"), { recursive: true });
+
+// Cache busting: Pages lets browsers keep files for 10 minutes, so a new page
+// could meet an old stylesheet. Link each file with a hash of its contents.
+const page = join(OUT, "index.html");
+let html = readFileSync(page, "utf8");
+for (const file of ["style.css", "site.js"]) {
+  const hash = createHash("sha256").update(readFileSync(join(OUT, file))).digest("hex").slice(0, 10);
+  html = html.replaceAll(`"${file}"`, `"${file}?v=${hash}"`);
+}
+writeFileSync(page, html);
 console.log("built " + OUT);
 
 if (process.argv.includes("--serve")) {
