@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2 (2026-10-27)
+
+### Fixed
+- **A crash during a three-finger drag no longer leaves the mouse button held down** on Windows. Pady lets go of the button before it exits. (On Linux the system already did.)
+- The website no longer says Pady works entirely offline: it checks GitHub for updates twice a day, which you can turn off.
+
 ## 0.4.1 (2026-10-27)
 
 ### Changed
