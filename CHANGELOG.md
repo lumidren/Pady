@@ -1,9 +1,9 @@
 # Changelog
 
-## 0.4.3 (2026-10-27)
+## 0.4.4 (2026-10-27)
 
-### Added
-- A "Made by" card on the About page, with links to the creator's LinkedIn and GitHub.
+### Changed
+- The About page ends with a small "Made by" line, with links to the creator's LinkedIn and GitHub.
 
 ## 0.4.2 (2026-10-27)
 
