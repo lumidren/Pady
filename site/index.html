@@ -21,6 +21,7 @@
       <a href="#how">How it works</a>
       <a href="#gestures">Gestures</a>
       <a href="#faq">FAQ</a>
+      <a href="#maker">Creator</a>
       <a href="https://github.com/lumidren/Pady">GitHub</a>
     </nav>
   </header>
@@ -183,31 +184,32 @@
       <details><summary>Is it safe?</summary><p>Pady reads only the touchpad, never the keyboard, and sends nothing about you anywhere. Its only connection is a twice-daily check on GitHub for a new version (you can turn it off), and updates install only if they're signed by Pady. The code is checked with fuzz tests and dependency audits. The details are in the <a href="https://github.com/lumidren/Pady/blob/main/SECURITY.md">security notes</a>.</p></details>
     </section>
 
-    <section id="soon" class="section">
-      <h2>Coming soon</h2>
-      <p class="sub">Already in the works for the next updates.</p>
-      <div class="grid">
-        <div class="card soon-main"><span class="badge">Next up</span><h3>Draw to launch</h3><p>Draw a letter on the touchpad to fire an action: a C for Chrome, an M for music. Teach it your own handwriting.</p></div>
-        <div class="card"><span class="badge">Soon</span><h3>Edge swipes &amp; rotation</h3><p>Swipes that start from the touchpad's edge, diagonal swipes and two-finger rotate.</p></div>
-        <div class="card"><span class="badge">Soon</span><h3>Share your setup</h3><p>Export your gestures and profiles, import someone else's, and update with one click.</p></div>
-      </div>
-    </section>
-
     <section class="section final">
       <h2>Your touchpad can do more than scroll.</h2>
       <a class="btn btn-primary" id="dl-final" href="https://github.com/lumidren/Pady/releases/latest"><span>Download Pady</span></a>
     </section>
-    <section class="section">
+    <section id="maker" class="section">
       <div class="maker">
-        <img src="demo/logo.svg" alt="" width="56" height="56">
-        <div>
-          <p class="maker-kicker">Made by</p>
-          <h3>lumidren</h3>
-          <p>Built Pady because the Mac trackpad shouldn't get to have all the fun. Designed, coded and shipped solo.</p>
+        <div class="maker-glow" aria-hidden="true"></div>
+        <p class="maker-kicker">The person behind Pady</p>
+        <h2 class="maker-name"><span class="grad">lumidren</span></h2>
+        <p class="maker-lead">One developer. Every line. Pady was designed, engineered and shipped single-handedly, from the gesture engine that reads raw finger data to the installers, the website you're on and the security testing behind it.</p>
+        <p class="maker-quote">“I was jealous of the Mac trackpad. So I built something better for everyone else.”</p>
+        <div class="maker-stats">
+          <div><b>11,000+</b><span>lines of Rust</span></div>
+          <div><b>165</b><span>tests, incl. fuzzing</span></div>
+          <div><b>5</b><span>installer formats</span></div>
+          <div><b>2</b><span>operating systems</span></div>
         </div>
+        <ul class="maker-built">
+          <li>A gesture engine that turns finger positions into actions in under a tenth of a millisecond</li>
+          <li>A native Windows overlay and a Linux multitouch decoder, written from scratch</li>
+          <li>Signed auto-updates, hardened input parsing and an independent security review</li>
+          <li>The app, the guided setup, this website and its live demo</li>
+        </ul>
         <div class="maker-links">
-          <a class="btn btn-primary" href="https://www.linkedin.com/in/lumidren">LinkedIn</a>
-          <a class="btn btn-ghost" href="https://github.com/lumidren">GitHub</a>
+          <a class="btn btn-primary" href="https://www.linkedin.com/in/lumidren">Connect on LinkedIn</a>
+          <a class="btn btn-ghost" href="https://github.com/lumidren">Follow on GitHub</a>
         </div>
       </div>
     </section>
