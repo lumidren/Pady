@@ -1,0 +1,79 @@
+name: Beta feedback
+description: Tried Pady? Tell us how it went on your laptop. Takes 3 minutes.
+title: "Beta feedback: <laptop model>"
+labels: [beta-feedback]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Pady! Every answer helps it work on more laptops. Short answers are fine.
+  - type: input
+    id: laptop
+    attributes:
+      label: Laptop model
+      description: The brand and model, e.g. "Dell XPS 13 9340" or "Lenovo ThinkPad T14 Gen 4".
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: System
+      options:
+        - Windows 11
+        - Windows 10
+        - Linux (Ubuntu, Debian, Mint…)
+        - Linux (Fedora, openSUSE…)
+        - Linux (other, AppImage)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Pady version
+      description: Shown on the About page.
+      placeholder: "0.4.0"
+  - type: dropdown
+    id: setup
+    attributes:
+      label: Did installing and the first-run setup work?
+      options:
+        - Yes, smoothly
+        - Yes, but something was confusing
+        - No, I got stuck
+    validations:
+      required: true
+  - type: checkboxes
+    id: worked
+    attributes:
+      label: Which gestures worked well?
+      options:
+        - label: Three-finger drag
+        - label: Taps (single, double, triple)
+        - label: Swipes (volume, brightness, desktops…)
+        - label: Pinch
+        - label: Hold
+        - label: Per-app profiles
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What felt wrong or didn't work?
+      description: Gestures that didn't trigger, triggered by accident, felt slow or too sensitive. Any error messages.
+  - type: dropdown
+    id: keep
+    attributes:
+      label: Would you keep using Pady?
+      options:
+        - Yes, every day
+        - Maybe
+        - No
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: One thing you'd change or add
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Optional, for problems — output of `pady-cli doctor`
+      render: text
