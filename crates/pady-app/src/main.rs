@@ -157,10 +157,40 @@ fn apply_preset(app: AppHandle, pady: State<Pady>, id: String) -> Result<AppStat
 }
 
 #[tauri::command]
-fn set_autostart(pady: State<Pady>, enabled: bool) -> Result<AppState, String> {
+fn set_autostart(app: AppHandle, pady: State<Pady>, enabled: bool) -> Result<AppState, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     pady_actions::set_autostart(enabled, &exe).map_err(|e| e.to_string())?;
-    Ok(pady.snapshot())
+    let mut config = pady.config.get();
+    config.settings.autostart_configured = true;
+    pady.apply(&app, config)
+}
+
+/// Pady is meant to run all the time: on the first launch it registers itself
+/// to start with the system (in the tray, `--hidden`). Turning that off in
+/// Settings is remembered, and later launches leave it alone.
+fn enable_autostart_once(app: &AppHandle) {
+    let pady = app.state::<Pady>();
+    let mut config = pady.config.get();
+    if config.settings.autostart_configured {
+        return;
+    }
+    let result = std::env::current_exe().map_err(|e| e.to_string()).and_then(|exe| {
+        if pady_actions::autostart_enabled() {
+            Ok(())
+        } else {
+            pady_actions::set_autostart(true, &exe).map_err(|e| e.to_string())
+        }
+    });
+    match result {
+        Ok(()) => {
+            log::info!("Pady now starts with the system");
+            config.settings.autostart_configured = true;
+            if let Err(e) = pady.apply(app, config) {
+                log::warn!("could not save config: {e}");
+            }
+        }
+        Err(e) => log::warn!("could not set up start-up: {e}"),
+    }
 }
 
 #[tauri::command]
@@ -629,6 +659,7 @@ fn main() {
             app.state::<Pady>().sync_tray();
             spawn_watcher(app.handle().clone());
             update::spawn_checks(app.handle().clone());
+            enable_autostart_once(app.handle());
 
             if !start_hidden {
                 show_main(app.handle());

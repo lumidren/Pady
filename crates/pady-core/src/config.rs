@@ -43,6 +43,9 @@ pub struct Settings {
     pub onboarded: bool,
     /// Look for a new version on GitHub twice a day.
     pub check_updates: bool,
+    /// Start-with-the-system has been set up once (on by default at first
+    /// launch); after that only the user's own choice counts.
+    pub autostart_configured: bool,
 }
 
 impl Default for Settings {
@@ -64,6 +67,7 @@ impl Default for Settings {
             pause_in_fullscreen: true,
             onboarded: false,
             check_updates: true,
+            autostart_configured: false,
         }
     }
 }
