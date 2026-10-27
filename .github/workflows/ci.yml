@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Weekly, so a newly published advisory is caught between releases.
+  schedule:
+    - cron: "0 6 * * 1"
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,3 +36,14 @@ jobs:
       - name: Check UI scripts parse
         run: for f in crates/pady-app/ui/*.js; do node --check "$f"; done
         shell: bash
+
+  audit:
+    name: Dependency vulnerabilities
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-audit --locked
+      # Fails on any known vulnerability in Cargo.lock; unmaintained crates only warn.
+      - run: cargo audit
