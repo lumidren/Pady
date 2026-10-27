@@ -2412,6 +2412,7 @@
             h('span', { class: 'link-text selectable' }, ico('github', 14), 'github.com/lumidren/Pady'),
             h('span', { class: 'link-text' }, ico(linux ? 'terminal' : 'desktop', 14), linux ? 'Linux' : 'Windows')))),
       updatesPanel(),
+      makerPanel(),
       h('section', { class: 'panel', style: { 'margin-bottom': '16px' } },
         h('div', { class: 'panel-head' }, h('div', null, h('div', { class: 'panel-title' }, 'How it works'), h('div', { class: 'panel-sub' }, 'From fingertips to actions in a few milliseconds'))),
         h('div', { class: 'flow' },
@@ -2999,6 +3000,20 @@
     try { await call('install_update', null, { errorTitle: 'Couldn’t install the update' }); } catch (_) { /* toast shown */ }
     updates.installing = false;
     if (store.page === 'about') renderAbout();
+  }
+
+  /** "Made by" card on the About page (links open in the default browser). */
+  function makerPanel() {
+    const open = (url) => call('test_action', { action: { type: 'open_url', url } }, { quiet: true }).catch(() => {});
+    const stat = (n, label) => h('div', { class: 'maker-stat' }, h('b', null, n), h('span', null, label));
+    return h('section', { class: 'panel maker-card' },
+      h('div', { class: 'maker-kicker' }, 'Made by'),
+      h('div', { class: 'maker-name' }, 'lumidren'),
+      h('p', { class: 'maker-line' }, 'Windows didn\u2019t have three-finger drag, so I wrote it. And the rest.', h('br'), 'Because the Mac trackpad shouldn\u2019t get to have all the fun.'),
+      h('div', { class: 'maker-stats' }, stat('1', 'developer'), stat('11k', 'lines of Rust'), stat('165', 'tests'), stat('0%', 'idle CPU')),
+      h('div', { class: 'maker-links' },
+        h('button', { class: 'btn btn--sm btn--primary', type: 'button', onClick: () => open('https://www.linkedin.com/in/lumidren') }, 'LinkedIn'),
+        h('button', { class: 'btn btn--sm', type: 'button', onClick: () => open('https://github.com/lumidren') }, ico('github', 14), 'GitHub')));
   }
 
   function updatesPanel() {
