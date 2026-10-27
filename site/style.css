@@ -166,6 +166,12 @@ footer a { color: var(--text-2); }
 .dl-card .req { color: var(--text-3); font-size: 14px; margin: 0 0 20px; }
 .dl-card .btn { width: 100%; }
 .dl-card .alt { color: var(--text-2); font-size: 14px; margin: 16px 0 8px; }
+.caution {
+  margin-top: 18px; padding: 14px 16px; border-radius: 12px; font-size: 14px; color: var(--text-2);
+  background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.caution b:first-child { display: block; color: #fbbf24; margin-bottom: 4px; }
+.caution b { color: var(--text); }
 .dl-card.is-yours { border-color: rgba(124, 108, 255, 0.5); box-shadow: 0 0 50px rgba(124, 108, 255, 0.12); }
 .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
 .tabs button {
