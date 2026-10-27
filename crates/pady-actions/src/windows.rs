@@ -94,12 +94,12 @@ impl Executor for WindowsExecutor {
                 Some(b) => shell_open(&browser_exe(b), Some(&quote_arg(url))),
                 None => shell_open(url, None),
             },
-            Action::Launch { program, args } => shell_open(program, join_args(args).as_deref()),
+            Action::Launch { program, args } => shell_open(&resolve_program(program), join_args(args).as_deref()),
             Action::FocusOrLaunch { program, args } => {
                 if focus_or_minimize(program) {
                     Ok(())
                 } else {
-                    shell_open(program, join_args(args).as_deref())
+                    shell_open(&resolve_program(program), join_args(args).as_deref())
                 }
             }
             Action::Run { command } => {
@@ -549,11 +549,51 @@ fn focus_or_minimize(program: &str) -> bool {
 }
 
 /// `C:\Apps\Code.exe` / `code` / `Code.EXE` → `code.exe`
+/// A program given by name only ("Antigravity" or "Antigravity.lnk"), the way
+/// you'd find it by typing in Start: look for a Start menu shortcut with that
+/// name. Paths, URIs and names with another extension (`chrome.exe`, found
+/// through App Paths) are used as they are.
+fn resolve_program(program: &str) -> String {
+    let p = program.trim().trim_matches('"');
+    let lower = p.to_ascii_lowercase();
+    let has_other_extension = Path::new(&lower).extension().is_some_and(|e| e != "lnk");
+    if p.is_empty() || p.contains(['\\', '/', ':']) || has_other_extension {
+        return p.to_string();
+    }
+    let wanted = lower.strip_suffix(".lnk").unwrap_or(&lower).to_string();
+    let menus = [std::env::var_os("APPDATA"), std::env::var_os("ProgramData")];
+    menus
+        .into_iter()
+        .flatten()
+        .map(|base| Path::new(&base).join(r"Microsoft\Windows\Start Menu\Programs"))
+        .find_map(|dir| find_shortcut(&dir, &wanted, 3))
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| p.to_string())
+}
+
+/// A `.lnk` named `wanted` (case-insensitive) in `dir` or up to `depth`
+/// folders below it.
+fn find_shortcut(dir: &Path, wanted: &str, depth: u32) -> Option<std::path::PathBuf> {
+    let entries: Vec<_> = std::fs::read_dir(dir).ok()?.flatten().collect();
+    let is_match = |path: &Path| {
+        path.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk"))
+            && path.file_stem().is_some_and(|s| s.to_string_lossy().to_ascii_lowercase() == wanted)
+    };
+    if let Some(found) = entries.iter().map(|e| e.path()).find(|p| is_match(p)) {
+        return Some(found);
+    }
+    if depth == 0 {
+        return None;
+    }
+    entries.iter().map(|e| e.path()).filter(|p| p.is_dir()).find_map(|sub| find_shortcut(&sub, wanted, depth - 1))
+}
+
 fn exe_name(program: &str) -> String {
-    let base = Path::new(program.trim().trim_matches('"'))
-        .file_name()
-        .map(|s| s.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
+    let path = Path::new(program.trim().trim_matches('"'));
+    // A shortcut usually carries its program's name: Antigravity.lnk → antigravity.exe.
+    let is_shortcut = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk"));
+    let name = if is_shortcut { path.file_stem() } else { path.file_name() };
+    let base = name.map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     if base.ends_with(".exe") {
         base
     } else {
@@ -723,6 +763,25 @@ mod tests {
         assert_eq!(exe_name("chrome"), "chrome.exe");
         assert_eq!(exe_name(r"C:\Program Files\Microsoft VS Code\Code.exe"), "code.exe");
         assert_eq!(exe_name("\"Spotify.EXE\""), "spotify.exe");
+        assert_eq!(exe_name(r"C:\Start Menu\Programs\Antigravity.lnk"), "antigravity.exe");
+        assert_eq!(exe_name("Antigravity.lnk"), "antigravity.exe");
+    }
+
+    #[test]
+    fn programs_are_found_by_shortcut_name() {
+        let dir = std::env::temp_dir().join(format!("pady-menu-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("Some Folder")).unwrap();
+        std::fs::write(dir.join("Some Folder").join("Antigravity IDE.lnk"), b"").unwrap();
+        assert_eq!(
+            find_shortcut(&dir, "antigravity ide", 3),
+            Some(dir.join("Some Folder").join("Antigravity IDE.lnk"))
+        );
+        assert_eq!(find_shortcut(&dir, "nothing", 3), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+        // Paths, URIs and other extensions are left alone.
+        assert_eq!(resolve_program(r"C:\Apps\x.exe"), r"C:\Apps\x.exe");
+        assert_eq!(resolve_program("ms-settings:display"), "ms-settings:display");
+        assert_eq!(resolve_program("chrome.exe"), "chrome.exe");
     }
 
     #[test]
