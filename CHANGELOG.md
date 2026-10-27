@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 (2026-10-27)
+
+### Fixed
+- **The first gesture after a long break is as quick as any other** on Windows. Pady no longer lets Windows put it in efficiency mode or page its memory out while it waits, and runs slightly above normal priority. It keeps about 48 MB resident; idle CPU is still zero.
+
+### Added
+- **Feedback from the app.** About has *Report a bug*, *Suggest a feature* and *Share feedback* buttons that open a short GitHub form with your Pady version filled in.
+- The website and README now warn up front to set Windows' own three- and four-finger gestures to *Nothing*.
+
 ## 0.5.0 (2026-10-27)
 
 ### Added
