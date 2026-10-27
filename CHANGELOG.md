@@ -1,9 +1,9 @@
 # Changelog
 
-## 0.4.5 (2026-10-27)
+## 0.4.6 (2026-10-27)
 
 ### Changed
-- The About page ends with a compact "Made by" card, with links to the creator's LinkedIn and GitHub.
+- The About page ends with a small "made by" signature, with links to the creator's LinkedIn and GitHub.
 
 ## 0.4.2 (2026-10-27)
 
