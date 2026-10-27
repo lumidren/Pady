@@ -4,6 +4,7 @@ description = "Native volume/brightness overlay for Pady: a layered GDI+ window 
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 

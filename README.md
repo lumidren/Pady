@@ -7,6 +7,7 @@
   <a href="https://github.com/lumidren/Pady/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/lumidren/Pady/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Windows and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-6366f1">
   <img alt="Rust 1.82+" src="https://img.shields.io/badge/rust-1.82%2B-a855f7">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-22c55e"></a>
 </p>
 
 <p align="center">
@@ -258,3 +259,7 @@ Ideas welcome! Open an [issue](https://github.com/lumidren/Pady/issues/new/choos
 **lumidren**, designed, coded and shipped solo, because the Mac trackpad shouldn't get to have all the fun.
 
 [LinkedIn](https://www.linkedin.com/in/lumidren) · [GitHub](https://github.com/lumidren) · [Website](https://lumidren.github.io/Pady/)
+
+## License
+
+Pady is open source under the [MIT license](LICENSE).
