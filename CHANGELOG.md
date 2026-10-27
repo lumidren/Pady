@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 (2026-10-27)
+
+### Changed
+- **Pady starts with your computer by default.** The first launch registers it to start quietly in the tray when you sign in, so gestures are always on. Turning it off in Settings is remembered.
+
 ## 0.4.0 (2026-10-27)
 
 ### Added

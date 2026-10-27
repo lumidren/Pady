@@ -71,7 +71,7 @@ Download from the [latest release](https://github.com/lumidren/Pady/releases/lat
 3. **Pick a starter preset**: Recommended, Like a Mac, Media, Productivity or Minimal.
 4. **Practise.** The tutorial ticks off each gesture as you do it.
 
-Then change anything: click a card on the **Gestures** page and choose what it does. Pady lives in the tray. Turn on **Start with Windows/Linux** in Settings to have it start when you sign in.
+Then change anything: click a card on the **Gestures** page and choose what it does. Pady lives in the tray and starts with Windows (or Linux) by itself, so your gestures are always there. You can turn that off in Settings.
 
 ## Gestures
 
