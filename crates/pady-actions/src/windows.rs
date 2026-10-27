@@ -13,6 +13,7 @@ use std::ffi::c_void;
 use std::mem::size_of;
 use std::os::windows::process::CommandExt;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use windows::core::{w, BSTR, HSTRING, PCWSTR, VARIANT};
 use windows::Win32::Devices::Display::{
@@ -43,6 +44,18 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_MINIMIZE, SW_RESTORE,
     SW_SHOWNORMAL, WS_EX_TOOLWINDOW,
 };
+
+/// Whether a drag holds the left button right now, so a crash can let go
+/// (see `release_held_button`).
+static BUTTON_HELD: AtomicBool = AtomicBool::new(false);
+
+/// Release the left button if a drag holds it. Safe to call from a panic
+/// hook: Windows doesn't let go of a button injected by a process that dies.
+pub fn release_held_button() {
+    if BUTTON_HELD.swap(false, Ordering::SeqCst) {
+        let _ = send(&[mouse_input(0, 0, MOUSEEVENTF_LEFTUP)]);
+    }
+}
 
 pub struct WindowsExecutor {
     com_ready: bool,
@@ -110,7 +123,9 @@ impl Executor for WindowsExecutor {
 
     fn mouse_button(&mut self, down: bool) -> Result<(), ActionError> {
         let flags = if down { MOUSEEVENTF_LEFTDOWN } else { MOUSEEVENTF_LEFTUP };
-        send(&[mouse_input(0, 0, flags)])
+        send(&[mouse_input(0, 0, flags)])?;
+        BUTTON_HELD.store(down, Ordering::SeqCst);
+        Ok(())
     }
 
     fn mouse_move(&mut self, dx: i32, dy: i32) -> Result<(), ActionError> {

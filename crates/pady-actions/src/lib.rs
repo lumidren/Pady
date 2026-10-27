@@ -22,6 +22,13 @@ pub fn executor() -> Box<dyn Executor> {
     return Box::new(pady_core::engine::LogExecutor);
 }
 
+/// Let go of the mouse button if a drag holds it; for crash handlers. On
+/// Linux the kernel releases it by itself when Pady's virtual device closes.
+pub fn release_held_button() {
+    #[cfg(windows)]
+    windows::release_held_button();
+}
+
 /// Executable name of the app in front (e.g. `chrome.exe` or `firefox`), as
 /// matched by per-app profiles. `None` where the OS won't say (e.g. native
 /// Wayland without a helper).
