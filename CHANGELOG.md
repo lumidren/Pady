@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Performance
+- **Gestures stay instant on a busy computer.** On Windows, the touchpad, engine and action threads run at the highest normal priority, so a game, a compile or a video call can't make a gesture wait.
+- **Holds, double taps and drag release fire on time.** Windows timers normally tick every ~15.6 ms; Pady asks for 1 ms timers only while one of these is pending and gives them back straight after, so idle battery use is unchanged.
+
 ### Security
 - **The updater no longer includes the `zip` library**, which had three known vulnerabilities (RUSTSEC-2026-0367, -0368, -0369). Pady's updates are a plain setup `.exe` or AppImage, so the zip support was never used.
 - CI checks every dependency against the RustSec advisory database on each push and once a week.
