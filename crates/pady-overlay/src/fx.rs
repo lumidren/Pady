@@ -409,7 +409,17 @@ impl Fx {
         let now = Instant::now();
         let dt = now.duration_since(self.last).as_secs_f32().min(0.05);
         self.last = now;
+        self.draw(dt);
+        log::trace!(
+            "fx frame: {:.2} ms since the last, drawn in {:.2} ms (glow {:.2}, touches {:.2})",
+            dt * 1000.0,
+            now.elapsed().as_secs_f64() * 1000.0,
+            self.motion.intensity(),
+            self.touch_alpha
+        );
+    }
 
+    fn draw(&mut self, dt: f32) {
         // The glow: same bitmap every frame, only opacity and position change.
         self.motion.step(dt);
         let layer = self.glow_key.and_then(|key| self.glows.get(&key).map(|l| (key.0, l)));
