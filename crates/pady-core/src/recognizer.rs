@@ -93,6 +93,16 @@ fn tap_gesture(fingers: u8, count: u8) -> Gesture {
     }
 }
 
+/// A swipe on its way, before it fires: for feedback such as a glow at the
+/// screen edge it is heading for.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
+pub struct SwipeProgress {
+    pub fingers: u8,
+    pub direction: Direction,
+    /// 0 as the fingers start to move, 1 when the swipe fires.
+    pub amount: f32,
+}
+
 #[derive(Debug)]
 pub struct Recognizer {
     settings: RecognizerSettings,
@@ -153,6 +163,27 @@ impl Recognizer {
 
     pub fn is_dragging(&self) -> bool {
         matches!(self.phase, Phase::Dragging { .. })
+    }
+
+    /// How far a swipe that hasn't fired yet has come. `None` while nothing
+    /// is heading for one: too few fingers, a drag, a pinch, or resting fingers.
+    pub fn swipe_progress(&self) -> Option<SwipeProgress> {
+        let s = &self.settings;
+        let n = self.fingers;
+        if self.phase != Phase::Pending || self.fired || self.prev.is_empty() || n < s.min_fingers {
+            return None;
+        }
+        if s.drag_fingers.get(n as usize).copied().unwrap_or(false) {
+            return None;
+        }
+        let (tx, ty) = self.travel;
+        let travel = tx.hypot(ty);
+        // Still resting (or a tap), or closing and opening more than sliding: a pinch.
+        if travel <= s.tap_slop_mm / 2.0 || (self.pinch_bound(n) && self.span.abs() > travel) {
+            return None;
+        }
+        let amount = ((travel - s.tap_slop_mm / 2.0) / (s.swipe_threshold_mm - s.tap_slop_mm / 2.0).max(0.1)).min(1.0);
+        Some(SwipeProgress { fingers: n, direction: Direction::from_delta(tx, ty), amount })
     }
 
     /// Abandon the current session. Returns `DragEnd` if a drag was active so
@@ -621,6 +652,35 @@ mod tests {
             self.out.extend(self.rec.tick(t));
             self
         }
+    }
+
+    #[test]
+    fn swipe_progress_grows_then_ends_when_the_swipe_fires() {
+        let mut s = Script::new(settings());
+        s.frame(0, 3, 0.0, 0.0);
+        assert_eq!(s.rec.swipe_progress(), None, "resting fingers");
+        s.frame(10, 3, 0.0, -5.0);
+        let p = s.rec.swipe_progress().expect("on its way");
+        assert_eq!((p.fingers, p.direction), (3, Direction::Up));
+        assert!(p.amount > 0.2 && p.amount < 0.8, "{p:?}");
+        s.frame(20, 3, 0.0, -8.0);
+        assert!(s.rec.swipe_progress().unwrap().amount > p.amount, "grows as the fingers travel");
+        s.frame(30, 3, 0.0, -12.0);
+        assert_eq!(s.out, vec![Gesture::Swipe { fingers: 3, direction: Direction::Up, step: 0 }]);
+        assert_eq!(s.rec.swipe_progress(), None, "fired");
+    }
+
+    #[test]
+    fn no_swipe_progress_for_drags_pinches_or_two_fingers() {
+        let mut drag = Script::new(RecognizerSettings { drag_fingers: [true; 6], ..settings() });
+        drag.frame(0, 3, 0.0, 0.0).frame(10, 3, 6.0, 0.0);
+        assert_eq!(drag.rec.swipe_progress(), None);
+        let mut two = Script::new(settings());
+        two.frame(0, 2, 0.0, 0.0).frame(10, 2, 6.0, 0.0);
+        assert_eq!(two.rec.swipe_progress(), None);
+        let mut pinch = Script::new(pinch_settings());
+        pinch.spread(0, 3, 12.0).spread(10, 3, 15.0);
+        assert_eq!(pinch.rec.swipe_progress(), None);
     }
 
     #[test]

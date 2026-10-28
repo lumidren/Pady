@@ -27,7 +27,7 @@ pub use frame::{now_ms, Contact, TouchFrame};
 pub use gesture::{Direction, Gesture, PinchDirection};
 pub use keys::{Key, KeyCombo, Modifiers};
 pub use presets::{Preset, PRESETS};
-pub use recognizer::{Recognizer, RecognizerSettings};
+pub use recognizer::{Recognizer, RecognizerSettings, SwipeProgress};
 pub use trigger::Trigger;
 
 /// Deterministic random input for the fuzz tests (xorshift64*): the same

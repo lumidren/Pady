@@ -42,6 +42,29 @@ pub struct Settings {
     /// A small "Copied" notice in the top-right corner after every copy
     /// (Windows). Pady is told that something was copied, never what.
     pub show_copy_notice: bool,
+    /// Master switch for Pady's animations and visual feedback. Each one
+    /// below also has its own switch.
+    pub animations: bool,
+    /// A soft glow grows at the screen edge a swipe is heading for, and
+    /// flashes when it fires (Windows).
+    pub anim_swipe_glow: bool,
+    /// A corner notice naming each gesture and what it did, for learning
+    /// your gestures (Windows).
+    pub anim_hints: bool,
+    /// A corner notice while pinching, counting the steps (Windows).
+    pub anim_pinch: bool,
+    /// "Pasted", "Screenshot", track changes and other actions you can't
+    /// otherwise see, as corner notices (Windows).
+    pub anim_notices: bool,
+    /// Glowing dots that follow your fingers in a small touchpad in the
+    /// corner, for recording tutorials (Windows).
+    pub anim_touches: bool,
+    /// Gestures in the app play a small loop of the fingers doing them.
+    pub anim_previews: bool,
+    /// The touchpad in Settings mirrors your fingers live.
+    pub anim_mirror: bool,
+    /// A little celebration the first time each gesture works.
+    pub anim_celebrate: bool,
     /// The first-run tutorial has been completed or skipped.
     pub onboarded: bool,
     /// Look for a new version on GitHub twice a day.
@@ -69,6 +92,15 @@ impl Default for Settings {
             multi_tap_ms: 300,
             pause_in_fullscreen: true,
             show_copy_notice: true,
+            animations: true,
+            anim_swipe_glow: true,
+            anim_hints: false,
+            anim_pinch: true,
+            anim_notices: true,
+            anim_touches: false,
+            anim_previews: true,
+            anim_mirror: true,
+            anim_celebrate: true,
             onboarded: false,
             check_updates: true,
             autostart_configured: false,
@@ -77,6 +109,11 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Is this animation on? (Its own switch and the master switch.)
+    pub fn animates(&self, which: bool) -> bool {
+        self.animations && which
+    }
+
     /// Keep hand-edited values in a range Pady can work with (wider than the
     /// app's sliders). NaN falls back to the default.
     pub fn sanitize(&mut self) {

@@ -12,7 +12,7 @@ use crate::action::Action;
 use crate::config::{Config, Resolution, SharedConfig};
 use crate::frame::{now_ms, TouchFrame};
 use crate::gesture::Gesture;
-use crate::recognizer::Recognizer;
+use crate::recognizer::{Recognizer, SwipeProgress};
 use crate::trigger::Trigger;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use serde::Serialize;
@@ -133,6 +133,16 @@ pub enum EngineEvent {
     /// A gesture was ignored because a full-screen game is in front.
     Paused {
         trigger: String,
+    },
+    /// A swipe is on its way (sent as the fingers move, before it fires).
+    /// `bound`: something runs when it fires (ignoring per-app profiles).
+    SwipeProgress {
+        progress: SwipeProgress,
+        bound: bool,
+    },
+    /// The swipe in progress either fired or was let go.
+    SwipeEnded {
+        fired: bool,
     },
 }
 
@@ -421,6 +431,8 @@ struct EngineLoop {
     precise_timers: fn(bool),
     /// Are precise timers requested right now?
     precise: bool,
+    /// The last swipe progress reported, to send only changes.
+    progress: Option<SwipeProgress>,
 }
 
 impl EngineLoop {
@@ -436,6 +448,7 @@ impl EngineLoop {
             pointer: Pointer::default(),
             precise_timers,
             precise: false,
+            progress: None,
         }
     }
 
@@ -492,7 +505,33 @@ impl EngineLoop {
         let gestures = if self.config.settings.enabled { self.recognizer.update(&frame) } else { Vec::new() };
         let t = frame.time_ms;
         (self.observer)(EngineEvent::Frame(frame));
+        self.report_progress(&gestures);
         self.dispatch(gestures, t);
+    }
+
+    /// Tells observers how far a swipe has come, and when it fires or is let go.
+    fn report_progress(&mut self, gestures: &[Gesture]) {
+        let now = if self.config.settings.enabled { self.recognizer.swipe_progress() } else { None };
+        match (self.progress, now) {
+            (_, Some(p)) => {
+                let changed = self.progress.is_none_or(|old| {
+                    old.direction != p.direction || old.fingers != p.fingers || (old.amount - p.amount).abs() >= 0.01
+                });
+                if changed {
+                    let trigger = Trigger::Swipe(p.fingers, p.direction);
+                    let bound =
+                        matches!(self.config.resolution(trigger, None), crate::config::Resolution::Bound { .. });
+                    (self.observer)(EngineEvent::SwipeProgress { progress: p, bound });
+                    self.progress = Some(p);
+                }
+            }
+            (Some(_), None) => {
+                let fired = gestures.iter().any(|g| matches!(g, Gesture::Swipe { step: 0, .. }));
+                (self.observer)(EngineEvent::SwipeEnded { fired });
+                self.progress = None;
+            }
+            (None, None) => {}
+        }
     }
 
     fn dispatch(&mut self, gestures: Vec<Gesture>, t: u64) {
@@ -650,6 +689,45 @@ mod tests {
             e,
             EngineEvent::Gesture { gesture: Gesture::DragStart { fingers: 3 }, action: Some(_), .. }
         )));
+    }
+
+    #[test]
+    fn swipe_progress_is_reported_until_the_swipe_fires_or_is_let_go() {
+        let mut cfg = Config::default();
+        cfg.bindings.clear();
+        cfg.set_binding(Trigger::Swipe(4, Direction::Up), Action::Lock, false);
+        let progress = |events: &[EngineEvent]| -> Vec<(f32, bool)> {
+            events
+                .iter()
+                .filter_map(|e| match e {
+                    EngineEvent::SwipeProgress { progress, bound } => Some((progress.amount, *bound)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let ended = |events: &[EngineEvent]| -> Vec<bool> {
+            events
+                .iter()
+                .filter_map(|e| if let EngineEvent::SwipeEnded { fired } = e { Some(*fired) } else { None })
+                .collect()
+        };
+        let fires = vec![
+            frame(0, 4, 0.0, 0.0),
+            frame(10, 4, 0.0, -4.0),
+            frame(20, 4, 0.0, -7.0),
+            frame(30, 4, 0.0, -12.0),
+            frame(40, 0, 0.0, 0.0),
+        ];
+        let (_, events) = run_engine(cfg.clone(), fires);
+        let p = progress(&events);
+        assert_eq!(p.len(), 2, "{p:?}");
+        assert!(p[0].0 < p[1].0 && p.iter().all(|&(_, bound)| bound), "{p:?}");
+        assert_eq!(ended(&events), vec![true]);
+
+        let let_go = vec![frame(0, 4, 0.0, 0.0), frame(10, 4, 0.0, 5.0), frame(20, 0, 0.0, 0.0)];
+        let (_, events) = run_engine(cfg, let_go);
+        assert_eq!(progress(&events).iter().map(|p| p.1).collect::<Vec<_>>(), vec![false], "swiping down isn't bound");
+        assert_eq!(ended(&events), vec![false]);
     }
 
     #[test]
