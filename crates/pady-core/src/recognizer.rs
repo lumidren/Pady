@@ -51,6 +51,10 @@ pub struct RecognizerSettings {
 /// Gliding swipes repeat this many times as often as other swipes.
 pub const GLIDE_DIVISOR: f32 = 3.5;
 
+/// A repeating pinch steps every this many `swipe_step_mm` of span change:
+/// the span moves about twice as fast as each finger does.
+pub const PINCH_STEP_FACTOR: f32 = 2.0;
+
 impl Default for RecognizerSettings {
     fn default() -> Self {
         crate::Config::default().recognizer_settings()
@@ -108,6 +112,11 @@ pub struct Recognizer {
     travel: (f32, f32),
     /// Change in finger spread since `anchor_time` (negative = closing).
     spread: f32,
+    /// Change in the hand's span (the two fingers furthest apart) since
+    /// `anchor_time`: what pinches are judged by. Unlike the spread, it moves
+    /// by the full distance when one finger (often the thumb) does all the
+    /// pinching, as it does with a tilted hand.
+    span: f32,
     anchor_time: u64,
     pending_tap: Option<PendingTap>,
 }
@@ -126,6 +135,7 @@ impl Recognizer {
             prev: Vec::new(),
             travel: (0.0, 0.0),
             spread: 0.0,
+            span: 0.0,
             anchor_time: 0,
             pending_tap: None,
         }
@@ -164,6 +174,7 @@ impl Recognizer {
         let n = frame.finger_count();
         let (dx, dy) = shared_delta(&self.prev, &frame.contacts);
         let dspread = spread_delta(&self.prev, &frame.contacts);
+        let dspan = span_delta(&self.prev, &frame.contacts);
 
         if n == 0 {
             self.on_lift(t, &mut out);
@@ -190,13 +201,24 @@ impl Recognizer {
 
         match self.phase {
             Phase::Pending => {
-                if n != self.fingers {
+                if n < self.fingers
+                    && self.pinch_bound(self.fingers)
+                    && self.span <= -self.settings.pinch_threshold_mm / 2.0
+                {
+                    // A fast pinch in squeezes fingers together until the pad
+                    // merges two of them: the pinch was already well under way.
+                    self.flush_tap(&mut out);
+                    self.fired = true;
+                    out.push(Gesture::Pinch { fingers: self.fingers, direction: PinchDirection::In, step: 0 });
+                    self.phase = Phase::Consumed;
+                } else if n != self.fingers {
                     self.fingers = n;
                     self.anchor(t);
                 } else {
                     self.travel.0 += dx;
                     self.travel.1 += dy;
                     self.spread += dspread;
+                    self.span += dspan;
                 }
                 self.check_motion(&mut out);
                 self.check_hold(t, &mut out);
@@ -224,9 +246,9 @@ impl Recognizer {
                 if n != self.fingers {
                     self.phase = Phase::Consumed;
                 } else {
-                    progress += dspread;
+                    progress += dspan;
                     let direction = PinchDirection::from_change(progress);
-                    for _ in 0..take_steps(&mut progress, self.settings.swipe_step_mm) {
+                    for _ in 0..take_steps(&mut progress, self.settings.swipe_step_mm * PINCH_STEP_FACTOR) {
                         step += 1;
                         out.push(Gesture::Pinch { fingers: self.fingers, direction, step });
                     }
@@ -348,6 +370,7 @@ impl Recognizer {
     fn anchor(&mut self, t: u64) {
         self.travel = (0.0, 0.0);
         self.spread = 0.0;
+        self.span = 0.0;
         self.anchor_time = t;
     }
 
@@ -367,15 +390,27 @@ impl Recognizer {
             return;
         }
         let travel = tx.hypot(ty);
-        let pinch_bound = self.settings.pinch_fingers.get(n as usize).copied().unwrap_or(false);
-        if pinch_bound && self.spread.abs() >= self.settings.pinch_threshold_mm && self.spread.abs() > travel {
+        let span = self.span.abs();
+        let pinch_bound = self.pinch_bound(n);
+        // The hand closing or opening more than it slides is a pinch, whatever
+        // its angle and however lopsided.
+        if pinch_bound && span >= self.settings.pinch_threshold_mm && span > travel {
             self.flush_tap(out);
             self.fired = true;
-            out.push(Gesture::Pinch { fingers: n, direction: PinchDirection::from_change(self.spread), step: 0 });
+            out.push(Gesture::Pinch { fingers: n, direction: PinchDirection::from_change(self.span), step: 0 });
             self.phase = Phase::Pinching { progress: 0.0, step: 0 };
             return;
         }
         if travel < self.settings.swipe_threshold_mm {
+            return;
+        }
+        // Close call: a pinch on its way still moves the hand's centre. Don't
+        // commit to a swipe until the hand has clearly travelled further.
+        if pinch_bound
+            && span >= self.settings.pinch_threshold_mm / 2.0
+            && span * 2.0 >= travel
+            && travel < self.settings.swipe_threshold_mm * 1.5
+        {
             return;
         }
         self.flush_tap(out);
@@ -390,6 +425,10 @@ impl Recognizer {
             out.push(Gesture::Swipe { fingers: n, direction: Direction::from_delta(tx, ty), step: 0 });
             self.phase = Phase::Swiping { axis, progress: 0.0, step: 0 };
         }
+    }
+
+    fn pinch_bound(&self, fingers: u8) -> bool {
+        self.settings.pinch_fingers.get(fingers as usize).copied().unwrap_or(false)
     }
 
     fn check_hold(&mut self, t: u64, out: &mut Vec<Gesture>) {
@@ -473,6 +512,27 @@ fn spread_delta(prev: &[Contact], cur: &[Contact]) -> f32 {
         pts.iter().map(|c| (c.x - cx).hypot(c.y - cy)).sum::<f32>() / n
     };
     spread(&mut pairs.iter().map(|(_, c)| *c)) - spread(&mut pairs.iter().map(|(p, _)| *p))
+}
+
+/// Change in the hand's span (the largest distance between two fingers),
+/// for the fingers present in both frames. Independent of the hand's angle.
+fn span_delta(prev: &[Contact], cur: &[Contact]) -> f32 {
+    let pairs: Vec<(&Contact, &Contact)> =
+        cur.iter().filter_map(|c| prev.iter().find(|p| p.id == c.id).map(|p| (p, c))).collect();
+    if pairs.len() < 2 {
+        return 0.0;
+    }
+    let span = |pick: &dyn Fn(&(&Contact, &Contact)) -> (f32, f32)| {
+        let mut widest = 0.0f32;
+        for (i, a) in pairs.iter().enumerate() {
+            for b in &pairs[i + 1..] {
+                let ((ax, ay), (bx, by)) = (pick(a), pick(b));
+                widest = widest.max((ax - bx).hypot(ay - by));
+            }
+        }
+        widest
+    };
+    span(&|(_, c)| (c.x, c.y)) - span(&|(p, _)| (p.x, p.y))
 }
 
 /// Mean movement of fingers present in both frames.
@@ -751,7 +811,7 @@ mod tests {
 
     #[test]
     fn pinch_out_and_in() {
-        // Three fingers in a row: spread = 2/3 of the gap, so 15 → 28 mm is +8.7 mm.
+        // Three fingers in a row: the span is twice the gap, so 15 → 28 mm is +26 mm.
         let mut s = Script::new(pinch_settings());
         s.spread(0, 3, 15.0).spread(10, 3, 28.0);
         assert_eq!(s.out, vec![Gesture::Pinch { fingers: 3, direction: PinchDirection::Out, step: 0 }]);
@@ -766,7 +826,7 @@ mod tests {
     #[test]
     fn pinch_keeps_stepping_and_reverses() {
         let mut s = Script::new(pinch_settings());
-        // Commit (+8.7), then +10 more spread (two 5 mm steps), then back -10.
+        // Commit, then +30 mm more span (three 10 mm steps), then back -30.
         s.spread(0, 3, 15.0).spread(10, 3, 28.0).spread(20, 3, 43.0).spread(30, 3, 28.0);
         let steps: Vec<_> = s
             .out
@@ -782,8 +842,10 @@ mod tests {
                 (PinchDirection::Out, 0),
                 (PinchDirection::Out, 1),
                 (PinchDirection::Out, 2),
-                (PinchDirection::In, 3),
+                (PinchDirection::Out, 3),
                 (PinchDirection::In, 4),
+                (PinchDirection::In, 5),
+                (PinchDirection::In, 6),
             ]
         );
     }
@@ -799,6 +861,79 @@ mod tests {
     fn swipes_still_work_when_pinch_is_bound() {
         let mut s = Script::new(pinch_settings());
         s.frame(0, 3, 0.0, 0.0).frame(10, 3, 0.0, -12.0);
+        assert_eq!(s.out, vec![Gesture::Swipe { fingers: 3, direction: Direction::Up, step: 0 }]);
+    }
+
+    /// Frames of explicit contacts, for hands that aren't a neat row.
+    fn hand(s: &mut Script, t: u64, fingers: &[(f32, f32)]) {
+        let contacts = fingers.iter().enumerate().map(|(i, &(x, y))| Contact { id: i as u32, x, y }).collect();
+        let frame = TouchFrame { time_ms: t, contacts, width_mm: 100.0, height_mm: 60.0 };
+        s.out.extend(s.rec.update(&frame));
+    }
+
+    fn four_finger_pinch() -> RecognizerSettings {
+        let mut s = settings();
+        s.pinch_fingers[4] = true;
+        s
+    }
+
+    #[test]
+    fn a_tilted_hand_pinches() {
+        // Three fingers on a 35° line, spreading from 12 to 22 mm apart.
+        let (c, sn) = (35f32.to_radians().cos(), 35f32.to_radians().sin());
+        let row = |gap: f32| [(50.0 - gap * c, 30.0 + gap * sn), (50.0, 30.0), (50.0 + gap * c, 30.0 - gap * sn)];
+        let mut s = Script::new(pinch_settings());
+        hand(&mut s, 0, &row(12.0));
+        hand(&mut s, 10, &row(17.0));
+        hand(&mut s, 20, &row(22.0));
+        // Recognised on the first move, then keeps stepping as it opens further.
+        assert!(
+            !s.out.is_empty()
+                && s.out.iter().all(|g| matches!(g, Gesture::Pinch { direction: PinchDirection::Out, .. }))
+        );
+        assert_eq!(s.out[0], Gesture::Pinch { fingers: 3, direction: PinchDirection::Out, step: 0 });
+    }
+
+    #[test]
+    fn a_thumb_led_pinch_is_a_pinch_not_a_swipe() {
+        // Three fingers stay put; the thumb sweeps 22 mm up towards them, as a
+        // tilted hand does. The hand's centre moves too, but less than it closes.
+        let fingers = [(50.0, 22.0), (62.0, 20.0), (74.0, 22.0)];
+        let mut s = Script::new(four_finger_pinch());
+        for (i, k) in [0.0f32, 0.35, 0.7, 1.0].iter().enumerate() {
+            let thumb = (24.0 + 14.0 * k, 52.0 - 17.0 * k);
+            hand(&mut s, i as u64 * 10, &[thumb, fingers[0], fingers[1], fingers[2]]);
+        }
+        assert_eq!(s.out.first(), Some(&Gesture::Pinch { fingers: 4, direction: PinchDirection::In, step: 0 }));
+        assert!(!s.out.iter().any(|g| matches!(g, Gesture::Swipe { .. })), "{:?}", s.out);
+    }
+
+    #[test]
+    fn a_fast_pinch_in_one_frame_counts() {
+        // The whole pinch out between two frames 8 ms apart.
+        let mut s = Script::new(pinch_settings());
+        s.spread(0, 3, 10.0).spread(8, 3, 30.0);
+        assert_eq!(s.out, vec![Gesture::Pinch { fingers: 3, direction: PinchDirection::Out, step: 0 }]);
+    }
+
+    #[test]
+    fn a_fast_pinch_in_that_merges_fingers_counts() {
+        // Pinching in so hard that the pad merges two contacts half way.
+        let mut s = Script::new(pinch_settings());
+        s.spread(0, 3, 20.0).spread(8, 3, 17.0);
+        hand(&mut s, 16, &[(35.0, 30.0), (50.0, 30.0)]); // one finger gone
+        s.lift(30);
+        assert_eq!(s.out, vec![Gesture::Pinch { fingers: 3, direction: PinchDirection::In, step: 0 }]);
+    }
+
+    #[test]
+    fn a_wobbly_swipe_is_still_a_swipe() {
+        // Fingers drift apart by a couple of millimetres while swiping up.
+        let mut s = Script::new(pinch_settings());
+        let row = |gap: f32, y: f32| [(35.0 - gap, 30.0 + y), (50.0, 30.0 + y), (65.0 + gap, 30.0 + y)];
+        hand(&mut s, 0, &row(0.0, 0.0));
+        hand(&mut s, 10, &row(0.8, -6.0));
+        hand(&mut s, 20, &row(1.5, -13.0));
         assert_eq!(s.out, vec![Gesture::Swipe { fingers: 3, direction: Direction::Up, step: 0 }]);
     }
 
