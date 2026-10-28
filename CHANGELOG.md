@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.3 (2026-10-28)
+
+### Changed
+- **Pinches register the way people actually pinch.** Pady now follows the span of your whole hand (the two fingers furthest apart) instead of the average spread, so pinches with a tilted hand, or where only the thumb moves, count straight away. When a pinch and a swipe are a close call, the pinch wins, and a pinch so fast that the touchpad merges two fingers still counts.
+- **Pinch has its own section in Settings**, with a "Try it now" tester that lights up when Pady sees your pinch, and the pinch sensitivity slider.
+- **The corner notices glow.** "Copied" and "Gestures paused" are bigger and wrapped in a soft purple aura whose colours turn around the pill; it blooms as the notice lands and breathes while it rests. Every frame waits for the display, so it stays smooth.
+
 ## 0.5.2 (2026-10-28)
 
 ### Added
