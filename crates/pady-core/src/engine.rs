@@ -244,6 +244,8 @@ struct ActionLoop {
     button_down: bool,
     /// A drag that started while gestures were paused: swallow it whole.
     drag_suppressed: bool,
+    /// Were gestures paused for a full-screen game last time we looked?
+    was_paused: bool,
 }
 
 impl ActionLoop {
@@ -256,6 +258,7 @@ impl ActionLoop {
             observer,
             button_down: false,
             drag_suppressed: false,
+            was_paused: false,
         }
     }
 
@@ -269,7 +272,17 @@ impl ActionLoop {
 
     /// Gestures pause while a full-screen game runs (if the user wants that).
     fn paused(&mut self) -> bool {
-        self.config.settings.pause_in_fullscreen && self.exec.fullscreen_game()
+        let paused = self.config.settings.pause_in_fullscreen && self.exec.fullscreen_game();
+        if paused != self.was_paused {
+            self.was_paused = paused;
+            let app = self.exec.foreground_app().unwrap_or_else(|| "an unknown app".into());
+            if paused {
+                log::info!("gestures paused: {app} is a full-screen game");
+            } else {
+                log::info!("gestures resumed ({app} in front)");
+            }
+        }
+        paused
     }
 
     fn run(mut self, jobs: Receiver<Job>) {
