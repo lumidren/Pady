@@ -49,6 +49,23 @@ pub fn precise_timers(on: bool) {
 #[cfg(not(windows))]
 pub fn precise_timers(_on: bool) {}
 
+/// How long since the user last touched the keyboard, mouse or touchpad,
+/// as far as the OS knows. `None` where that can't be read.
+#[cfg(windows)]
+pub fn user_idle() -> Option<std::time::Duration> {
+    use windows::Win32::System::SystemInformation::GetTickCount;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+    let mut info = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+    unsafe { GetLastInputInfo(&mut info) }
+        .as_bool()
+        .then(|| std::time::Duration::from_millis(u64::from(unsafe { GetTickCount() }.wrapping_sub(info.dwTime))))
+}
+
+#[cfg(not(windows))]
+pub fn user_idle() -> Option<std::time::Duration> {
+    None
+}
+
 #[cfg(all(test, windows))]
 mod tests {
     use std::time::{Duration, Instant};

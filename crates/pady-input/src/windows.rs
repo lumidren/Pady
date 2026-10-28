@@ -10,13 +10,14 @@
 //! (the app detects and explains this).
 
 use crate::hid::{pad_size_mm, AxisCaps, FrameAssembler, SlotReading};
-use crate::{DeviceInfo, InputError, InputHandle};
+use crate::{DeviceInfo, InputError, InputHandle, Status};
 use crossbeam_channel::{bounded, Sender};
 use pady_core::{now_ms, Contact, TouchFrame};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::mem::{offset_of, size_of};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Devices::HumanInterfaceDevice::*;
@@ -24,6 +25,7 @@ use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Power::RegisterSuspendResumeNotification;
 use windows::Win32::System::RemoteDesktop::{WTSRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION};
+use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -38,19 +40,38 @@ const USAGE_CONTACT_ID: u16 = 0x51;
 const USAGE_CONTACT_COUNT: u16 = 0x54;
 
 pub(crate) fn start(frames: Sender<TouchFrame>) -> Result<InputHandle, InputError> {
-    let devices = Arc::new(Mutex::new(Vec::new()));
+    let handle = InputHandle::new(Arc::new(Mutex::new(Vec::new())));
     let (ready_tx, ready_rx) = bounded::<Result<(), InputError>>(1);
-    let thread_devices = devices.clone();
+    let (thread_devices, status) = (handle.devices.clone(), handle.status.clone());
     std::thread::Builder::new()
         .name("pady-touchpad".into())
-        .spawn(move || run(frames, thread_devices, ready_tx))
+        .spawn(move || {
+            // However the thread ends (stop, error, panic), report it.
+            struct Exit(Arc<Status>);
+            impl Drop for Exit {
+                fn drop(&mut self) {
+                    self.0.alive.store(false, Ordering::Release);
+                }
+            }
+            let _exit = Exit(status.clone());
+            status.thread_id.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+            run(frames, thread_devices, status, ready_tx)
+        })
         .map_err(|e| InputError::Os(e.to_string()))?;
     ready_rx.recv().map_err(|_| InputError::Os("touchpad thread exited during startup".into()))??;
-    Ok(InputHandle::new(devices))
+    Ok(handle)
+}
+
+/// Ends the touchpad thread's message loop; it destroys its window on the way out.
+pub(crate) fn stop(thread_id: u32) {
+    if thread_id != 0 {
+        let _ = unsafe { PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0)) };
+    }
 }
 
 struct State {
     frames: Sender<TouchFrame>,
+    status: Arc<Status>,
     devices: Arc<Mutex<Vec<DeviceInfo>>>,
     parsers: HashMap<isize, Option<Touchpad>>,
     buf: Vec<u64>,
@@ -60,7 +81,12 @@ thread_local! {
     static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
 }
 
-fn run(frames: Sender<TouchFrame>, devices: Arc<Mutex<Vec<DeviceInfo>>>, ready: Sender<Result<(), InputError>>) {
+fn run(
+    frames: Sender<TouchFrame>,
+    devices: Arc<Mutex<Vec<DeviceInfo>>>,
+    status: Arc<Status>,
+    ready: Sender<Result<(), InputError>>,
+) {
     crate::sched::raise_thread_priority();
     let mut parsers = HashMap::new();
     for handle in enumerate_touchpads() {
@@ -73,7 +99,7 @@ fn run(frames: Sender<TouchFrame>, devices: Arc<Mutex<Vec<DeviceInfo>>>, ready: 
         let _ = ready.send(Err(InputError::NoTouchpad));
         return;
     }
-    STATE.with(|s| *s.borrow_mut() = Some(State { frames, devices, parsers, buf: Vec::new() }));
+    STATE.with(|s| *s.borrow_mut() = Some(State { frames, status, devices, parsers, buf: Vec::new() }));
 
     let hwnd = match unsafe { create_sink_window() } {
         Ok(h) => h,
@@ -92,6 +118,8 @@ fn run(frames: Sender<TouchFrame>, devices: Arc<Mutex<Vec<DeviceInfo>>>, ready: 
         }
         let _ = DestroyWindow(hwnd);
     }
+    STATE.with(|s| *s.borrow_mut() = None);
+    log::info!("stopped listening for touchpad input");
 }
 
 unsafe fn create_sink_window() -> windows::core::Result<HWND> {
@@ -275,6 +303,7 @@ fn on_input(state: &mut State, input: HRAWINPUT) {
     let data = unsafe { std::slice::from_raw_parts_mut(ptr.cast::<u8>().add(REPORTS_AT), total) };
     for report in data.chunks_exact_mut(report_size) {
         if let Some(frame) = pad.parse(report) {
+            state.status.last_frame_ms.store(frame.time_ms.max(1), Ordering::Relaxed);
             if state.frames.send(frame).is_err() {
                 unsafe { PostQuitMessage(0) };
                 return;
@@ -559,6 +588,63 @@ fn product_name(device: HANDLE) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    /// This process's listener window (an installed Pady may have its own).
+    fn sink() -> HWND {
+        let mut after = HWND::default();
+        loop {
+            let found = unsafe { FindWindowExW(HWND_MESSAGE, after, w!("PadyRawInputSink"), PCWSTR::null()) };
+            let Ok(hwnd) = found else { return HWND::default() };
+            if hwnd.0.is_null() {
+                return hwnd;
+            }
+            let mut pid = 0;
+            unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+            if pid == std::process::id() {
+                return hwnd;
+            }
+            after = hwnd;
+        }
+    }
+
+    /// With the laptop's real touchpad: waking from sleep and unlocking
+    /// refresh the listener and end any cut-off touch, and a stopped listener
+    /// can be replaced by a fresh one. Skipped on machines without one (CI).
+    #[test]
+    fn survives_sleep_unlock_and_restart() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let first = match start(tx.clone()) {
+            Ok(handle) => handle,
+            Err(InputError::NoTouchpad) => return,
+            Err(e) => panic!("start: {e}"),
+        };
+        assert!(first.is_alive());
+        let hwnd = sink();
+        assert!(!hwnd.0.is_null(), "listener window exists");
+
+        for (msg, wparam, what) in [
+            (WM_POWERBROADCAST, PBT_APMRESUMEAUTOMATIC as usize, "wake from sleep"),
+            (WM_POWERBROADCAST, PBT_APMRESUMESUSPEND as usize, "wake by the user"),
+            (WM_WTSSESSION_CHANGE, WTS_SESSION_UNLOCK as usize, "unlock"),
+        ] {
+            while rx.try_recv().is_ok() {}
+            unsafe { SendMessageW(hwnd, msg, WPARAM(wparam), LPARAM(0)) };
+            let frame = rx.recv_timeout(Duration::from_secs(2)).unwrap_or_else(|_| panic!("{what}: no frame"));
+            assert!(frame.contacts.is_empty(), "{what}: every finger lifted, so no stale touch survives");
+            assert!(first.is_alive(), "{what}: still listening");
+        }
+
+        first.stop(Duration::from_secs(2));
+        assert!(!first.is_alive(), "stop ends the listener");
+        assert!(sink().0.is_null(), "and removes its window");
+
+        let second = start(tx).expect("a fresh listener starts after the old one stopped");
+        assert!(second.is_alive());
+        assert!(!sink().0.is_null());
+        second.stop(Duration::from_secs(2));
+        assert!(!second.is_alive());
+    }
 
     /// The bounds check starts the reports exactly where `bRawData` sits,
     /// as the pointer arithmetic it replaced did.

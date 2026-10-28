@@ -20,7 +20,9 @@ mod windows;
 use crossbeam_channel::Sender;
 use pady_core::TouchFrame;
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct DeviceInfo {
@@ -47,15 +49,61 @@ pub enum InputError {
 #[derive(Clone, Debug, Default)]
 pub struct InputHandle {
     devices: Arc<Mutex<Vec<DeviceInfo>>>,
+    /// Shared with the backend thread, so the app's watchdog can tell a
+    /// listener that stopped and replace it.
+    pub(crate) status: Arc<Status>,
+}
+
+/// What a backend thread reports about itself.
+#[derive(Debug)]
+pub(crate) struct Status {
+    /// Cleared when the backend thread exits, however it exits.
+    pub(crate) alive: AtomicBool,
+    /// When the last touch frame arrived (`now_ms`), 0 before the first.
+    pub(crate) last_frame_ms: AtomicU64,
+    /// The thread to send `WM_QUIT` to (Windows), 0 if none.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) thread_id: AtomicU32,
+}
+
+impl Default for Status {
+    fn default() -> Self {
+        Status { alive: AtomicBool::new(true), last_frame_ms: AtomicU64::new(0), thread_id: AtomicU32::new(0) }
+    }
 }
 
 impl InputHandle {
     pub(crate) fn new(devices: Arc<Mutex<Vec<DeviceInfo>>>) -> Self {
-        InputHandle { devices }
+        InputHandle { devices, status: Arc::default() }
     }
 
     pub fn devices(&self) -> Vec<DeviceInfo> {
         self.devices.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Is the backend still listening?
+    pub fn is_alive(&self) -> bool {
+        self.status.alive.load(Ordering::Acquire)
+    }
+
+    /// How long since the last touch frame, or `None` before the first.
+    pub fn since_last_frame(&self) -> Option<Duration> {
+        match self.status.last_frame_ms.load(Ordering::Relaxed) {
+            0 => None,
+            at => Some(Duration::from_millis(pady_core::now_ms().saturating_sub(at))),
+        }
+    }
+
+    /// Stops the backend and waits up to `timeout` for it to let go, so a
+    /// fresh one can take its place. Backends that can't be stopped this way
+    /// (Linux watches devices itself) are left running.
+    pub fn stop(&self, timeout: Duration) {
+        #[cfg(windows)]
+        windows::stop(self.status.thread_id.load(Ordering::Acquire));
+        let deadline = std::time::Instant::now() + timeout;
+        while self.is_alive() && cfg!(windows) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
