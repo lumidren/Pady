@@ -353,6 +353,7 @@
     try { history.replaceState(null, '', '#' + page); } catch (_) { /* file:// in some engines */ }
     $('#content').scrollTop = 0;
     if (prev === 'live' && page !== 'live') liveView.stop();
+    if (prev === 'settings' && page !== 'settings' && setUI.mirror) setUI.mirror.stop();
     if (!store.app) return;
     if (page === 'gestures') renderGestures(true);
     if (page === 'settings') renderSettings();
@@ -1862,6 +1863,7 @@
     tourGesture(p);
     const g = p.gesture || {};
     if (g.kind === 'pinch' && g.step === 0) flashPinch(g.direction, g.fingers);
+    celebrate(p);
     const now = new Date();
     const top = store.recent[0];
     const repeating = (g.kind === 'swipe' || g.kind === 'pinch') && g.step > 0;
@@ -2154,6 +2156,14 @@
   const SETTING_DEFAULTS = {
     tap_max_ms: 220, tap_slop_mm: 4, multi_tap_ms: 300, swipe_threshold_mm: 10, swipe_step_mm: 7, pinch_threshold_mm: 8,
     hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true, show_copy_notice: true, check_updates: true,
+    animations: true, anim_swipe_glow: true, anim_hints: false, anim_pinch: true, anim_notices: true, anim_touches: false,
+    anim_previews: true, anim_mirror: true, anim_celebrate: true,
+  };
+  /** Is this animation on (its own switch and the master switch)? */
+  const animates = (key) => {
+    const s = (store.app && store.app.config.settings) || {};
+    const on = (k) => (s[k] ?? SETTING_DEFAULTS[k]) !== false;
+    return on('animations') && on(key);
   };
   // Starter-set icons by preset id (unknown ids get a generic one).
   const PRESET_ICONS = { recommended: 'sparkle', macos: 'command', media: 'play-pause', productivity: 'taskview', minimal: 'minimal' };
@@ -2177,6 +2187,7 @@
       setUI.pinchIn = chip('in', 'Pinch in');
       setUI.pinchOut = chip('out', 'Pinch out');
       setUI.pinchHint = h('div', { class: 'pinch-hint' });
+      setUI.mirrorBox = h('div', { class: 'pinch-mirror' });
       return h('section', { class: 'panel panel--pinch' },
         h('div', { class: 'panel-head' }, h('span', { class: 'panel-icon' }, ico('pinch-out', 16)),
           h('div', null, h('div', { class: 'panel-title' }, 'Pinch'), h('div', { class: 'panel-sub' }, 'Zoom, or anything else, with 3, 4 or 5 fingers'))),
@@ -2184,6 +2195,7 @@
           h('p', { class: 'pinch-lead' }, 'Pinch the way you naturally do: fast, with your hand tilted, or just your thumb moving. Pady follows the span of your whole hand, so all of it counts.'),
           h('div', { class: 'pinch-try' },
             h('div', { class: 'pinch-try-title' }, 'Try it now'),
+            setUI.mirrorBox,
             h('div', { class: 'pinch-chips' }, setUI.pinchIn, setUI.pinchOut),
             setUI.pinchHint),
           sliders));
@@ -2253,7 +2265,6 @@
               h('span', { class: 'switch' }, setUI.autostart, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' })))),
             settingToggle('show_overlay', 'Show Pady\'s level pill', 'Pady\'s own volume & brightness pill near the bottom of the screen. On Windows, volume always shows Windows\' own slider.'),
             settingToggle('check_updates', 'Check for updates', 'Looks for a new version on GitHub twice a day and lets you install it with one click.'),
-            setUI.copyRow = settingToggle('show_copy_notice', 'Show a "Copied" notice', 'A small notice in the top-right corner each time you copy something. Pady is told that you copied, never what.'),
             setUI.pauseRow = settingToggle('pause_in_fullscreen', 'Pause in full-screen games', 'Pady ignores gestures while a game runs in exclusive full screen.'),
             h('div', { class: 'row' },
               h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Tutorial'), h('div', { class: 'row-sub' }, 'A quick, hands-on tour of the basics.')),
@@ -2265,8 +2276,97 @@
               h('button', { class: 'btn btn--sm', type: 'button', onClick: copyPath }, ico('copy', 14), 'Copy path'),
               h('span', { style: { flex: '1' } }),
               h('button', { class: 'btn btn--sm btn--danger', type: 'button', onClick: resetConfig }, ico('reset', 14), 'Reset to defaults'))),
+          animationsPanel(),
           panel('touchpad', 'Touchpad', 'Detected input devices', setUI.devices))));
     setUI.built = true;
+
+    /* One switch for all of Pady's animations, then one for each. The ones
+       drawn natively (corner notices, glow, touches) exist on Windows only. */
+    function animationsPanel() {
+      const sub = (key, title, text, windowsOnly) => {
+        const row = settingToggle(key, title, text);
+        row.classList.add('row--sub');
+        if (windowsOnly) row.dataset.windows = '';
+        return row;
+      };
+      setUI.animPanel = panel('sparkle', 'Animations', 'Visual feedback while you use your gestures',
+        settingToggle('animations', 'Animations', 'Turn all of Pady’s animations on or off at once.'),
+        sub('anim_swipe_glow', 'Swipe glow', 'A soft glow grows at the screen edge your swipe is heading for, and flashes when it fires.', true),
+        sub('show_copy_notice', '“Copied” and “Pasted”', 'A small notice in the top-right corner when you copy, or paste with a gesture. Pady is told that you copied, never what.', true),
+        sub('anim_pinch', 'Pinch steps', 'A corner notice while you pinch, counting each zoom step.', true),
+        sub('anim_notices', 'Action notices', 'Screenshots, play/pause and track changes get a small corner notice, since there’s nothing else to see.', true),
+        sub('anim_hints', 'Gesture hints', 'Names each gesture and what it did, in the corner. Handy while you learn your gestures.', true),
+        sub('anim_touches', 'Show touches', 'Glowing dots follow your fingers on a small touchpad in the corner. Great for recording tutorials.', true),
+        sub('anim_previews', 'Gesture previews', 'Gesture cards take turns playing a small loop of the fingers doing them.'),
+        sub('anim_mirror', 'Live touchpad', 'The Pinch section shows your fingers on the touchpad as you move them.'),
+        sub('anim_celebrate', 'First-time celebrations', 'A little burst the first time each gesture works.'));
+      setUI.animPanel.classList.add('panel--anim');
+      return setUI.animPanel;
+    }
+  }
+
+  /**
+   * Everything the Animations switches control in this window: the card
+   * previews and the live touchpad in Settings.
+   */
+  function syncAnimations() {
+    document.body.classList.toggle('no-previews', !animates('anim_previews'));
+    const mirror = animates('anim_mirror') && store.page === 'settings' && !!setUI.mirrorBox
+      && !!(store.app.devices && store.app.devices.length);
+    if (mirror) {
+      if (!setUI.mirror) {
+        setUI.mirror = createMiniPad({ key: 'mirror' });
+        setUI.mirrorBox.append(setUI.mirror.el);
+      }
+      setUI.mirror.start();
+    } else if (setUI.mirror) {
+      setUI.mirror.stop();
+    }
+    if (setUI.mirrorBox) setUI.mirrorBox.hidden = !mirror;
+  }
+
+  /*
+   * Gesture previews: one card at a time plays its little demo, in turn,
+   * while the Gestures page is in view. One at a time keeps it calm and
+   * cheap; a hovered card plays on its own anyway.
+   */
+  let previewTurn = 0;
+  setInterval(() => {
+    if (store.page !== 'gestures' || document.hidden || !store.app || !animates('anim_previews') || reducedMotion()) return;
+    const cards = $$('.card:not(.is-inert):not(:hover)', gestUI.groups || document);
+    if (!cards.length) return;
+    const card = cards[previewTurn++ % cards.length];
+    card.classList.remove('is-demo');
+    void card.offsetWidth;
+    card.classList.add('is-demo');
+    clearTimeout(card._demoTimer);
+    card._demoTimer = setTimeout(() => card.classList.remove('is-demo'), 2600);
+  }, 2800);
+
+  /** A little burst of confetti the first time each gesture works. */
+  function celebrate(p) {
+    const g = p.gesture || {};
+    if (!p.trigger || !p.action || g.kind === 'drag_end' || g.step > 0) return;
+    if (!animates('anim_celebrate') || document.hidden || reducedMotion()) return;
+    let seen;
+    try { seen = new Set(JSON.parse(localStorage.getItem('pady-celebrated') || '[]')); } catch (_) { seen = new Set(); }
+    if (seen.has(p.trigger)) return;
+    seen.add(p.trigger);
+    try { localStorage.setItem('pady-celebrated', JSON.stringify([...seen])); } catch (_) { /* private mode */ }
+    const burst = h('div', { class: 'burst', 'aria-hidden': 'true' });
+    for (let i = 0; i < 18; i++) {
+      const piece = h('i', { class: 'c' + (i % 4) });
+      const angle = (i / 18) * Math.PI * 2 + Math.random() * 0.3;
+      const dist = 70 + Math.random() * 70;
+      piece.style.setProperty('--x', Math.cos(angle) * dist + 'px');
+      piece.style.setProperty('--y', Math.sin(angle) * dist * 0.7 - 20 + 'px');
+      piece.style.setProperty('--r', Math.round(Math.random() * 540 - 270) + 'deg');
+      piece.style.setProperty('--d', Math.round(Math.random() * 90) + 'ms');
+      burst.append(piece);
+    }
+    document.body.append(burst);
+    setTimeout(() => burst.remove(), 1400);
+    toast({ title: 'First ' + M.triggerLabel(p.trigger) + '!', text: p.action });
   }
 
   /** The Pinch section's "Try it now" chips: glow briefly on a pinch. */
@@ -2312,7 +2412,10 @@
       if (!(key in setUI.pending)) input.checked = (cfg[key] ?? SETTING_DEFAULTS[key]) !== false;
     }
     setUI.pauseRow.hidden = platform() !== 'windows'; // exclusive full screen is a Windows thing
-    setUI.copyRow.hidden = platform() !== 'windows'; // the corner notices are drawn natively on Windows
+    // The corner notices, the glow and the touches are drawn natively on Windows.
+    $$('[data-windows]', setUI.animPanel).forEach((row) => { row.hidden = platform() !== 'windows'; });
+    setUI.animPanel.classList.toggle('is-off', cfg.animations === false);
+    syncAnimations();
     paintPinchHint();
     renderPresetList();
     setUI.autostart.checked = !!s.autostart;
@@ -3002,7 +3105,7 @@
         running = true;
         colors = themeColors();
         ro.observe(el);
-        wantLive('tour', true);
+        wantLive(opts.key || 'tour', true);
         frameWakers.add(kick);
         kick();
       },
@@ -3012,7 +3115,7 @@
         raf = 0;
         frameWakers.delete(kick);
         ro.disconnect();
-        wantLive('tour', false);
+        wantLive(opts.key || 'tour', false);
       },
     };
   }

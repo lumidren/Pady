@@ -41,6 +41,8 @@
     enabled: true, tap_max_ms: 220, tap_slop_mm: 4.0, multi_tap_ms: 300, swipe_threshold_mm: 10.0, swipe_step_mm: 7.0,
     pinch_threshold_mm: 8.0, hold_ms: 600, drag_speed: 9.0, drag_acceleration: 1.0, drag_release_ms: 350,
     show_overlay: linux, pause_in_fullscreen: true, show_copy_notice: true, onboarded: false, check_updates: true, autostart_configured: true,
+    animations: true, anim_swipe_glow: true, anim_hints: false, anim_pinch: true, anim_notices: true, anim_touches: false,
+    anim_previews: true, anim_mirror: true, anim_celebrate: true,
   };
   const DEFAULT_BINDINGS = [
     { trigger: 'drag:3', action: { type: 'drag' } },
@@ -54,6 +56,8 @@
     { trigger: 'hold:4', action: { type: 'lock' } },
     { trigger: 'pinch:4:out', action: { type: 'keys', combo: 'ctrl+equal' }, repeat: true },
     { trigger: 'pinch:4:in', action: { type: 'keys', combo: 'ctrl+minus' }, repeat: true },
+    { trigger: 'pinch:5:in', action: { type: 'keys', combo: 'ctrl+c' } },
+    { trigger: 'pinch:5:out', action: { type: 'keys', combo: 'ctrl+v' } },
   ];
   const SAMPLE_PROFILE = {
     name: 'Browser',
@@ -265,7 +269,8 @@
     for (const k of ['tap_slop_mm', 'swipe_threshold_mm', 'swipe_step_mm', 'pinch_threshold_mm', 'drag_speed', 'drag_acceleration']) {
       if (typeof s[k] !== 'number' || !Number.isFinite(s[k])) throw `invalid value for \`${k}\`: expected f32`;
     }
-    for (const k of ['enabled', 'show_overlay', 'pause_in_fullscreen', 'show_copy_notice', 'onboarded', 'check_updates', 'autostart_configured']) {
+    for (const k of ['enabled', 'show_overlay', 'pause_in_fullscreen', 'show_copy_notice', 'onboarded', 'check_updates', 'autostart_configured',
+      'animations', 'anim_swipe_glow', 'anim_hints', 'anim_pinch', 'anim_notices', 'anim_touches', 'anim_previews', 'anim_mirror', 'anim_celebrate']) {
       if (typeof s[k] !== 'boolean') throw `invalid type for \`${k}\`: expected a boolean`;
     }
     cfg.settings = s;
