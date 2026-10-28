@@ -3235,6 +3235,35 @@
   // Theme switches change canvas colours.
   window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => liveView.readColors());
 
+  /**
+   * Updating keeps your gestures, so people who set Pady up before 0.6
+   * don't have the five-finger pinch for copy and paste. Offer it once,
+   * if both pinches are still free.
+   */
+  function offerCopyPaste() {
+    try { if (localStorage.getItem('pady-copy-paste-offered')) return; } catch (_) { return; }
+    const cfg = store.app.config;
+    if (M.bindingFor(cfg, 'pinch:5:in') || M.bindingFor(cfg, 'pinch:5:out')) return;
+    try { localStorage.setItem('pady-copy-paste-offered', '1'); } catch (_) { /* private mode */ }
+    toast({
+      kind: 'info',
+      title: 'New: copy and paste with one hand',
+      text: 'Close your hand (five-finger pinch in) to copy, open it to paste.',
+      timeout: 15000,
+      action: {
+        label: 'Add it',
+        onClick: async () => {
+          let config = M.withBinding(store.app.config, 'pinch:5:in', { type: 'keys', combo: 'ctrl+c' });
+          config = M.withBinding(config, 'pinch:5:out', { type: 'keys', combo: 'ctrl+v' });
+          try {
+            applyState(await call('save_config', { config }, { errorTitle: 'Couldn’t add copy and paste' }));
+            toast({ title: 'Copy and paste added', text: 'Try it: select something, close your hand, then open it where it should go.' });
+          } catch (_) { /* toast shown */ }
+        },
+      },
+    });
+  }
+
   async function boot() {
     initShell();
     listenAll();
@@ -3250,6 +3279,7 @@
       // `=== false`: a backend without the field never shows the tutorial.
       if (state.config.settings.onboarded === false) openTutorial({ firstRun: true });
       if (state.config.settings.check_updates !== false) checkUpdate(false);
+      if (state.config.settings.onboarded !== false) offerCopyPaste();
     } catch (e) {
       $('#boot').replaceChildren(h('div', { class: 'empty' },
         h('div', { class: 'empty-icon' }, ico('warning', 28)),
