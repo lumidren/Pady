@@ -1,21 +1,22 @@
-//! Windows: small notices in the top-right corner ("Copied", "Gestures
-//! paused"), in the same glass as the level pill.
+//! Windows: notices in the top-right corner ("Copied", "Gestures paused"):
+//! a glass pill wrapped in a soft purple aura whose colours turn around it.
 //!
-//! Like the pill it is a click-through layered window on a thread of its
-//! own, drawn once with GDI+ per notice. Motion only moves the window and
-//! changes its constant alpha, and while something moves each frame waits
-//! for the compositor (`DwmFlush`), so the slide stays in step with the
-//! display instead of a coarse timer. Resting or hidden, the thread sleeps.
+//! Like the level pill it is a click-through layered window on a thread of
+//! its own. The pill itself is drawn once per notice with GDI+; each frame
+//! only blends the aura under it (see `glow`), moves the window and sets its
+//! opacity. While a notice is on screen every frame waits for the compositor
+//! (`DwmFlush`), so motion stays in step with the display; hidden, the thread
+//! sleeps in `GetMessageW`.
 //!
 //! "Copied" comes from the clipboard's change notification: Pady is told
 //! *that* something was copied and never reads what.
 
-use crate::color::Palette;
+use crate::color::{Color, Palette};
 use crate::gdiplus::{self, Brush, Path, Pen, StringFormat};
+use crate::glow::GlowField;
 use crate::layout::{px, Rect};
 use crate::notice::Motion;
-use crate::shadow;
-use crate::windows::{animations_enabled, apps_use_light_theme, copy_pixels, monitor_under_cursor, Surface, TextFont};
+use crate::windows::{animations_enabled, apps_use_light_theme, monitor_under_cursor, Surface, TextFont};
 use crate::windows::{ICON_FONTS, NUMBER_FONTS};
 use crate::Notice;
 use std::ffi::c_void;
@@ -41,11 +42,12 @@ const WM_NOTICE: u32 = WM_APP;
 const WM_STOP: u32 = WM_APP + 1;
 const WM_COPIED: u32 = WM_APP + 2;
 const WM_WATCH: u32 = WM_APP + 3;
-const REST_TIMER: usize = 1;
 const CLASS: PCWSTR = w!("PadyToast");
 
 const GLYPH_CHECK: u16 = 0xE73E;
 const GLYPH_PAUSE: u16 = 0xE769;
+/// One full turn of the aura's colours.
+const TURN: f32 = 2.6;
 
 impl Notice {
     fn text(self) -> &'static str {
@@ -64,8 +66,8 @@ impl Notice {
 
     fn rest(self) -> Duration {
         match self {
-            Notice::Copied => Duration::from_millis(1100),
-            Notice::Paused => Duration::from_millis(2600),
+            Notice::Copied => Duration::from_millis(1500),
+            Notice::Paused => Duration::from_millis(2800),
         }
     }
 }
@@ -147,7 +149,10 @@ fn run(notices: Receiver<Notice>, ready: SyncSender<std::result::Result<isize, S
     let mut toaster = Toaster::new(hwnd);
     // Fonts and drawing proven before reporting success; also makes the first notice instant.
     let (_, dpi) = monitor_under_cursor();
-    if let Err(e) = toaster.prepare(Style { dpi, light: apps_use_light_theme() }) {
+    let prepared = toaster
+        .prepare(Style { dpi, light: apps_use_light_theme() })
+        .and_then(|()| toaster.renderer.as_mut().ok_or("no renderer".into()).and_then(|r| r.draw(Notice::Copied)));
+    if let Err(e) = prepared {
         let _ = ready.send(Err(format!("could not draw: {e}")));
         unsafe {
             let _ = DestroyWindow(hwnd);
@@ -160,8 +165,9 @@ fn run(notices: Receiver<Notice>, ready: SyncSender<std::result::Result<isize, S
 
     let mut msg = MSG::default();
     'outer: loop {
-        if toaster.motion.moving() {
-            // Moving: handle whatever arrived, then wait for the compositor's next frame.
+        if toaster.motion.visible() {
+            // On screen: handle whatever arrived, then draw the next frame as
+            // soon as the compositor has shown the last one.
             while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
                 if !toaster.handle(&msg, &notices) {
                     break 'outer;
@@ -282,13 +288,6 @@ impl Toaster {
                     self.watch(msg.wParam.0 != 0);
                     return true;
                 }
-                WM_TIMER if msg.wParam.0 == REST_TIMER => {
-                    unsafe {
-                        let _ = KillTimer(self.hwnd, REST_TIMER);
-                    }
-                    self.step();
-                    return true;
-                }
                 WM_STOP => return false,
                 _ => {}
             }
@@ -344,15 +343,15 @@ impl Toaster {
             }
         };
         if appearing || resized {
-            let margin = px(16.0, renderer.scale) as i32;
-            let (pill, scale) = (renderer.pill, renderer.scale);
+            // The pill's top-right corner sits 18 logical px in from the work area's.
+            let (pill, s) = (renderer.pill, renderer.scale);
+            let inset = px(18.0, s);
             self.origin = (
-                self.anchor.0 - margin - (pill.right()).round() as i32,
-                self.anchor.1 + margin - pill.y.round() as i32 + px(4.0, scale) as i32,
+                self.anchor.0 - (inset + pill.right()).round() as i32,
+                self.anchor.1 + (inset - pill.y).round() as i32,
             );
         }
-        let entered = self.motion.show(now, notice.rest());
-        if entered {
+        if self.motion.show(now, notice.rest()) {
             // The first frame (fully transparent) is in place before the window shows.
             self.step();
             unsafe {
@@ -360,32 +359,33 @@ impl Toaster {
                 let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
                 let _ = SetWindowPos(self.hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags);
             }
-        } else {
-            self.step();
         }
     }
 
-    /// Draws the pose for now, hides once gone, and wakes up when the rest ends.
+    /// Draws the frame for now, or hides the window once the notice is gone.
     fn step(&mut self) {
         let now = self.epoch.elapsed();
         self.motion.tick(now);
         if !self.motion.visible() {
             unsafe {
                 let _ = ShowWindow(self.hwnd, SW_HIDE);
-                let _ = KillTimer(self.hwnd, REST_TIMER);
             }
             return;
         }
         let pose = self.motion.pose(now);
-        log::trace!("notice frame at {:.1} ms: opacity {:.2}", now.as_secs_f64() * 1000.0, pose.opacity);
-        let Some(renderer) = &self.renderer else { return };
+        let glow = self.motion.glow(now);
+        let turn = (now.as_secs_f32() / TURN).fract();
+        log::trace!(
+            "notice frame at {:.1} ms: opacity {:.2}, glow {glow:.2}",
+            now.as_secs_f64() * 1000.0,
+            pose.opacity
+        );
+        let Some(renderer) = self.renderer.as_mut() else { return };
         let y = self.origin.1 + (pose.dy * renderer.scale).round() as i32;
-        if let Err(e) = renderer.push(self.hwnd, (self.origin.0, y), pose.opacity) {
+        let result =
+            renderer.compose(glow, turn).and_then(|()| renderer.push(self.hwnd, (self.origin.0, y), pose.opacity));
+        if let Err(e) = result {
             self.report(&*e);
-        }
-        if let Some(until) = self.motion.rest_ends() {
-            let ms = u32::try_from(until.saturating_sub(now).as_millis()).unwrap_or(u32::MAX).max(USER_TIMER_MINIMUM);
-            unsafe { SetTimer(self.hwnd, REST_TIMER, ms, None) };
         }
     }
 
@@ -399,7 +399,7 @@ impl Toaster {
     }
 }
 
-/// Fonts and the bitmap for one DPI and theme.
+/// Fonts, the drawn pill and the aura for one DPI and theme.
 struct Renderer {
     style: Style,
     scale: f32,
@@ -410,7 +410,11 @@ struct Renderer {
     centered: StringFormat,
     /// A 1×1 surface, just to measure text before sizing the real one.
     measure: Surface,
+    /// What the window shows: rewritten every frame.
     surface: Option<Surface>,
+    /// The pill alone (premultiplied pixels), drawn once per notice.
+    pill_layer: Vec<u32>,
+    glow: Option<GlowField>,
     size: (i32, i32),
     pill: Rect,
     drawn: Option<Notice>,
@@ -419,10 +423,10 @@ struct Renderer {
 impl Renderer {
     fn new(style: Style) -> Result<Renderer> {
         let scale = crate::layout::scale_for(style.dpi);
-        let icon = ICON_FONTS.iter().find_map(|name| TextFont::new(name, gdiplus::REGULAR, px(12.0, scale)).ok());
+        let icon = ICON_FONTS.iter().find_map(|name| TextFont::new(name, gdiplus::REGULAR, px(15.0, scale)).ok());
         let text = std::iter::once(("Segoe UI Variable Text Semibold", gdiplus::REGULAR))
             .chain(NUMBER_FONTS.iter().copied().skip(1))
-            .find_map(|(name, weight)| TextFont::new(name, weight, px(13.5, scale)).ok())
+            .find_map(|(name, weight)| TextFont::new(name, weight, px(16.0, scale)).ok())
             .ok_or("no font for notices")?;
         Ok(Renderer {
             style,
@@ -434,13 +438,15 @@ impl Renderer {
             centered: StringFormat::typographic(StringAlignmentCenter)?,
             measure: Surface::new(1, 1)?,
             surface: None,
+            pill_layer: Vec::new(),
+            glow: None,
             size: (0, 0),
             pill: Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 },
             drawn: None,
         })
     }
 
-    /// Draws `notice` unless it is already drawn. `true` if the window's size changed.
+    /// Draws the pill for `notice` unless it is already drawn. `true` if the window's size changed.
     fn draw(&mut self, notice: Notice) -> Result<bool> {
         if self.drawn == Some(notice) {
             return Ok(false);
@@ -448,29 +454,31 @@ impl Renderer {
         let s = self.scale;
         let text: Vec<u16> = notice.text().encode_utf16().collect();
         let text_w = self.measure.graphics.measure(&text, &self.text.font, &self.near)?.ceil();
-        let (margin, height) = (px(22.0, s), px(38.0, s));
-        let (pad_left, dot, gap, pad_right) = (px(8.0, s), px(22.0, s), px(9.0, s), px(15.0, s));
-        let pill = Rect { x: margin, y: margin - px(6.0, s), w: pad_left + dot + gap + text_w + pad_right, h: height };
+        // Room around the pill for the aura to fade out in.
+        let margin = px(40.0, s);
+        let height = px(50.0, s);
+        let (pad_left, dot, gap, pad_right) = (px(9.0, s), px(32.0, s), px(12.0, s), px(22.0, s));
+        let pill = Rect { x: margin, y: margin, w: pad_left + dot + gap + text_w + pad_right, h: height };
         let size = ((pill.w + 2.0 * margin) as i32, (pill.h + 2.0 * margin) as i32);
         let resized = size != self.size;
         if resized || self.surface.is_none() {
             self.surface = None;
             self.surface = Some(Surface::new(size.0, size.1)?);
             self.size = size;
+            self.glow = Some(GlowField::new(size.0 as usize, size.1 as usize, pill, pill.h / 2.0, s));
         }
         self.pill = pill;
         let p = self.palette;
         let surface = self.surface.as_mut().ok_or("no surface")?;
-
-        let radius = pill.h / 2.0;
-        let shadows = shadow::render(size.0 as usize, size.1 as usize, pill, radius, &p.shadows, s);
-        copy_pixels(surface.dib.pixels(), &shadows)?;
+        surface.dib.pixels().fill(0);
         let g = &surface.graphics;
 
-        // Glass, sheen and border, as on the level pill.
+        // Glass, sheen and a hairline border, as on the level pill.
+        let radius = pill.h / 2.0;
         let mut shape = Path::new()?;
         shape.set_rounded_rect(pill, radius)?;
-        g.fill_path(&Brush::solid(p.glass)?, &shape)?;
+        // Solid, so the aura behind never shows through the glass.
+        g.fill_path(&Brush::solid(Color { a: 1.0, ..p.glass })?, &shape)?;
         let clear = p.shine.fade(0.0);
         let sheen = Rect { y: pill.y - 1.0, h: pill.h + 2.0, ..pill };
         g.fill_path(&Brush::vertical(sheen, &[(0.0, p.shine), (0.55, clear), (1.0, clear)])?, &shape)?;
@@ -485,15 +493,14 @@ impl Renderer {
         g.fill_path(&Brush::horizontal(circle.x, circle.right(), &[(0.0, p.fill.0), (1.0, p.fill.1)])?, &round)?;
         if let Some(icon) = &self.icon {
             let line = icon.ascent + icon.descent;
-            let em = px(12.0, s);
+            let em = px(15.0, s);
             let at = Rect {
                 x: (circle.center_x() - em / 2.0).round(),
                 y: (circle.center_y() - line / 2.0).round(),
                 w: em,
                 h: line,
             };
-            let white = crate::color::Color::rgb(255, 255, 255);
-            g.draw_text(&[notice.glyph()], &icon.font, at, &self.centered, &Brush::solid(white)?)?;
+            g.draw_text(&[notice.glyph()], &icon.font, at, &self.centered, &Brush::solid(Color::rgb(255, 255, 255))?)?;
         }
 
         // The words, centred on the pill's middle line.
@@ -502,8 +509,22 @@ impl Renderer {
         let at = Rect { x: circle.right() + gap, y: baseline - t.ascent, w: text_w + px(4.0, s), h: t.line() };
         g.draw_text(&text, &t.font, at, &self.near, &Brush::solid(p.text)?)?;
         g.flush()?;
+        self.pill_layer = surface.dib.pixels().to_vec();
         self.drawn = Some(notice);
         Ok(resized)
+    }
+
+    /// Puts this frame's aura around the pill.
+    fn compose(&mut self, glow: f32, turn: f32) -> Result<()> {
+        let (Some(surface), Some(field)) = (self.surface.as_mut(), self.glow.as_ref()) else {
+            return Err("nothing drawn yet".into());
+        };
+        let out = surface.dib.pixels();
+        if out.len() != self.pill_layer.len() {
+            return Err("notice bitmap size mismatch".into());
+        }
+        field.paint(out, &self.pill_layer, glow, turn);
+        Ok(())
     }
 
     fn push(&self, hwnd: HWND, at: (i32, i32), opacity: f32) -> Result<()> {
@@ -536,7 +557,6 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::color::Color;
     use crate::windows::tests::GDIPLUS;
 
     #[test]
@@ -551,16 +571,34 @@ mod tests {
                 assert!(!r.draw(Notice::Copied).expect("draw"), "same notice: nothing to do");
                 assert!(r.draw(Notice::Paused).expect("draw"), "longer text, wider window");
                 assert!(r.size.0 > copied.0);
-                // Opaque glass in the pill, nothing in the far corner.
+                r.compose(1.0, 0.3).expect("compose");
+                let w = r.size.0 as usize;
+                let (cx, cy) = (r.pill.right() - px(10.0, r.scale), r.pill.center_y());
                 let px_at = |r: &mut Renderer, x: f32, y: f32| {
-                    let w = r.size.0 as usize;
-                    r.surface.as_mut().unwrap().dib.pixels()[y as usize * w + x as usize] >> 24
+                    r.surface.as_mut().unwrap().dib.pixels()[y as usize * w + x as usize]
                 };
-                let (cx, cy) = (r.pill.right() - px(8.0, r.scale), r.pill.center_y());
-                assert!(px_at(&mut r, cx, cy) > 200, "glass at {dpi} dpi");
-                assert_eq!(px_at(&mut r, 0.0, 0.0), 0);
+                assert_eq!(px_at(&mut r, cx, cy) >> 24, 255, "solid glass at {dpi} dpi");
+                let (bx, by) = (r.pill.center_x(), r.pill.y + r.pill.h + px(4.0, r.scale));
+                let below = px_at(&mut r, bx, by);
+                assert!(below >> 24 > 40, "the aura glows under the pill: {below:08x}");
+                assert_eq!(px_at(&mut r, 0.0, 0.0) >> 24, 0, "nothing in the far corner");
             }
         }
+    }
+
+    #[test]
+    fn a_frame_is_quick() {
+        let _turn = GDIPLUS.lock().unwrap_or_else(|e| e.into_inner());
+        let _gdiplus = gdiplus::Session::start().expect("GDI+");
+        let mut r = Renderer::new(Style { dpi: 192, light: false }).expect("renderer");
+        r.draw(Notice::Paused).expect("draw");
+        let start = Instant::now();
+        for i in 0..120 {
+            r.compose(1.0 + (i % 10) as f32 * 0.03, i as f32 / 120.0).expect("compose");
+        }
+        let per_frame = start.elapsed() / 120;
+        // Debug builds are slower; release is several times quicker still.
+        assert!(per_frame < Duration::from_millis(8), "{per_frame:?} per frame at 200%");
     }
 
     /// Writes renders over a backdrop to `%TEMP%\pady-toast-preview`:
@@ -576,23 +614,26 @@ mod tests {
             let mut r = Renderer::new(Style { dpi, light }).expect("renderer");
             for notice in [Notice::Copied, Notice::Paused] {
                 r.draw(notice).expect("draw");
-                let (w, h) = r.size;
-                let (top, bottom) = if light {
-                    (Color::rgb(230, 233, 255), Color::rgb(248, 240, 255))
-                } else {
-                    (Color::rgb(60, 64, 120), Color::rgb(14, 15, 24))
-                };
-                let mut px = r.surface.as_mut().unwrap().dib.pixels().to_vec();
-                for (i, p) in px.iter_mut().enumerate() {
-                    let bg = top.lerp(bottom, (i / w as usize) as f32 / h as f32);
-                    let (a, sr, sg, sb) = (*p >> 24, (*p >> 16) & 0xff, (*p >> 8) & 0xff, *p & 0xff);
-                    let k = 1.0 - a as f32 / 255.0;
-                    let mix = |s: u32, b: f32| (s as f32 + b * k).round().min(255.0) as u32;
-                    *p = 0xff00_0000 | mix(sr, bg.r) << 16 | mix(sg, bg.g) << 8 | mix(sb, bg.b);
+                for (frame, (glow, turn)) in [(1.0f32, 0.0f32), (1.45, 0.35)].into_iter().enumerate() {
+                    r.compose(glow, turn).expect("compose");
+                    let (w, h) = r.size;
+                    let (top, bottom) = if light {
+                        (Color::rgb(236, 238, 250), Color::rgb(250, 248, 255))
+                    } else {
+                        (Color::rgb(34, 36, 60), Color::rgb(12, 13, 20))
+                    };
+                    let mut px = r.surface.as_mut().unwrap().dib.pixels().to_vec();
+                    for (i, p) in px.iter_mut().enumerate() {
+                        let bg = top.lerp(bottom, (i / w as usize) as f32 / h as f32);
+                        let (a, sr, sg, sb) = (*p >> 24, (*p >> 16) & 0xff, (*p >> 8) & 0xff, *p & 0xff);
+                        let k = 1.0 - a as f32 / 255.0;
+                        let mix = |s: u32, b: f32| (s as f32 + b * k).round().min(255.0) as u32;
+                        *p = 0xff00_0000 | mix(sr, bg.r) << 16 | mix(sg, bg.g) << 8 | mix(sb, bg.b);
+                    }
+                    let bitmap = unsafe { gdiplus::Bitmap::over_pixels(w, h, px.as_mut_ptr().cast()) }.expect("bitmap");
+                    let name = format!("{notice:?}-{}-{frame}.png", if light { "light" } else { "dark" });
+                    bitmap.save_png(&dir.join(name)).expect("png");
                 }
-                let bitmap = unsafe { gdiplus::Bitmap::over_pixels(w, h, px.as_mut_ptr().cast()) }.expect("bitmap");
-                let name = format!("{notice:?}-{}.png", if light { "light" } else { "dark" });
-                bitmap.save_png(&dir.join(name)).expect("png");
             }
         }
         println!("previews in {}", dir.display());

@@ -7,11 +7,17 @@
 
 use std::time::Duration;
 
-pub const ENTER: Duration = Duration::from_millis(220);
-pub const LEAVE: Duration = Duration::from_millis(240);
+pub const ENTER: Duration = Duration::from_millis(260);
+pub const LEAVE: Duration = Duration::from_millis(300);
 /// Logical pixels travelled while entering and leaving.
-pub const SLIDE_IN: f32 = 10.0;
-pub const SLIDE_OUT: f32 = 6.0;
+pub const SLIDE_IN: f32 = 14.0;
+pub const SLIDE_OUT: f32 = 8.0;
+/// The glow swells past full strength as the notice lands, then settles.
+const BLOOM_PEAK: Duration = Duration::from_millis(200);
+const BLOOM_SETTLED: Duration = Duration::from_millis(750);
+const BLOOM: f32 = 1.45;
+/// Resting, the glow breathes gently.
+const BREATH: Duration = Duration::from_millis(1800);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Phase {
@@ -48,11 +54,13 @@ pub struct Motion {
     pub rest: Duration,
     /// Windows' animation effects; off means fades only, no sliding.
     pub slide: bool,
+    /// When the notice last appeared from hidden.
+    pub shown_at: Duration,
 }
 
 impl Default for Motion {
     fn default() -> Self {
-        Motion { phase: Phase::Hidden, rest: Duration::from_millis(1400), slide: true }
+        Motion { phase: Phase::Hidden, rest: Duration::from_millis(1400), slide: true, shown_at: Duration::ZERO }
     }
 }
 
@@ -64,6 +72,7 @@ impl Motion {
         match self.phase {
             Phase::Hidden => {
                 self.phase = Phase::Entering { since: now };
+                self.shown_at = now;
                 true
             }
             // Already arriving: let it finish; the rest starts afterwards.
@@ -108,12 +117,30 @@ impl Motion {
         }
     }
 
-    /// Frames are needed every refresh while moving.
-    pub fn moving(&self) -> bool {
-        matches!(self.phase, Phase::Entering { .. } | Phase::Leaving { .. })
+    /// How strong the glow is: a bloom as the notice lands, then a slow
+    /// breath. Without animation effects it simply stays at full strength.
+    pub fn glow(&self, now: Duration) -> f32 {
+        if !self.visible() {
+            return 0.0;
+        }
+        if !self.slide {
+            return 1.0;
+        }
+        let since = now.saturating_sub(self.shown_at);
+        if since < BLOOM_PEAK {
+            return ease_out(progress(since, Duration::ZERO, BLOOM_PEAK)) * BLOOM;
+        }
+        if since < BLOOM_SETTLED {
+            let t = progress(since, BLOOM_PEAK, BLOOM_SETTLED - BLOOM_PEAK);
+            let t = t * t * (3.0 - 2.0 * t);
+            return BLOOM + (1.0 - BLOOM) * t;
+        }
+        let breath = (since - BLOOM_SETTLED).as_secs_f32() / BREATH.as_secs_f32() * std::f32::consts::TAU;
+        1.0 + 0.09 * (1.0 - breath.cos()) / 2.0
     }
 
     /// When a resting notice should start leaving.
+    #[cfg(test)]
     pub fn rest_ends(&self) -> Option<Duration> {
         match self.phase {
             Phase::Resting { until } => Some(until),
@@ -190,6 +217,21 @@ mod tests {
         assert!((after - before).abs() < 0.15, "no jump: {before} → {after}");
         run(&mut m, 520, 800, 4);
         assert_eq!(m.pose(ms(800)).opacity, 1.0, "back to resting");
+    }
+
+    #[test]
+    fn the_glow_blooms_then_settles_and_breathes() {
+        let mut m = Motion::default();
+        m.show(ms(0), ms(3000));
+        assert_eq!(m.glow(ms(0)), 0.0, "starts dark");
+        assert!(m.glow(ms(200)) > 1.4, "blooms past full as it lands");
+        let settled = m.glow(ms(750));
+        assert!((settled - 1.0).abs() < 0.01, "then settles: {settled}");
+        let samples: Vec<f32> = (750..2600).step_by(50).map(|t| m.glow(ms(t))).collect();
+        assert!(samples.iter().all(|g| (1.0..=1.1).contains(g)), "breathes gently: {samples:?}");
+        // No jumps between frames anywhere in the first two seconds.
+        let frames: Vec<f32> = (0..2000).step_by(8).map(|t| m.glow(ms(t))).collect();
+        assert!(frames.windows(2).all(|w| (w[1] - w[0]).abs() < 0.2), "smooth");
     }
 
     #[test]
