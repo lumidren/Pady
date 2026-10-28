@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.0 (2026-10-29)
+
+### Added
+- **Copy and paste with one hand.** Close your hand on the touchpad (a five-finger pinch in) to copy, and open it to paste. It's in the Recommended, Like a Mac and Productivity sets; if you set Pady up before, the app offers to add it once.
+- **"Pasted" notice.** Pasting with a gesture gets its own glowing corner notice, like "Copied".
+- **Swipe glow.** A soft glow in Pady's colours grows at the screen edge a swipe is heading for, and flashes when it fires (only for swipes that do something). Windows.
+- **Pinch steps.** A corner notice counts each zoom step while you pinch. Windows.
+- **Action notices.** Screenshots, play/pause and track changes get a small corner notice, since there's nothing else to see. Windows.
+- **Gesture hints** (off by default): a corner notice names each gesture and what it did, while you learn your gestures. Windows.
+- **Show touches** (off by default): glowing fingertips follow your fingers on a small touchpad in the corner, for recording tutorials. Windows.
+- **Gesture previews.** On the Gestures page, the cards take turns playing a little loop of the fingers doing them.
+- **Live touchpad in Settings.** The Pinch section shows your fingers as you move them.
+- **First-time celebrations.** A small burst of confetti the first time each gesture works.
+- **An Animations section in Settings**, with one switch for everything and one for each animation.
+
+### Changed
+- "Copied" only shows for copies you make in the app in front of you, not when another program (a clipboard manager, cloud clipboard sync, a password manager) changes the clipboard.
+
+### Performance
+- The glow and the touch pad are drawn once; each frame only moves them and changes their opacity, paced by the display, at about 0.2 ms of work per frame. With nothing moving, the thread sleeps and costs nothing.
+
 ## 0.5.3 (2026-10-28)
 
 ### Changed

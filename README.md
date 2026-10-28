@@ -37,9 +37,11 @@
 ## Why Pady
 
 - **More gestures than your OS gives you.** Tap, double tap, triple tap, hold, swipe in four directions, pinch in or out, and drag, each with 3, 4 or 5 fingers. That's 33 gestures you can bind.
+- **Copy and paste with one hand.** Close your hand on the touchpad (a five-finger pinch in) to copy, open it to paste. A glowing "Copied" or "Pasted" notice confirms it.
 - **Three-finger drag on Windows.** Move windows and select text without pressing the touchpad, like on a Mac.
 - **Scrub, don't spam.** Keep sliding and volume, brightness or zoom keeps stepping. An on-screen pill shows the level without ever stealing focus.
 - **Per-app profiles.** Swipes switch browser tabs in Chrome and desktops everywhere else. Pady can detect the app for you.
+- **Feedback you can see.** A soft glow grows at the screen edge your swipe is heading for, pinches count their zoom steps, and actions with nothing to see get a small notice. Every animation has its own switch, and one switch turns them all off.
 - **Beginner friendly.** A first-run tutorial checks your touchpad, turns off clashing OS gestures, offers starter presets and lets you practise.
 - **Keeps itself up to date.** A new version is one click away, from the tray or the app.
 - **Light and private.** Written in Rust. In the tray it's one ~20 MB process that uses no CPU while idle, and it has no telemetry and no accounts.
@@ -114,10 +116,10 @@ Every gesture works with 3, 4 or 5 fingers. Fewer fingers stay with your OS for 
 
 | Preset | In short |
 |---|---|
-| **Recommended** | Three-finger drag; three-finger tap plays or pauses and double tap skips the track; four-finger swipes change volume and brightness; four-finger pinch zooms. |
-| **Like a Mac** | Three-finger drag, four-finger swipes for task view, the desktop and switching desktops, pinch to zoom. |
+| **Recommended** | Three-finger drag; three-finger tap plays or pauses and double tap skips the track; four-finger swipes change volume and brightness; four-finger pinch zooms; five-finger pinch copies and pastes. |
+| **Like a Mac** | Three-finger drag, four-finger swipes for task view, the desktop and switching desktops, pinch to zoom, five-finger pinch to copy and paste. |
 | **Media** | Single, double and triple taps play, skip and go back; four-finger swipes change the volume and track. |
-| **Productivity** | Desktops, task view, screenshots and lock on four fingers, plus three-finger drag. |
+| **Productivity** | Desktops, task view, screenshots and lock on four fingers, three-finger drag, and five-finger pinch to copy and paste. |
 | **Minimal** | Only three-finger drag. |
 
 Pick one in the tutorial or in Settings, or run `pady-cli config preset media`.
