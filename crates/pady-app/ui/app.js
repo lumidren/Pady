@@ -2152,7 +2152,7 @@
   // Fallbacks if the backend's settings predate a field (same values as pady-core's defaults).
   const SETTING_DEFAULTS = {
     tap_max_ms: 220, tap_slop_mm: 4, multi_tap_ms: 300, swipe_threshold_mm: 10, swipe_step_mm: 7, pinch_threshold_mm: 8,
-    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true, check_updates: true,
+    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true, show_copy_notice: true, check_updates: true,
   };
   // Starter-set icons by preset id (unknown ids get a generic one).
   const PRESET_ICONS = { recommended: 'sparkle', macos: 'command', media: 'play-pause', productivity: 'taskview', minimal: 'minimal' };
@@ -2232,6 +2232,7 @@
               h('span', { class: 'switch' }, setUI.autostart, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' })))),
             settingToggle('show_overlay', 'Show Pady\'s level pill', 'Pady\'s own volume & brightness pill near the bottom of the screen. On Windows, volume always shows Windows\' own slider.'),
             settingToggle('check_updates', 'Check for updates', 'Looks for a new version on GitHub twice a day and lets you install it with one click.'),
+            setUI.copyRow = settingToggle('show_copy_notice', 'Show a "Copied" notice', 'A small notice in the top-right corner each time you copy something. Pady is told that you copied, never what.'),
             setUI.pauseRow = settingToggle('pause_in_fullscreen', 'Pause in full-screen games', 'Pady ignores gestures while a game runs in exclusive full screen.'),
             h('div', { class: 'row' },
               h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Tutorial'), h('div', { class: 'row-sub' }, 'A quick, hands-on tour of the basics.')),
@@ -2269,6 +2270,7 @@
       if (!(key in setUI.pending)) input.checked = (cfg[key] ?? SETTING_DEFAULTS[key]) !== false;
     }
     setUI.pauseRow.hidden = platform() !== 'windows'; // exclusive full screen is a Windows thing
+    setUI.copyRow.hidden = platform() !== 'windows'; // the corner notices are drawn natively on Windows
     renderPresetList();
     setUI.autostart.checked = !!s.autostart;
     setUI.autostartTitle.textContent = `Start with ${osName()}`;

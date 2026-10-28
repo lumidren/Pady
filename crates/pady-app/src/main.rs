@@ -37,6 +37,8 @@ struct Pady {
     engine: Engine,
     frames: Sender<TouchFrame>,
     input: Mutex<Result<InputHandle, String>>,
+    /// The corner notices ("Copied", "Gestures paused"), on Windows.
+    toasts: Option<Arc<pady_overlay::Toasts>>,
     /// Stream frames to the UI only while its Live page is open.
     live: Arc<AtomicBool>,
     tray_toggle: Mutex<Option<CheckMenuItem<Wry>>>,
@@ -387,8 +389,10 @@ fn observer(
     live: Arc<AtomicBool>,
     config: Arc<SharedConfig>,
     native_overlay: Option<pady_overlay::Overlay>,
+    toasts: Option<Arc<pady_overlay::Toasts>>,
 ) -> Observer {
     let last_frame = AtomicU64::new(0);
+    let last_paused_notice = AtomicU64::new(0);
     let web_overlay = WebOverlay { app: app.clone(), shown: Arc::new(AtomicU64::new(0)) };
     Arc::new(move |event| match event {
         EngineEvent::Frame(frame) => {
@@ -417,20 +421,85 @@ fn observer(
         EngineEvent::ActionFailed { action, error } => {
             let _ = app.emit("pady://action-failed", json!({ "action": action, "error": error }));
         }
+        // Never ignore a gesture silently; once in a while is enough to explain why.
+        EngineEvent::Paused { .. } => {
+            let now = pady_core::now_ms();
+            if now.saturating_sub(last_paused_notice.load(Ordering::Relaxed)) >= 20_000 {
+                last_paused_notice.store(now, Ordering::Relaxed);
+                if let Some(toasts) = &toasts {
+                    toasts.show(pady_overlay::Notice::Paused);
+                }
+            }
+        }
     })
 }
 
+/// No touch for this long while the user is active looks like a listener
+/// that quietly stopped hearing the touchpad; replacing it costs nothing.
+const STALE_AFTER: Duration = Duration::from_secs(10 * 60);
+
+fn listener_looks_stale(since_last_frame: Option<Duration>, user_idle: Option<Duration>) -> bool {
+    let active = user_idle.is_some_and(|idle| idle < Duration::from_secs(5));
+    active && since_last_frame.is_some_and(|since| since >= STALE_AFTER)
+}
+
+/// Replaces the touchpad listener with a fresh one.
+fn restart_input(pady: &Pady, reason: &str) {
+    let mut input = lock(&pady.input);
+    if let Ok(old) = &*input {
+        old.stop(Duration::from_secs(2));
+    }
+    match pady_input::start(pady.frames.clone()) {
+        Ok(fresh) => {
+            log::info!("{reason}: touchpad listener restarted");
+            *input = Ok(fresh);
+        }
+        Err(e) => {
+            log::warn!("{reason}: could not restart the touchpad listener: {e}");
+            *input = Err(e.to_string());
+        }
+    }
+}
+
 /// Background housekeeping: retry the touchpad if it was missing (e.g. a
-/// USB touchpad plugged in later) and pick up hand edits to the config file.
+/// USB touchpad plugged in later), restart it after sleep or if it stops,
+/// and pick up hand edits to the config file.
 fn spawn_watcher(app: AppHandle) {
     std::thread::Builder::new()
         .name("pady-watcher".into())
         .spawn(move || {
             let mut last_retry = Instant::now();
+            let mut last_wall = SystemTime::now();
+            let mut last_stale_restart = Instant::now();
+            let mut copy_notice = app.state::<Pady>().config.get().settings.show_copy_notice;
             loop {
                 std::thread::sleep(Duration::from_secs(2));
                 let pady = app.state::<Pady>();
                 let mut changed = false;
+
+                // The watchdog: whatever went wrong, a fresh listener fixes it.
+                let wall = SystemTime::now();
+                let gap = wall.duration_since(last_wall).unwrap_or_default();
+                last_wall = wall;
+                let reason = {
+                    let input = lock(&pady.input);
+                    match &*input {
+                        Ok(_) if gap > Duration::from_secs(15) => Some("woke from sleep"),
+                        Ok(handle) if !handle.is_alive() => Some("the touchpad listener stopped"),
+                        Ok(handle)
+                            if listener_looks_stale(handle.since_last_frame(), pady_input::sched::user_idle())
+                                && last_stale_restart.elapsed() >= STALE_AFTER =>
+                        {
+                            last_stale_restart = Instant::now();
+                            Some("no touch for a while although the computer is in use")
+                        }
+                        _ => None,
+                    }
+                };
+                if let Some(reason) = reason {
+                    restart_input(&pady, reason);
+                    changed = true;
+                }
 
                 if lock(&pady.input).is_err() && last_retry.elapsed() >= Duration::from_secs(10) {
                     last_retry = Instant::now();
@@ -458,6 +527,14 @@ fn spawn_watcher(app: AppHandle) {
                                 json!({ "action": "Reload config", "error": e.to_string() }),
                             );
                         }
+                    }
+                }
+
+                let wanted = pady.config.get().settings.show_copy_notice;
+                if wanted != copy_notice {
+                    copy_notice = wanted;
+                    if let Some(toasts) = &pady.toasts {
+                        toasts.watch_clipboard(wanted);
                     }
                 }
 
@@ -642,6 +719,10 @@ fn main() {
             // A native pill on Windows: no WebView kept alive just to show levels.
             let native_overlay = pady_overlay::Overlay::spawn();
             let web_overlay_needed = native_overlay.is_none();
+            let toasts = pady_overlay::Toasts::spawn().map(Arc::new);
+            if let Some(toasts) = &toasts {
+                toasts.watch_clipboard(config.get().settings.show_copy_notice);
+            }
 
             let (frames_tx, frames_rx) = crossbeam_channel::unbounded();
             let input = pady_input::start(frames_tx.clone()).map_err(|e| e.to_string());
@@ -652,7 +733,7 @@ fn main() {
                 config.clone(),
                 frames_rx,
                 pady_actions::executor,
-                observer(app.handle().clone(), live.clone(), config.clone(), native_overlay),
+                observer(app.handle().clone(), live.clone(), config.clone(), native_overlay, toasts.clone()),
                 pady_input::sched::scheduling(),
             );
 
@@ -665,6 +746,7 @@ fn main() {
                 input: Mutex::new(input),
                 live,
                 tray_toggle: Mutex::new(None),
+                toasts,
             });
 
             // Windows are created only now (`create: false` in tauri.conf.json):
@@ -712,6 +794,21 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_listener_looks_stale_only_while_the_computer_is_in_use() {
+        use super::{listener_looks_stale, STALE_AFTER};
+        use std::time::Duration;
+        let long = Some(STALE_AFTER + Duration::from_secs(1));
+        let recent = Some(Duration::from_secs(30));
+        let active = Some(Duration::from_secs(1));
+        let away = Some(Duration::from_secs(600));
+        assert!(listener_looks_stale(long, active), "no touch for ages while typing");
+        assert!(!listener_looks_stale(recent, active), "touched recently");
+        assert!(!listener_looks_stale(long, away), "nobody at the computer");
+        assert!(!listener_looks_stale(None, active), "no touch since start: nothing to compare");
+        assert!(!listener_looks_stale(long, None), "activity unknown (Linux)");
+    }
+
     /// The names between `open` and the next `close` in `text`, split on commas.
     fn names<'a>(text: &'a str, open: &str, close: char) -> Vec<&'a str> {
         let start = text.find(open).expect("list start") + open.len();
