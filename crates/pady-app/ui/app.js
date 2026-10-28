@@ -1861,6 +1861,7 @@
   function onGesture(p) {
     tourGesture(p);
     const g = p.gesture || {};
+    if (g.kind === 'pinch' && g.step === 0) flashPinch(g.direction, g.fingers);
     const now = new Date();
     const top = store.recent[0];
     const repeating = (g.kind === 'swipe' || g.kind === 'pinch') && g.step > 0;
@@ -2142,7 +2143,7 @@
     { group: 'recog', key: 'multi_tap_ms', name: 'Double-tap speed', min: 150, max: 600, step: 10, fmt: (v) => [v, 'ms'], help: 'The longest gap between taps that still counts as a double or triple tap. Single taps wait this long when a double or triple tap is bound.' },
     { group: 'recog', key: 'swipe_threshold_mm', name: 'Swipe distance', min: 4, max: 30, step: 1, fmt: (v) => [Number(v).toFixed(0), 'mm'], help: 'Travel needed before a swipe — or a drag — is recognised.' },
     { group: 'recog', key: 'swipe_step_mm', name: 'Repeat spacing', min: 3, max: 20, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'mm'], help: 'Extra travel (or pinch) between repeats for gestures that keep firing, like a volume scrub or zoom.' },
-    { group: 'recog', key: 'pinch_threshold_mm', name: 'Pinch distance', min: 3, max: 20, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'mm'], help: 'How much your fingers must spread apart or close together before a pinch is recognised.' },
+    { group: 'pinch', key: 'pinch_threshold_mm', name: 'Pinch sensitivity', min: 3, max: 20, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'mm'], help: 'How much your hand must open or close before a pinch counts. Lower reacts to smaller pinches.' },
     { group: 'recog', key: 'hold_ms', name: 'Hold time', min: 300, max: 1500, step: 50, fmt: (v) => [v, 'ms'], help: 'How long fingers rest without moving before it counts as a hold.' },
     { group: 'drag', key: 'drag_speed', name: 'Drag speed', min: 2, max: 25, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'px/mm'], help: 'Cursor pixels per millimetre of finger travel while dragging.' },
     { group: 'drag', key: 'drag_acceleration', name: 'Drag acceleration', min: 0, max: 3, step: 0.1, fmt: (v) => (Number(v) === 0 ? ['Linear', ''] : [Number(v).toFixed(1), '×']), help: 'How much faster quick flicks move the cursor. 0 keeps movement linear.' },
@@ -2168,6 +2169,25 @@
       h('div', { class: 'panel-head' }, h('span', { class: 'panel-icon' }, ico(iconName, 16)),
         h('div', null, h('div', { class: 'panel-title' }, title), h('div', { class: 'panel-sub' }, sub))),
       h('div', { class: 'panel-body' }, body));
+
+    /* Pinch gets its own highlighted section: people pinch fast and with a
+       tilted hand, so it says so, and lets them try it right here. */
+    const pinchPanel = (sliders) => {
+      const chip = (dir, label) => h('div', { class: 'pinch-chip', 'data-dir': dir }, ico('pinch-' + dir, 18), h('span', null, label));
+      setUI.pinchIn = chip('in', 'Pinch in');
+      setUI.pinchOut = chip('out', 'Pinch out');
+      setUI.pinchHint = h('div', { class: 'pinch-hint' });
+      return h('section', { class: 'panel panel--pinch' },
+        h('div', { class: 'panel-head' }, h('span', { class: 'panel-icon' }, ico('pinch-out', 16)),
+          h('div', null, h('div', { class: 'panel-title' }, 'Pinch'), h('div', { class: 'panel-sub' }, 'Zoom, or anything else, with 3, 4 or 5 fingers'))),
+        h('div', { class: 'panel-body' },
+          h('p', { class: 'pinch-lead' }, 'Pinch the way you naturally do: fast, with your hand tilted, or just your thumb moving. Pady follows the span of your whole hand, so all of it counts.'),
+          h('div', { class: 'pinch-try' },
+            h('div', { class: 'pinch-try-title' }, 'Try it now'),
+            h('div', { class: 'pinch-chips' }, setUI.pinchIn, setUI.pinchOut),
+            setUI.pinchHint),
+          sliders));
+    };
 
     const sliderEl = (d) => {
       const id = 'set-' + d.key;
@@ -2222,7 +2242,8 @@
       setUI.banners,
       h('div', { class: 'settings-grid' },
         h('div', { class: 'settings-col' },
-          panel('gestures', 'Recognition', 'Timing and distances for taps, holds, swipes and pinches', SLIDERS.filter((d) => d.group === 'recog').map(sliderEl)),
+          pinchPanel(SLIDERS.filter((d) => d.group === 'pinch').map(sliderEl)),
+          panel('gestures', 'Recognition', 'Timing and distances for taps, holds and swipes', SLIDERS.filter((d) => d.group === 'recog').map(sliderEl)),
           setUI.presetsPanel = panel('sparkle', 'Starter sets', 'Swap all your All-apps gestures for a ready-made set', setUI.presets)),
         h('div', { class: 'settings-col' },
           panel('drag', 'Drag', 'How multi-finger drag moves the pointer', SLIDERS.filter((d) => d.group === 'drag').map(sliderEl)),
@@ -2248,6 +2269,27 @@
     setUI.built = true;
   }
 
+  /** The Pinch section's "Try it now" chips: glow briefly on a pinch. */
+  function flashPinch(direction, fingers) {
+    const chip = direction === 'in' ? setUI.pinchIn : setUI.pinchOut;
+    if (!chip) return;
+    chip.classList.remove('is-hit');
+    void chip.offsetWidth; // restart the glow when pinching twice in a row
+    chip.classList.add('is-hit');
+    setUI.pinchHint.textContent = `Got it: ${fingers}-finger pinch ${direction}.`;
+    setUI.pinchHint.classList.add('is-ok');
+  }
+
+  /** Which finger counts have a pinch bound, for the hint under the chips. */
+  function paintPinchHint() {
+    if (!setUI.pinchHint || setUI.pinchHint.classList.contains('is-ok')) return;
+    const bindings = (store.app.config && store.app.config.bindings) || [];
+    const counts = [...new Set(bindings.map((b) => /^pinch:(\d)/.exec(b.trigger || '')).filter(Boolean).map((m) => m[1]))].sort();
+    setUI.pinchHint.textContent = counts.length
+      ? `Pinch with ${counts.join(' or ')} fingers. The chip lights up when Pady sees it.`
+      : 'No pinch is set yet: give one a job on the Gestures page, then try it here.';
+  }
+
   function paintSlider(d, v) {
     const { input, val } = setUI.inputs[d.key];
     const [num, unit] = d.fmt(v);
@@ -2271,6 +2313,7 @@
     }
     setUI.pauseRow.hidden = platform() !== 'windows'; // exclusive full screen is a Windows thing
     setUI.copyRow.hidden = platform() !== 'windows'; // the corner notices are drawn natively on Windows
+    paintPinchHint();
     renderPresetList();
     setUI.autostart.checked = !!s.autostart;
     setUI.autostartTitle.textContent = `Start with ${osName()}`;
