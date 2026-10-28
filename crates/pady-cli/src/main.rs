@@ -236,6 +236,7 @@ fn watch(run_actions: bool) -> CliResult {
         }
         EngineEvent::Level(level) => println!("\r\x1b[2K  {}", describe_level(&level)),
         EngineEvent::ActionFailed { action, error } => println!("\r\x1b[2K✗ {action} failed: {error}"),
+        EngineEvent::Paused { trigger } => println!("\r\x1b[2K⏸ {trigger} ignored: a full-screen game is in front"),
     });
 
     let shared = Arc::new(SharedConfig::new(cfg));
