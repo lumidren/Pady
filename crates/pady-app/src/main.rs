@@ -6,13 +6,14 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod feedback;
 mod responsive;
 mod update;
 
 use crossbeam_channel::Sender;
 use pady_actions::Conflict;
 use pady_core::engine::Observer;
-use pady_core::{Action, Config, Engine, EngineEvent, Level, Preset, SharedConfig, TouchFrame, PRESETS};
+use pady_core::{Action, Config, Engine, EngineEvent, Level, Preset, Settings, SharedConfig, TouchFrame, PRESETS};
 use pady_input::{DeviceInfo, InputHandle};
 use serde::Serialize;
 use serde_json::json;
@@ -384,18 +385,50 @@ mod overlay_window {
     }
 }
 
+/// The settings, re-read only when the config changes: the observer looks
+/// at them for every touch frame.
+struct SettingsCache {
+    config: Arc<SharedConfig>,
+    cached: Mutex<(u64, Settings)>,
+}
+
+impl SettingsCache {
+    fn get(&self) -> Settings {
+        let generation = self.config.generation();
+        let mut cached = lock(&self.cached);
+        if cached.0 != generation {
+            *cached = (generation, self.config.get().settings);
+        }
+        cached.1.clone()
+    }
+}
+
 fn observer(
     app: AppHandle,
     live: Arc<AtomicBool>,
     config: Arc<SharedConfig>,
     native_overlay: Option<pady_overlay::Overlay>,
     toasts: Option<Arc<pady_overlay::Toasts>>,
+    effects: Option<pady_overlay::Effects>,
 ) -> Observer {
     let last_frame = AtomicU64::new(0);
     let last_paused_notice = AtomicU64::new(0);
     let web_overlay = WebOverlay { app: app.clone(), shown: Arc::new(AtomicU64::new(0)) };
+    let settings = SettingsCache { config: config.clone(), cached: Mutex::new((u64::MAX, Settings::default())) };
+    // Did we start a glow (so its end is ours to send) / are we showing touches?
+    let glowing = AtomicBool::new(false);
+    let touching = AtomicBool::new(false);
     Arc::new(move |event| match event {
         EngineEvent::Frame(frame) => {
+            if let Some(fx) = &effects {
+                let s = settings.get();
+                if s.animates(s.anim_touches) {
+                    fx.touches(&frame);
+                    touching.store(!frame.contacts.is_empty(), Ordering::Relaxed);
+                } else if touching.swap(false, Ordering::Relaxed) {
+                    fx.touches(&TouchFrame::default()); // switched off mid-touch: let go
+                }
+            }
             if !live.load(Ordering::Relaxed) {
                 return;
             }
@@ -406,7 +439,26 @@ fn observer(
                 let _ = app.emit("pady://frame", &frame);
             }
         }
+        EngineEvent::SwipeProgress { progress, bound } => {
+            let s = settings.get();
+            if let (Some(fx), true) = (&effects, bound && s.animates(s.anim_swipe_glow)) {
+                fx.swipe_progress(progress.direction, progress.amount);
+                glowing.store(true, Ordering::Relaxed);
+            }
+        }
+        EngineEvent::SwipeEnded { fired } => {
+            if let (Some(fx), true) = (&effects, glowing.swap(false, Ordering::Relaxed)) {
+                fx.swipe_ended(fired);
+            }
+        }
         EngineEvent::Gesture { gesture, trigger, action, profile } => {
+            if let Some(toasts) = &toasts {
+                if let Some(notice) =
+                    feedback::notice_for(&settings.get(), &gesture, trigger.as_deref(), action.as_deref())
+                {
+                    toasts.show(notice);
+                }
+            }
             let payload = json!({ "gesture": gesture, "trigger": trigger, "action": action, "profile": profile });
             let _ = app.emit("pady://gesture", payload);
         }
@@ -720,6 +772,7 @@ fn main() {
             let native_overlay = pady_overlay::Overlay::spawn();
             let web_overlay_needed = native_overlay.is_none();
             let toasts = pady_overlay::Toasts::spawn().map(Arc::new);
+            let effects = pady_overlay::Effects::spawn();
             if let Some(toasts) = &toasts {
                 toasts.watch_clipboard(config.get().settings.show_copy_notice);
             }
@@ -733,7 +786,7 @@ fn main() {
                 config.clone(),
                 frames_rx,
                 pady_actions::executor,
-                observer(app.handle().clone(), live.clone(), config.clone(), native_overlay, toasts.clone()),
+                observer(app.handle().clone(), live.clone(), config.clone(), native_overlay, toasts.clone(), effects),
                 pady_input::sched::scheduling(),
             );
 
