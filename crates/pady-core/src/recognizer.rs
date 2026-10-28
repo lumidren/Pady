@@ -522,17 +522,20 @@ fn span_delta(prev: &[Contact], cur: &[Contact]) -> f32 {
     if pairs.len() < 2 {
         return 0.0;
     }
-    let span = |pick: &dyn Fn(&(&Contact, &Contact)) -> (f32, f32)| {
-        let mut widest = 0.0f32;
-        for (i, a) in pairs.iter().enumerate() {
-            for b in &pairs[i + 1..] {
-                let ((ax, ay), (bx, by)) = (pick(a), pick(b));
-                widest = widest.max((ax - bx).hypot(ay - by));
-            }
+    let now: Vec<(f32, f32)> = pairs.iter().map(|(_, c)| (c.x, c.y)).collect();
+    let before: Vec<(f32, f32)> = pairs.iter().map(|(p, _)| (p.x, p.y)).collect();
+    widest(&now) - widest(&before)
+}
+
+/// The largest distance between any two of `points`.
+fn widest(points: &[(f32, f32)]) -> f32 {
+    let mut widest = 0.0f32;
+    for (i, &(ax, ay)) in points.iter().enumerate() {
+        for &(bx, by) in &points[i + 1..] {
+            widest = widest.max((ax - bx).hypot(ay - by));
         }
-        widest
-    };
-    span(&|(_, c)| (c.x, c.y)) - span(&|(p, _)| (p.x, p.y))
+    }
+    widest
 }
 
 /// Mean movement of fingers present in both frames.
