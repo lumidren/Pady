@@ -22,7 +22,7 @@ use crate::layout::{px, Rect};
 use crate::notice::Motion;
 use crate::windows::{animations_enabled, apps_use_light_theme, monitor_under_cursor, Surface, TextFont};
 use crate::windows::{ICON_FONTS, NUMBER_FONTS};
-use crate::Notice;
+use crate::{Icon, Notice};
 use std::ffi::c_void;
 use std::mem::size_of;
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
@@ -59,24 +59,37 @@ const GLYPH_PAUSE: u16 = 0xE769;
 const TURN: f32 = 2.6;
 
 impl Notice {
-    fn text(self) -> &'static str {
+    fn text(&self) -> &str {
         match self {
             Notice::Copied => "Copied",
+            Notice::Pasted => "Pasted",
             Notice::Paused => "Gestures paused · full-screen game",
+            Notice::Text { text, .. } => text,
         }
     }
 
-    fn glyph(self) -> u16 {
+    fn glyph(&self) -> u16 {
         match self {
             Notice::Copied => GLYPH_CHECK,
+            Notice::Pasted => 0xE77F,
             Notice::Paused => GLYPH_PAUSE,
+            Notice::Text { icon, .. } => match icon {
+                Icon::Touch => 0xE7C9,
+                Icon::ZoomIn => 0xE8A3,
+                Icon::ZoomOut => 0xE71F,
+                Icon::Camera => 0xE722,
+                Icon::Music => 0xE8D6,
+                Icon::Lock => 0xE72E,
+                Icon::Done => GLYPH_CHECK,
+            },
         }
     }
 
-    fn rest(self) -> Duration {
+    fn rest(&self) -> Duration {
         match self {
-            Notice::Copied => Duration::from_millis(1500),
+            Notice::Copied | Notice::Pasted => Duration::from_millis(1500),
             Notice::Paused => Duration::from_millis(2800),
+            Notice::Text { .. } => Duration::from_millis(1700),
         }
     }
 }
@@ -160,7 +173,7 @@ fn run(notices: Receiver<Notice>, ready: SyncSender<std::result::Result<isize, S
     let (_, dpi) = monitor_under_cursor();
     let prepared = toaster
         .prepare(Style { dpi, light: apps_use_light_theme() })
-        .and_then(|()| toaster.renderer.as_mut().ok_or("no renderer".into()).and_then(|r| r.draw(Notice::Copied)));
+        .and_then(|()| toaster.renderer.as_mut().ok_or("no renderer".into()).and_then(|r| r.draw(&Notice::Copied)));
     if let Err(e) = prepared {
         let _ = ready.send(Err(format!("could not draw: {e}")));
         unsafe {
@@ -412,7 +425,7 @@ impl Toaster {
             self.motion.slide = animations_enabled();
         }
         let Some(renderer) = self.renderer.as_mut() else { return };
-        let resized = match renderer.draw(notice) {
+        let resized = match renderer.draw(&notice) {
             Ok(resized) => resized,
             Err(e) => {
                 self.report(&*e);
@@ -524,8 +537,8 @@ impl Renderer {
     }
 
     /// Draws the pill for `notice` unless it is already drawn. `true` if the window's size changed.
-    fn draw(&mut self, notice: Notice) -> Result<bool> {
-        if self.drawn == Some(notice) {
+    fn draw(&mut self, notice: &Notice) -> Result<bool> {
+        if self.drawn.as_ref() == Some(notice) {
             return Ok(false);
         }
         let s = self.scale;
@@ -587,7 +600,7 @@ impl Renderer {
         g.draw_text(&text, &t.font, at, &self.near, &Brush::solid(p.text)?)?;
         g.flush()?;
         self.pill_layer = surface.dib.pixels().to_vec();
-        self.drawn = Some(notice);
+        self.drawn = Some(notice.clone());
         Ok(resized)
     }
 
@@ -675,10 +688,10 @@ mod tests {
         for dpi in [96, 120, 144, 192] {
             for light in [false, true] {
                 let mut r = Renderer::new(Style { dpi, light }).expect("renderer");
-                assert!(r.draw(Notice::Copied).expect("draw"), "first draw sizes the window");
+                assert!(r.draw(&Notice::Copied).expect("draw"), "first draw sizes the window");
                 let copied = r.size;
-                assert!(!r.draw(Notice::Copied).expect("draw"), "same notice: nothing to do");
-                assert!(r.draw(Notice::Paused).expect("draw"), "longer text, wider window");
+                assert!(!r.draw(&Notice::Copied).expect("draw"), "same notice: nothing to do");
+                assert!(r.draw(&Notice::Paused).expect("draw"), "longer text, wider window");
                 assert!(r.size.0 > copied.0);
                 r.compose(1.0, 0.3).expect("compose");
                 let w = r.size.0 as usize;
@@ -700,7 +713,7 @@ mod tests {
         let _turn = GDIPLUS.lock().unwrap_or_else(|e| e.into_inner());
         let _gdiplus = gdiplus::Session::start().expect("GDI+");
         let mut r = Renderer::new(Style { dpi: 192, light: false }).expect("renderer");
-        r.draw(Notice::Paused).expect("draw");
+        r.draw(&Notice::Paused).expect("draw");
         let start = Instant::now();
         for i in 0..120 {
             r.compose(1.0 + (i % 10) as f32 * 0.03, i as f32 / 120.0).expect("compose");
@@ -721,8 +734,9 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("dir");
         for (dpi, light) in [(144, false), (144, true)] {
             let mut r = Renderer::new(Style { dpi, light }).expect("renderer");
-            for notice in [Notice::Copied, Notice::Paused] {
-                r.draw(notice).expect("draw");
+            let hint = Notice::Text { text: "4-finger swipe up · Task view".into(), icon: Icon::Touch };
+            for notice in [Notice::Copied, Notice::Pasted, Notice::Paused, hint] {
+                r.draw(&notice).expect("draw");
                 for (frame, (glow, turn)) in [(1.0f32, 0.0f32), (1.45, 0.35)].into_iter().enumerate() {
                     r.compose(glow, turn).expect("compose");
                     let (w, h) = r.size;
@@ -740,7 +754,8 @@ mod tests {
                         *p = 0xff00_0000 | mix(sr, bg.r) << 16 | mix(sg, bg.g) << 8 | mix(sb, bg.b);
                     }
                     let bitmap = unsafe { gdiplus::Bitmap::over_pixels(w, h, px.as_mut_ptr().cast()) }.expect("bitmap");
-                    let name = format!("{notice:?}-{}-{frame}.png", if light { "light" } else { "dark" });
+                    let kind = format!("{notice:?}").chars().take_while(|c| c.is_alphanumeric()).collect::<String>();
+                    let name = format!("{kind}-{}-{frame}.png", if light { "light" } else { "dark" });
                     bitmap.save_png(&dir.join(name)).expect("png");
                 }
             }
