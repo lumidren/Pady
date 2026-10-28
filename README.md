@@ -255,6 +255,19 @@ To build the installers yourself, run this in `crates/pady-app`: `npx @tauri-app
 
 Ideas welcome! Open an [issue](https://github.com/lumidren/Pady/issues/new/choose).
 
+## Code signing policy
+
+Windows releases are signed so you can check they come from this project. Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- **Committers and reviewers:** [lumidren](https://github.com/lumidren)
+- **Approvers:** [lumidren](https://github.com/lumidren)
+
+Only what is built from this repository by the [Release workflow](.github/workflows/release.yml) on GitHub Actions is signed: the workflow builds the installers from a version tag, sends them to SignPath, and attaches the signed files with SHA-256 checksums to a draft release that the maintainer publishes. Every signing request is approved by hand. Changes from other contributors are reviewed before they are merged. The maintainer's GitHub and SignPath accounts use multi-factor authentication.
+
+### Privacy
+
+Pady will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it, with one exception you can turn off: twice a day it asks GitHub whether a newer version exists (`github.com/lumidren/Pady/releases/latest/download/latest.json`). That request carries no information about you or your PC beyond what any web request does, and you can switch it off under **Settings › Check for updates**. Pady has no accounts, no ads and no telemetry, reads only the touchpad, and never reads what you copy.
+
 ## Made by
 
 **lumidren**, designed, coded and shipped solo, because the Mac trackpad shouldn't get to have all the fun.
