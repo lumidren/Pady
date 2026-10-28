@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+- **Gestures keep working after the laptop sleeps.** Windows can keep reporting a full-screen game after waking or unlocking (the lock screen counts), which paused every gesture until another window came to the front. Pady now also checks that the window in front really fills the screen and isn't part of Windows itself.
+- After waking from sleep or unlocking, Pady re-registers for touchpad input and clears any touch that was cut off, so the first gesture starts clean.
+- The log now says when gestures pause for a full-screen game and when they resume, and which app was in front.
+
 ### Performance
 - **Gestures stay instant on a busy computer.** On Windows, the touchpad, engine and action threads run at the highest normal priority, so a game, a compile or a video call can't make a gesture wait.
 - **Holds, double taps and drag release fire on time.** Windows timers normally tick every ~15.6 ms; Pady asks for 1 ms timers only while one of these is pending and gives them back straight after, so idle battery use is unchanged.
