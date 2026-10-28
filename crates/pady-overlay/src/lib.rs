@@ -16,6 +16,8 @@ mod anim;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod color;
 #[cfg_attr(not(windows), allow(dead_code))]
+mod glow;
+#[cfg_attr(not(windows), allow(dead_code))]
 mod layout;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod notice;
