@@ -1,0 +1,600 @@
+//! Windows: small notices in the top-right corner ("Copied", "Gestures
+//! paused"), in the same glass as the level pill.
+//!
+//! Like the pill it is a click-through layered window on a thread of its
+//! own, drawn once with GDI+ per notice. Motion only moves the window and
+//! changes its constant alpha, and while something moves each frame waits
+//! for the compositor (`DwmFlush`), so the slide stays in step with the
+//! display instead of a coarse timer. Resting or hidden, the thread sleeps.
+//!
+//! "Copied" comes from the clipboard's change notification: Pady is told
+//! *that* something was copied and never reads what.
+
+use crate::color::Palette;
+use crate::gdiplus::{self, Brush, Path, Pen, StringFormat};
+use crate::layout::{px, Rect};
+use crate::notice::Motion;
+use crate::shadow;
+use crate::windows::{animations_enabled, apps_use_light_theme, copy_pixels, monitor_under_cursor, Surface, TextFont};
+use crate::windows::{ICON_FONTS, NUMBER_FONTS};
+use crate::Notice;
+use std::ffi::c_void;
+use std::mem::size_of;
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+use windows::core::{w, PCWSTR};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
+use windows::Win32::Graphics::Dwm::DwmFlush;
+use windows::Win32::Graphics::Gdi::{AC_SRC_ALPHA, AC_SRC_OVER, BLENDFUNCTION};
+use windows::Win32::Graphics::GdiPlus::{StringAlignmentCenter, StringAlignmentNear};
+use windows::Win32::System::DataExchange::{
+    AddClipboardFormatListener, CountClipboardFormats, RemoveClipboardFormatListener,
+};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::HiDpi::{SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+use windows::Win32::UI::WindowsAndMessaging::*;
+
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+const WM_NOTICE: u32 = WM_APP;
+const WM_STOP: u32 = WM_APP + 1;
+const WM_COPIED: u32 = WM_APP + 2;
+const WM_WATCH: u32 = WM_APP + 3;
+const REST_TIMER: usize = 1;
+const CLASS: PCWSTR = w!("PadyToast");
+
+const GLYPH_CHECK: u16 = 0xE73E;
+const GLYPH_PAUSE: u16 = 0xE769;
+
+impl Notice {
+    fn text(self) -> &'static str {
+        match self {
+            Notice::Copied => "Copied",
+            Notice::Paused => "Gestures paused · full-screen game",
+        }
+    }
+
+    fn glyph(self) -> u16 {
+        match self {
+            Notice::Copied => GLYPH_CHECK,
+            Notice::Paused => GLYPH_PAUSE,
+        }
+    }
+
+    fn rest(self) -> Duration {
+        match self {
+            Notice::Copied => Duration::from_millis(1100),
+            Notice::Paused => Duration::from_millis(2600),
+        }
+    }
+}
+
+pub struct Toasts {
+    /// The window as an integer, so the handle is `Send + Sync`; it is only posted to.
+    hwnd: isize,
+    inbox: Sender<Notice>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Toasts {
+    pub fn spawn() -> Option<Toasts> {
+        let (inbox, notices) = mpsc::channel();
+        let (ready_tx, ready) = mpsc::sync_channel(1);
+        let thread = match std::thread::Builder::new().name("pady-toast".into()).spawn(move || run(notices, ready_tx)) {
+            Ok(thread) => thread,
+            Err(e) => {
+                log::warn!("notices unavailable: could not start their thread: {e}");
+                return None;
+            }
+        };
+        match ready.recv() {
+            Ok(Ok(hwnd)) => Some(Toasts { hwnd, inbox, thread: Some(thread) }),
+            Ok(Err(e)) => {
+                log::warn!("notices unavailable: {e}");
+                let _ = thread.join();
+                None
+            }
+            Err(_) => {
+                let _ = thread.join();
+                None
+            }
+        }
+    }
+
+    pub fn show(&self, notice: Notice) {
+        if self.inbox.send(notice).is_ok() {
+            self.post(WM_NOTICE, 0);
+        }
+    }
+
+    pub fn watch_clipboard(&self, on: bool) {
+        self.post(WM_WATCH, usize::from(on));
+    }
+
+    fn post(&self, msg: u32, wparam: usize) {
+        let _ = unsafe { PostMessageW(HWND(self.hwnd as *mut c_void), msg, WPARAM(wparam), LPARAM(0)) };
+    }
+}
+
+impl Drop for Toasts {
+    fn drop(&mut self) {
+        let stopping = unsafe { PostMessageW(HWND(self.hwnd as *mut c_void), WM_STOP, WPARAM(0), LPARAM(0)) }.is_ok();
+        if let Some(thread) = self.thread.take() {
+            if stopping {
+                let _ = thread.join();
+            }
+        }
+    }
+}
+
+fn run(notices: Receiver<Notice>, ready: SyncSender<std::result::Result<isize, String>>) {
+    unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    let _gdiplus = match gdiplus::Session::start() {
+        Ok(session) => session,
+        Err(e) => {
+            let _ = ready.send(Err(e.to_string()));
+            return;
+        }
+    };
+    let hwnd = match create_window() {
+        Ok(hwnd) => hwnd,
+        Err(e) => {
+            let _ = ready.send(Err(format!("could not create their window: {e}")));
+            return;
+        }
+    };
+    let mut toaster = Toaster::new(hwnd);
+    // Fonts and drawing proven before reporting success; also makes the first notice instant.
+    let (_, dpi) = monitor_under_cursor();
+    if let Err(e) = toaster.prepare(Style { dpi, light: apps_use_light_theme() }) {
+        let _ = ready.send(Err(format!("could not draw: {e}")));
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
+        return;
+    }
+    if ready.send(Ok(hwnd.0 as isize)).is_err() {
+        return;
+    }
+
+    let mut msg = MSG::default();
+    'outer: loop {
+        if toaster.motion.moving() {
+            // Moving: handle whatever arrived, then wait for the compositor's next frame.
+            while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
+                if !toaster.handle(&msg, &notices) {
+                    break 'outer;
+                }
+            }
+            if unsafe { DwmFlush() }.is_err() {
+                std::thread::sleep(Duration::from_millis(7));
+            }
+            toaster.step();
+        } else {
+            let got = unsafe { GetMessageW(&mut msg, None, 0, 0) }.0;
+            if got == 0 || got == -1 || !toaster.handle(&msg, &notices) {
+                break;
+            }
+        }
+    }
+    toaster.watch(false);
+    unsafe {
+        let _ = DestroyWindow(hwnd);
+    }
+}
+
+fn create_window() -> windows::core::Result<HWND> {
+    unsafe {
+        let instance = GetModuleHandleW(None)?;
+        let class = WNDCLASSEXW {
+            cbSize: size_of::<WNDCLASSEXW>() as u32,
+            lpfnWndProc: Some(wndproc),
+            hInstance: instance.into(),
+            lpszClassName: CLASS,
+            ..Default::default()
+        };
+        RegisterClassExW(&class);
+        CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+            CLASS,
+            w!("Pady notice"),
+            WS_POPUP,
+            0,
+            0,
+            0,
+            0,
+            None,
+            None,
+            instance,
+            None,
+        )
+    }
+}
+
+unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    match msg {
+        WM_NCHITTEST => LRESULT(HTTRANSPARENT as isize),
+        WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+        WM_CLOSE => LRESULT(0),
+        // Sent straight here by Windows; handled in the loop like everything else.
+        WM_CLIPBOARDUPDATE => {
+            let _ = PostMessageW(hwnd, WM_COPIED, WPARAM(0), LPARAM(0));
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Style {
+    dpi: u32,
+    light: bool,
+}
+
+struct Toaster {
+    hwnd: HWND,
+    epoch: Instant,
+    motion: Motion,
+    renderer: Option<Renderer>,
+    /// The window's top-left while resting, and the work area's right/top edge it hangs from.
+    origin: (i32, i32),
+    anchor: (i32, i32),
+    watching: bool,
+    reported: bool,
+}
+
+impl Toaster {
+    fn new(hwnd: HWND) -> Toaster {
+        Toaster {
+            hwnd,
+            epoch: Instant::now(),
+            motion: Motion::default(),
+            renderer: None,
+            origin: (0, 0),
+            anchor: (0, 0),
+            watching: false,
+            reported: false,
+        }
+    }
+
+    /// `false` when the thread should stop.
+    fn handle(&mut self, msg: &MSG, notices: &Receiver<Notice>) -> bool {
+        if msg.message == WM_QUIT {
+            return false;
+        }
+        if msg.hwnd == self.hwnd {
+            match msg.message {
+                WM_NOTICE => {
+                    if let Some(notice) = notices.try_iter().last() {
+                        self.show(notice);
+                    }
+                    return true;
+                }
+                // A cleared clipboard (no formats) is not a copy.
+                WM_COPIED => {
+                    if self.watching && unsafe { CountClipboardFormats() } > 0 {
+                        self.show(Notice::Copied);
+                    }
+                    return true;
+                }
+                WM_WATCH => {
+                    self.watch(msg.wParam.0 != 0);
+                    return true;
+                }
+                WM_TIMER if msg.wParam.0 == REST_TIMER => {
+                    unsafe {
+                        let _ = KillTimer(self.hwnd, REST_TIMER);
+                    }
+                    self.step();
+                    return true;
+                }
+                WM_STOP => return false,
+                _ => {}
+            }
+        }
+        unsafe { DispatchMessageW(msg) };
+        true
+    }
+
+    fn watch(&mut self, on: bool) {
+        if on == self.watching {
+            return;
+        }
+        let result = unsafe {
+            if on {
+                AddClipboardFormatListener(self.hwnd)
+            } else {
+                RemoveClipboardFormatListener(self.hwnd)
+            }
+        };
+        match result {
+            Ok(()) => self.watching = on,
+            Err(e) => log::warn!("could not {} copy notices: {e}", if on { "turn on" } else { "turn off" }),
+        }
+    }
+
+    fn prepare(&mut self, style: Style) -> Result<()> {
+        if self.renderer.as_ref().is_some_and(|r| r.style == style) {
+            return Ok(());
+        }
+        self.renderer = None;
+        self.renderer = Some(Renderer::new(style)?);
+        Ok(())
+    }
+
+    fn show(&mut self, notice: Notice) {
+        let now = self.epoch.elapsed();
+        let appearing = !self.motion.visible();
+        if appearing {
+            let (work, dpi) = monitor_under_cursor();
+            if let Err(e) = self.prepare(Style { dpi, light: apps_use_light_theme() }) {
+                self.report(&*e);
+                return;
+            }
+            self.anchor = (work.right, work.top);
+            self.motion.slide = animations_enabled();
+        }
+        let Some(renderer) = self.renderer.as_mut() else { return };
+        let resized = match renderer.draw(notice) {
+            Ok(resized) => resized,
+            Err(e) => {
+                self.report(&*e);
+                return;
+            }
+        };
+        if appearing || resized {
+            let margin = px(16.0, renderer.scale) as i32;
+            let (pill, scale) = (renderer.pill, renderer.scale);
+            self.origin = (
+                self.anchor.0 - margin - (pill.right()).round() as i32,
+                self.anchor.1 + margin - pill.y.round() as i32 + px(4.0, scale) as i32,
+            );
+        }
+        let entered = self.motion.show(now, notice.rest());
+        if entered {
+            // The first frame (fully transparent) is in place before the window shows.
+            self.step();
+            unsafe {
+                let _ = ShowWindow(self.hwnd, SW_SHOWNOACTIVATE);
+                let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+                let _ = SetWindowPos(self.hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags);
+            }
+        } else {
+            self.step();
+        }
+    }
+
+    /// Draws the pose for now, hides once gone, and wakes up when the rest ends.
+    fn step(&mut self) {
+        let now = self.epoch.elapsed();
+        self.motion.tick(now);
+        if !self.motion.visible() {
+            unsafe {
+                let _ = ShowWindow(self.hwnd, SW_HIDE);
+                let _ = KillTimer(self.hwnd, REST_TIMER);
+            }
+            return;
+        }
+        let pose = self.motion.pose(now);
+        log::trace!("notice frame at {:.1} ms: opacity {:.2}", now.as_secs_f64() * 1000.0, pose.opacity);
+        let Some(renderer) = &self.renderer else { return };
+        let y = self.origin.1 + (pose.dy * renderer.scale).round() as i32;
+        if let Err(e) = renderer.push(self.hwnd, (self.origin.0, y), pose.opacity) {
+            self.report(&*e);
+        }
+        if let Some(until) = self.motion.rest_ends() {
+            let ms = u32::try_from(until.saturating_sub(now).as_millis()).unwrap_or(u32::MAX).max(USER_TIMER_MINIMUM);
+            unsafe { SetTimer(self.hwnd, REST_TIMER, ms, None) };
+        }
+    }
+
+    fn report(&mut self, error: &dyn std::fmt::Display) {
+        if self.reported {
+            log::debug!("notice: {error}");
+        } else {
+            log::warn!("notice: {error}");
+            self.reported = true;
+        }
+    }
+}
+
+/// Fonts and the bitmap for one DPI and theme.
+struct Renderer {
+    style: Style,
+    scale: f32,
+    palette: &'static Palette,
+    icon: Option<TextFont>,
+    text: TextFont,
+    near: StringFormat,
+    centered: StringFormat,
+    /// A 1×1 surface, just to measure text before sizing the real one.
+    measure: Surface,
+    surface: Option<Surface>,
+    size: (i32, i32),
+    pill: Rect,
+    drawn: Option<Notice>,
+}
+
+impl Renderer {
+    fn new(style: Style) -> Result<Renderer> {
+        let scale = crate::layout::scale_for(style.dpi);
+        let icon = ICON_FONTS.iter().find_map(|name| TextFont::new(name, gdiplus::REGULAR, px(12.0, scale)).ok());
+        let text = std::iter::once(("Segoe UI Variable Text Semibold", gdiplus::REGULAR))
+            .chain(NUMBER_FONTS.iter().copied().skip(1))
+            .find_map(|(name, weight)| TextFont::new(name, weight, px(13.5, scale)).ok())
+            .ok_or("no font for notices")?;
+        Ok(Renderer {
+            style,
+            scale,
+            palette: Palette::for_theme(style.light),
+            icon,
+            text,
+            near: StringFormat::typographic(StringAlignmentNear)?,
+            centered: StringFormat::typographic(StringAlignmentCenter)?,
+            measure: Surface::new(1, 1)?,
+            surface: None,
+            size: (0, 0),
+            pill: Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 },
+            drawn: None,
+        })
+    }
+
+    /// Draws `notice` unless it is already drawn. `true` if the window's size changed.
+    fn draw(&mut self, notice: Notice) -> Result<bool> {
+        if self.drawn == Some(notice) {
+            return Ok(false);
+        }
+        let s = self.scale;
+        let text: Vec<u16> = notice.text().encode_utf16().collect();
+        let text_w = self.measure.graphics.measure(&text, &self.text.font, &self.near)?.ceil();
+        let (margin, height) = (px(22.0, s), px(38.0, s));
+        let (pad_left, dot, gap, pad_right) = (px(8.0, s), px(22.0, s), px(9.0, s), px(15.0, s));
+        let pill = Rect { x: margin, y: margin - px(6.0, s), w: pad_left + dot + gap + text_w + pad_right, h: height };
+        let size = ((pill.w + 2.0 * margin) as i32, (pill.h + 2.0 * margin) as i32);
+        let resized = size != self.size;
+        if resized || self.surface.is_none() {
+            self.surface = None;
+            self.surface = Some(Surface::new(size.0, size.1)?);
+            self.size = size;
+        }
+        self.pill = pill;
+        let p = self.palette;
+        let surface = self.surface.as_mut().ok_or("no surface")?;
+
+        let radius = pill.h / 2.0;
+        let shadows = shadow::render(size.0 as usize, size.1 as usize, pill, radius, &p.shadows, s);
+        copy_pixels(surface.dib.pixels(), &shadows)?;
+        let g = &surface.graphics;
+
+        // Glass, sheen and border, as on the level pill.
+        let mut shape = Path::new()?;
+        shape.set_rounded_rect(pill, radius)?;
+        g.fill_path(&Brush::solid(p.glass)?, &shape)?;
+        let clear = p.shine.fade(0.0);
+        let sheen = Rect { y: pill.y - 1.0, h: pill.h + 2.0, ..pill };
+        g.fill_path(&Brush::vertical(sheen, &[(0.0, p.shine), (0.55, clear), (1.0, clear)])?, &shape)?;
+        let border = s.floor().max(1.0);
+        shape.set_rounded_rect(pill.inset(border / 2.0), radius - border / 2.0)?;
+        g.draw_path(&Pen::new(p.border, border)?, &shape)?;
+
+        // The icon in a gradient dot.
+        let circle = Rect { x: pill.x + pad_left, y: (pill.center_y() - dot / 2.0).round(), w: dot, h: dot };
+        let mut round = Path::new()?;
+        round.set_rounded_rect(circle, dot / 2.0)?;
+        g.fill_path(&Brush::horizontal(circle.x, circle.right(), &[(0.0, p.fill.0), (1.0, p.fill.1)])?, &round)?;
+        if let Some(icon) = &self.icon {
+            let line = icon.ascent + icon.descent;
+            let em = px(12.0, s);
+            let at = Rect {
+                x: (circle.center_x() - em / 2.0).round(),
+                y: (circle.center_y() - line / 2.0).round(),
+                w: em,
+                h: line,
+            };
+            let white = crate::color::Color::rgb(255, 255, 255);
+            g.draw_text(&[notice.glyph()], &icon.font, at, &self.centered, &Brush::solid(white)?)?;
+        }
+
+        // The words, centred on the pill's middle line.
+        let t = &self.text;
+        let baseline = (pill.center_y() + (t.ascent - t.descent) / 2.0).round();
+        let at = Rect { x: circle.right() + gap, y: baseline - t.ascent, w: text_w + px(4.0, s), h: t.line() };
+        g.draw_text(&text, &t.font, at, &self.near, &Brush::solid(p.text)?)?;
+        g.flush()?;
+        self.drawn = Some(notice);
+        Ok(resized)
+    }
+
+    fn push(&self, hwnd: HWND, at: (i32, i32), opacity: f32) -> Result<()> {
+        let surface = self.surface.as_ref().ok_or("nothing drawn yet")?;
+        let blend = BLENDFUNCTION {
+            BlendOp: AC_SRC_OVER as u8,
+            BlendFlags: 0,
+            SourceConstantAlpha: (opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
+            AlphaFormat: AC_SRC_ALPHA as u8,
+        };
+        let size = SIZE { cx: self.size.0, cy: self.size.1 };
+        let (origin, target) = (POINT::default(), POINT { x: at.0, y: at.1 });
+        unsafe {
+            UpdateLayeredWindow(
+                hwnd,
+                None,
+                Some(&target as *const POINT),
+                Some(&size as *const SIZE),
+                surface.dib.dc,
+                Some(&origin as *const POINT),
+                COLORREF(0),
+                Some(&blend as *const BLENDFUNCTION),
+                ULW_ALPHA,
+            )?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::color::Color;
+    use crate::windows::tests::GDIPLUS;
+
+    #[test]
+    fn draws_both_notices_at_every_dpi() {
+        let _turn = GDIPLUS.lock().unwrap_or_else(|e| e.into_inner());
+        let _gdiplus = gdiplus::Session::start().expect("GDI+");
+        for dpi in [96, 120, 144, 192] {
+            for light in [false, true] {
+                let mut r = Renderer::new(Style { dpi, light }).expect("renderer");
+                assert!(r.draw(Notice::Copied).expect("draw"), "first draw sizes the window");
+                let copied = r.size;
+                assert!(!r.draw(Notice::Copied).expect("draw"), "same notice: nothing to do");
+                assert!(r.draw(Notice::Paused).expect("draw"), "longer text, wider window");
+                assert!(r.size.0 > copied.0);
+                // Opaque glass in the pill, nothing in the far corner.
+                let px_at = |r: &mut Renderer, x: f32, y: f32| {
+                    let w = r.size.0 as usize;
+                    r.surface.as_mut().unwrap().dib.pixels()[y as usize * w + x as usize] >> 24
+                };
+                let (cx, cy) = (r.pill.right() - px(8.0, r.scale), r.pill.center_y());
+                assert!(px_at(&mut r, cx, cy) > 200, "glass at {dpi} dpi");
+                assert_eq!(px_at(&mut r, 0.0, 0.0), 0);
+            }
+        }
+    }
+
+    /// Writes renders over a backdrop to `%TEMP%\pady-toast-preview`:
+    /// `cargo test -p pady-overlay -- --ignored toast_preview`.
+    #[test]
+    #[ignore]
+    fn toast_preview() {
+        let _turn = GDIPLUS.lock().unwrap_or_else(|e| e.into_inner());
+        let _gdiplus = gdiplus::Session::start().expect("GDI+");
+        let dir = std::env::temp_dir().join("pady-toast-preview");
+        std::fs::create_dir_all(&dir).expect("dir");
+        for (dpi, light) in [(144, false), (144, true)] {
+            let mut r = Renderer::new(Style { dpi, light }).expect("renderer");
+            for notice in [Notice::Copied, Notice::Paused] {
+                r.draw(notice).expect("draw");
+                let (w, h) = r.size;
+                let (top, bottom) = if light {
+                    (Color::rgb(230, 233, 255), Color::rgb(248, 240, 255))
+                } else {
+                    (Color::rgb(60, 64, 120), Color::rgb(14, 15, 24))
+                };
+                let mut px = r.surface.as_mut().unwrap().dib.pixels().to_vec();
+                for (i, p) in px.iter_mut().enumerate() {
+                    let bg = top.lerp(bottom, (i / w as usize) as f32 / h as f32);
+                    let (a, sr, sg, sb) = (*p >> 24, (*p >> 16) & 0xff, (*p >> 8) & 0xff, *p & 0xff);
+                    let k = 1.0 - a as f32 / 255.0;
+                    let mix = |s: u32, b: f32| (s as f32 + b * k).round().min(255.0) as u32;
+                    *p = 0xff00_0000 | mix(sr, bg.r) << 16 | mix(sg, bg.g) << 8 | mix(sb, bg.b);
+                }
+                let bitmap = unsafe { gdiplus::Bitmap::over_pixels(w, h, px.as_mut_ptr().cast()) }.expect("bitmap");
+                let name = format!("{notice:?}-{}.png", if light { "light" } else { "dark" });
+                bitmap.save_png(&dir.join(name)).expect("png");
+            }
+        }
+        println!("previews in {}", dir.display());
+    }
+}

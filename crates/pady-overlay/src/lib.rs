@@ -18,10 +18,14 @@ mod color;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod layout;
 #[cfg_attr(not(windows), allow(dead_code))]
+mod notice;
+#[cfg_attr(not(windows), allow(dead_code))]
 mod shadow;
 
 #[cfg(windows)]
 mod gdiplus;
+#[cfg(windows)]
+mod toast;
 #[cfg(windows)]
 mod windows;
 
@@ -55,6 +59,46 @@ impl Overlay {
 }
 
 // Dropping an `Overlay` drops `inner`, which stops the thread and destroys the window.
+
+/// A small notice in the top-right corner of the screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Notice {
+    /// Something was copied (from anywhere; what was copied is never read).
+    Copied,
+    /// A gesture was ignored because a full-screen game is in front.
+    Paused,
+}
+
+/// The corner notices: a layered window on a thread of its own, like the pill.
+pub struct Toasts {
+    #[cfg(windows)]
+    inner: toast::Toasts,
+}
+
+impl Toasts {
+    /// `None` on non-Windows platforms or if the window can't be created.
+    pub fn spawn() -> Option<Toasts> {
+        #[cfg(windows)]
+        return toast::Toasts::spawn().map(|inner| Toasts { inner });
+        #[cfg(not(windows))]
+        None
+    }
+
+    pub fn show(&self, notice: Notice) {
+        #[cfg(windows)]
+        self.inner.show(notice);
+        #[cfg(not(windows))]
+        let _ = notice;
+    }
+
+    /// Show "Copied" whenever the clipboard changes (on) or never (off).
+    pub fn watch_clipboard(&self, on: bool) {
+        #[cfg(windows)]
+        self.inner.watch_clipboard(on);
+        #[cfg(not(windows))]
+        let _ = on;
+    }
+}
 
 #[cfg(test)]
 mod tests {

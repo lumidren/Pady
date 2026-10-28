@@ -47,14 +47,14 @@ const CLASS: PCWSTR = w!("PadyOverlay");
 
 /// Segoe Fluent Icons is Windows 11's; Segoe MDL2 Assets has the same code
 /// points on Windows 10.
-const ICON_FONTS: [&str; 2] = ["Segoe Fluent Icons", "Segoe MDL2 Assets"];
+pub(crate) const ICON_FONTS: [&str; 2] = ["Segoe Fluent Icons", "Segoe MDL2 Assets"];
 const GLYPH_VOLUME: u16 = 0xE767;
 const GLYPH_MUTE: u16 = 0xE74F;
 const GLYPH_BRIGHTNESS: u16 = 0xE706;
 /// Semibold numerals, best first. GDI cuts family names at 31 characters,
 /// which is how Windows 11's variable font names its semibold Display
 /// instance; Windows 10 has the static Segoe UI Semibold.
-const NUMBER_FONTS: [(&str, i32); 4] = [
+pub(crate) const NUMBER_FONTS: [(&str, i32); 4] = [
     ("Segoe UI Variable Display Semib", gdiplus::REGULAR),
     ("Segoe UI Semibold", gdiplus::REGULAR),
     ("Segoe UI", gdiplus::BOLD),
@@ -253,7 +253,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
 
 /// The monitor under the cursor (the one the user is looking at): its work
 /// area and DPI. Falls back to the primary monitor.
-fn monitor_under_cursor() -> (WorkArea, u32) {
+pub(crate) fn monitor_under_cursor() -> (WorkArea, u32) {
     unsafe {
         let mut cursor = POINT::default();
         let monitor = if GetCursorPos(&mut cursor).is_ok() {
@@ -276,7 +276,7 @@ fn monitor_under_cursor() -> (WorkArea, u32) {
 }
 
 /// Whether apps should be light ("Choose your default app mode" in Settings).
-fn apps_use_light_theme() -> bool {
+pub(crate) fn apps_use_light_theme() -> bool {
     let mut value = 0u32;
     let mut size = size_of::<u32>() as u32;
     let status = unsafe {
@@ -295,7 +295,7 @@ fn apps_use_light_theme() -> bool {
 
 /// Windows' "Animation effects" switch. With it off the bar jumps instead of
 /// gliding, as the WebView pill did under `prefers-reduced-motion`.
-fn animations_enabled() -> bool {
+pub(crate) fn animations_enabled() -> bool {
     let mut enabled = BOOL(1);
     let read = unsafe {
         SystemParametersInfoW(
@@ -545,7 +545,7 @@ impl Renderer {
     }
 }
 
-fn copy_pixels(to: &mut [u32], from: &[u32]) -> Result<()> {
+pub(crate) fn copy_pixels(to: &mut [u32], from: &[u32]) -> Result<()> {
     if to.len() != from.len() {
         return Err("overlay bitmap size mismatch".into());
     }
@@ -640,26 +640,26 @@ fn draw_value(g: &Graphics, l: &Layout, p: &Palette, fonts: &Fonts, frame: &Fram
 }
 
 /// A font and where its baseline sits.
-struct TextFont {
+pub(crate) struct TextFont {
     // Field order is drop order: the font before its family.
-    font: Font,
+    pub(crate) font: Font,
     _family: FontFamily,
     name: &'static str,
     style: i32,
     /// Cell ascent and descent, in pixels.
-    ascent: f32,
-    descent: f32,
+    pub(crate) ascent: f32,
+    pub(crate) descent: f32,
 }
 
 impl TextFont {
-    fn new(name: &'static str, style: i32, px: f32) -> gdiplus::Result<TextFont> {
+    pub(crate) fn new(name: &'static str, style: i32, px: f32) -> gdiplus::Result<TextFont> {
         let family = FontFamily::named(name)?;
         let font = Font::new(&family, px, style)?;
         let (ascent, descent) = family.metrics(style)?;
         Ok(TextFont { font, _family: family, name, style, ascent: ascent * px, descent: descent * px })
     }
 
-    fn line(&self) -> f32 {
+    pub(crate) fn line(&self) -> f32 {
         self.ascent + self.descent
     }
 }
@@ -696,15 +696,15 @@ impl Fonts {
 
 /// A DIB section in a memory DC (what `UpdateLayeredWindow` reads) with a
 /// GDI+ graphics drawing straight into its pixels.
-struct Surface {
+pub(crate) struct Surface {
     // Field order is drop order: GDI+ lets go of the pixels before the DIB frees them.
-    graphics: Graphics,
+    pub(crate) graphics: Graphics,
     _bitmap: gdiplus::Bitmap,
-    dib: Dib,
+    pub(crate) dib: Dib,
 }
 
 impl Surface {
-    fn new(width: i32, height: i32) -> Result<Surface> {
+    pub(crate) fn new(width: i32, height: i32) -> Result<Surface> {
         let dib = Dib::new(width, height)?;
         // SAFETY: the DIB's pixels are width × height × 4 bytes and outlive the bitmap (field order).
         let bitmap = unsafe { gdiplus::Bitmap::over_pixels(width, height, dib.bits.cast()) }?;
@@ -714,8 +714,8 @@ impl Surface {
 }
 
 /// A top-down 32-bit DIB section selected into its own memory DC.
-struct Dib {
-    dc: HDC,
+pub(crate) struct Dib {
+    pub(crate) dc: HDC,
     bitmap: HBITMAP,
     previous: HGDIOBJ,
     bits: *mut u32,
@@ -760,7 +760,7 @@ impl Dib {
         }
     }
 
-    fn pixels(&mut self) -> &mut [u32] {
+    pub(crate) fn pixels(&mut self) -> &mut [u32] {
         // SAFETY: `bits` is the DIB's width × height pixels, alive until drop.
         unsafe { std::slice::from_raw_parts_mut(self.bits, self.len) }
     }
