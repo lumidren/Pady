@@ -9,7 +9,11 @@
 //! sleeps in `GetMessageW`.
 //!
 //! "Copied" comes from the clipboard's change notification: Pady is told
-//! *that* something was copied and never reads what.
+//! *that* something was copied and never reads what. Plenty of programs
+//! write the clipboard on their own (clipboard managers, cloud clipboard
+//! sync, password managers clearing it, apps filling in a format while you
+//! paste), so a change only counts when the app you are using made it, right
+//! after you did something, and not while you are pasting.
 
 use crate::color::{Color, Palette};
 use crate::gdiplus::{self, Brush, Path, Pen, StringFormat};
@@ -30,10 +34,15 @@ use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{AC_SRC_ALPHA, AC_SRC_OVER, BLENDFUNCTION};
 use windows::Win32::Graphics::GdiPlus::{StringAlignmentCenter, StringAlignmentNear};
 use windows::Win32::System::DataExchange::{
-    AddClipboardFormatListener, CountClipboardFormats, RemoveClipboardFormatListener,
+    AddClipboardFormatListener, CountClipboardFormats, GetClipboardOwner, GetClipboardSequenceNumber,
+    RemoveClipboardFormatListener,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::HiDpi::{SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_CONTROL, VK_INSERT, VK_SHIFT, VK_V,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -247,7 +256,71 @@ struct Toaster {
     origin: (i32, i32),
     anchor: (i32, i32),
     watching: bool,
+    /// The clipboard's sequence number when "Copied" was last shown, so one
+    /// copy announced twice (some apps write it in two goes) shows once.
+    last_copy: u32,
     reported: bool,
+}
+
+/// What Pady knows about a clipboard change; never its content.
+#[derive(Debug, Default)]
+struct ClipboardChange {
+    formats: i32,
+    /// The process that wrote the clipboard (`None`: no window owns it).
+    owner: Option<u32>,
+    /// The processes behind the window in front: the app itself, plus any
+    /// it hosts (Store apps live inside ApplicationFrameHost).
+    foreground: Vec<u32>,
+    /// Since the last key press, click or touch.
+    idle: Option<Duration>,
+    /// Ctrl+V or Shift+Insert held: apps fill in clipboard formats on paste.
+    pasting: bool,
+}
+
+/// Long enough for a slow app to finish writing after the key press.
+const COPY_WINDOW: Duration = Duration::from_millis(1500);
+
+fn looks_like_your_copy(c: &ClipboardChange) -> bool {
+    // A cleared clipboard (no formats) is not a copy.
+    c.formats > 0
+        && !c.pasting
+        && c.idle.is_some_and(|idle| idle <= COPY_WINDOW)
+        && c.owner.is_some_and(|owner| c.foreground.contains(&owner))
+}
+
+impl ClipboardChange {
+    fn now() -> ClipboardChange {
+        unsafe {
+            let pid = |hwnd: HWND| {
+                let mut pid = 0u32;
+                GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                (pid != 0).then_some(pid)
+            };
+            let owner = GetClipboardOwner().ok().filter(|h| !h.is_invalid()).and_then(pid);
+            let mut foreground = Vec::new();
+            let front = GetForegroundWindow();
+            if !front.is_invalid() {
+                foreground.extend(pid(front));
+                unsafe extern "system" fn add(child: HWND, list: LPARAM) -> windows::Win32::Foundation::BOOL {
+                    let list = &mut *(list.0 as *mut Vec<u32>);
+                    let mut pid = 0u32;
+                    GetWindowThreadProcessId(child, Some(&mut pid));
+                    if pid != 0 && !list.contains(&pid) {
+                        list.push(pid);
+                    }
+                    true.into()
+                }
+                let _ = EnumChildWindows(front, Some(add), LPARAM(&mut foreground as *mut Vec<u32> as isize));
+            }
+            let mut info = LASTINPUTINFO { cbSize: size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+            let idle = GetLastInputInfo(&mut info)
+                .as_bool()
+                .then(|| Duration::from_millis(u64::from(GetTickCount().wrapping_sub(info.dwTime))));
+            let down = |key: u16| GetAsyncKeyState(i32::from(key)) < 0;
+            let pasting = (down(VK_CONTROL.0) && down(VK_V.0)) || (down(VK_SHIFT.0) && down(VK_INSERT.0));
+            ClipboardChange { formats: CountClipboardFormats(), owner, foreground, idle, pasting }
+        }
+    }
 }
 
 impl Toaster {
@@ -260,6 +333,7 @@ impl Toaster {
             origin: (0, 0),
             anchor: (0, 0),
             watching: false,
+            last_copy: 0,
             reported: false,
         }
     }
@@ -277,10 +351,13 @@ impl Toaster {
                     }
                     return true;
                 }
-                // A cleared clipboard (no formats) is not a copy.
                 WM_COPIED => {
-                    if self.watching && unsafe { CountClipboardFormats() } > 0 {
-                        self.show(Notice::Copied);
+                    if self.watching {
+                        let seq = unsafe { GetClipboardSequenceNumber() };
+                        if seq != self.last_copy && looks_like_your_copy(&ClipboardChange::now()) {
+                            self.last_copy = seq;
+                            self.show(Notice::Copied);
+                        }
                     }
                     return true;
                 }
@@ -558,6 +635,38 @@ impl Renderer {
 mod tests {
     use super::*;
     use crate::windows::tests::GDIPLUS;
+
+    fn copy_in_front() -> ClipboardChange {
+        ClipboardChange {
+            formats: 3,
+            owner: Some(42),
+            foreground: vec![42],
+            idle: Some(Duration::from_millis(80)),
+            pasting: false,
+        }
+    }
+
+    #[test]
+    fn a_copy_in_the_app_you_use_counts() {
+        assert!(looks_like_your_copy(&copy_in_front()));
+        // A Store app: the frame is one process, the app inside it another.
+        let hosted = ClipboardChange { foreground: vec![7, 42], ..copy_in_front() };
+        assert!(looks_like_your_copy(&hosted));
+    }
+
+    #[test]
+    fn clipboard_writes_you_did_not_make_do_not() {
+        let background = ClipboardChange { owner: Some(99), ..copy_in_front() };
+        assert!(!looks_like_your_copy(&background), "another program wrote it");
+        let unowned = ClipboardChange { owner: None, ..copy_in_front() };
+        assert!(!looks_like_your_copy(&unowned), "no window owns it");
+        let away = ClipboardChange { idle: Some(Duration::from_secs(20)), ..copy_in_front() };
+        assert!(!looks_like_your_copy(&away), "nobody touched anything");
+        let pasting = ClipboardChange { pasting: true, ..copy_in_front() };
+        assert!(!looks_like_your_copy(&pasting), "an app filling in formats on paste");
+        let cleared = ClipboardChange { formats: 0, ..copy_in_front() };
+        assert!(!looks_like_your_copy(&cleared), "emptied");
+    }
 
     #[test]
     fn draws_both_notices_at_every_dpi() {
