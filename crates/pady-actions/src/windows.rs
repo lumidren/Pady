@@ -21,7 +21,9 @@ use windows::Win32::Devices::Display::{
     GetPhysicalMonitorsFromHMONITOR, SetMonitorBrightness, PHYSICAL_MONITOR,
 };
 use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, MAX_PATH, RECT};
-use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR};
+use windows::Win32::Graphics::Gdi::{
+    EnumDisplayMonitors, GetMonitorInfoW, MonitorFromWindow, HDC, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoSetProxyBlanket, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, EOAC_NONE,
     RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE,
@@ -40,9 +42,9 @@ use windows::Win32::System::Wmi::{
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::Shell::{SHQueryUserNotificationState, ShellExecuteW, QUNS_RUNNING_D3D_FULL_SCREEN};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindow, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId,
-    IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_MINIMIZE, SW_RESTORE,
-    SW_SHOWNORMAL, WS_EX_TOOLWINDOW,
+    EnumWindows, GetForegroundWindow, GetWindow, GetWindowLongW, GetWindowRect, GetWindowTextLengthW,
+    GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, GWL_EXSTYLE, GW_OWNER,
+    SW_MINIMIZE, SW_RESTORE, SW_SHOWNORMAL, WS_EX_TOOLWINDOW,
 };
 
 /// Whether a drag holds the left button right now, so a crash can let go
@@ -119,6 +121,7 @@ impl Executor for WindowsExecutor {
     /// and presentations are left alone: people scrub volume there.
     fn fullscreen_game(&mut self) -> bool {
         unsafe { SHQueryUserNotificationState() }.is_ok_and(|state| state == QUNS_RUNNING_D3D_FULL_SCREEN)
+            && foreground_fills_monitor()
     }
 
     fn mouse_button(&mut self, down: bool) -> Result<(), ActionError> {
@@ -630,6 +633,40 @@ fn find_window(exe: &str) -> Option<HWND> {
 pub fn foreground_app() -> Option<String> {
     let hwnd = unsafe { GetForegroundWindow() };
     (!hwnd.0.is_null()).then(|| process_exe(hwnd)).flatten()
+}
+
+/// Windows can keep reporting a full-screen Direct3D app after waking from
+/// sleep or unlocking (the lock screen is one), which used to pause every
+/// gesture until another window came to the front. So also require that the
+/// window in front really covers its monitor and isn't part of the shell.
+fn foreground_fills_monitor() -> bool {
+    const SHELL: &[&str] = &[
+        "explorer.exe",
+        "lockapp.exe",
+        "logonui.exe",
+        "shellexperiencehost.exe",
+        "startmenuexperiencehost.exe",
+        "searchhost.exe",
+    ];
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() || !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+            return false;
+        }
+        if process_exe(hwnd).is_some_and(|exe| SHELL.contains(&exe.to_ascii_lowercase().as_str())) {
+            return false;
+        }
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_err() {
+            return false;
+        }
+        let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if !GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut info).as_bool() {
+            return false;
+        }
+        let m = info.rcMonitor;
+        rect.left <= m.left && rect.top <= m.top && rect.right >= m.right && rect.bottom >= m.bottom
+    }
 }
 
 fn process_exe(hwnd: HWND) -> Option<String> {
