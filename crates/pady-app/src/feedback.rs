@@ -26,7 +26,7 @@ pub fn notice_for(s: &Settings, gesture: &Gesture, trigger: Option<&str>, action
         return None;
     }
     if is_combo(action, &["ctrl+v", "shift+insert"]) {
-        return (s.show_copy_notice && step(gesture) == 0).then_some(Notice::Pasted);
+        return (s.animates(s.show_copy_notice) && step(gesture) == 0).then_some(Notice::Pasted);
     }
     if let Gesture::Pinch { direction, step, .. } = gesture {
         if !s.animates(s.anim_pinch) {

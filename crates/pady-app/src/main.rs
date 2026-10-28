@@ -385,6 +385,11 @@ mod overlay_window {
     }
 }
 
+/// "Copied" shows when its own switch and the Animations switch are on.
+fn copy_notice_wanted(s: &Settings) -> bool {
+    s.animates(s.show_copy_notice)
+}
+
 /// The settings, re-read only when the config changes: the observer looks
 /// at them for every touch frame.
 struct SettingsCache {
@@ -523,7 +528,7 @@ fn spawn_watcher(app: AppHandle) {
             let mut last_retry = Instant::now();
             let mut last_wall = SystemTime::now();
             let mut last_stale_restart = Instant::now();
-            let mut copy_notice = app.state::<Pady>().config.get().settings.show_copy_notice;
+            let mut copy_notice = copy_notice_wanted(&app.state::<Pady>().config.get().settings);
             loop {
                 std::thread::sleep(Duration::from_secs(2));
                 let pady = app.state::<Pady>();
@@ -582,7 +587,7 @@ fn spawn_watcher(app: AppHandle) {
                     }
                 }
 
-                let wanted = pady.config.get().settings.show_copy_notice;
+                let wanted = copy_notice_wanted(&pady.config.get().settings);
                 if wanted != copy_notice {
                     copy_notice = wanted;
                     if let Some(toasts) = &pady.toasts {
@@ -774,7 +779,7 @@ fn main() {
             let toasts = pady_overlay::Toasts::spawn().map(Arc::new);
             let effects = pady_overlay::Effects::spawn();
             if let Some(toasts) = &toasts {
-                toasts.watch_clipboard(config.get().settings.show_copy_notice);
+                toasts.watch_clipboard(copy_notice_wanted(&config.get().settings));
             }
 
             let (frames_tx, frames_rx) = crossbeam_channel::unbounded();
