@@ -16,6 +16,8 @@ mod anim;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod color;
 #[cfg_attr(not(windows), allow(dead_code))]
+mod fx_draw;
+#[cfg_attr(not(windows), allow(dead_code))]
 mod glow;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod layout;
@@ -25,13 +27,15 @@ mod notice;
 mod shadow;
 
 #[cfg(windows)]
+mod fx;
+#[cfg(windows)]
 mod gdiplus;
 #[cfg(windows)]
 mod toast;
 #[cfg(windows)]
 mod windows;
 
-use pady_core::Level;
+use pady_core::{Direction, Level, TouchFrame};
 
 /// The volume/brightness "pill" shown near the bottom of the screen.
 ///
@@ -63,12 +67,28 @@ impl Overlay {
 // Dropping an `Overlay` drops `inner`, which stops the thread and destroys the window.
 
 /// A small notice in the top-right corner of the screen.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
     /// Something was copied (from anywhere; what was copied is never read).
     Copied,
+    /// A gesture pasted.
+    Pasted,
     /// A gesture was ignored because a full-screen game is in front.
     Paused,
+    /// Anything else: a gesture and what it did, a pinch step, an action.
+    Text { text: String, icon: Icon },
+}
+
+/// The symbol in a [`Notice::Text`]'s dot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Icon {
+    Touch,
+    ZoomIn,
+    ZoomOut,
+    Camera,
+    Music,
+    Lock,
+    Done,
 }
 
 /// The corner notices: a layered window on a thread of its own, like the pill.
@@ -99,6 +119,58 @@ impl Toasts {
         self.inner.watch_clipboard(on);
         #[cfg(not(windows))]
         let _ = on;
+    }
+}
+
+/// Animations that follow the fingers: a glow at the screen edge a swipe is
+/// heading for, and glowing fingertips on a small touchpad in the corner.
+pub struct Effects {
+    #[cfg(windows)]
+    inner: fx::Effects,
+}
+
+impl Effects {
+    /// `None` on non-Windows platforms or if the windows can't be created.
+    pub fn spawn() -> Option<Effects> {
+        #[cfg(windows)]
+        return fx::Effects::spawn().map(|inner| Effects { inner });
+        #[cfg(not(windows))]
+        None
+    }
+
+    /// A swipe in `direction` has come `amount` (0..1) of the way.
+    pub fn swipe_progress(&self, direction: Direction, amount: f32) {
+        #[cfg(windows)]
+        {
+            let edge = match direction {
+                Direction::Up => fx_draw::Edge::Top,
+                Direction::Down => fx_draw::Edge::Bottom,
+                Direction::Left => fx_draw::Edge::Left,
+                Direction::Right => fx_draw::Edge::Right,
+            };
+            self.inner.send(fx::Msg::Progress(edge, amount));
+        }
+        #[cfg(not(windows))]
+        let _ = (direction, amount);
+    }
+
+    /// The swipe fired (the glow flashes) or was let go (it fades).
+    pub fn swipe_ended(&self, fired: bool) {
+        #[cfg(windows)]
+        self.inner.send(fx::Msg::Ended(fired));
+        #[cfg(not(windows))]
+        let _ = fired;
+    }
+
+    /// Where the fingers are now (an empty frame: lifted).
+    pub fn touches(&self, frame: &TouchFrame) {
+        #[cfg(windows)]
+        {
+            let points = frame.contacts.iter().map(|c| (c.x, c.y)).collect();
+            self.inner.send(fx::Msg::Touches(points, (frame.width_mm, frame.height_mm)));
+        }
+        #[cfg(not(windows))]
+        let _ = frame;
     }
 }
 

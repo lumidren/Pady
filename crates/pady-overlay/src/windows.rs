@@ -723,7 +723,7 @@ pub(crate) struct Dib {
 }
 
 impl Dib {
-    fn new(width: i32, height: i32) -> Result<Dib> {
+    pub(crate) fn new(width: i32, height: i32) -> Result<Dib> {
         if width <= 0 || height <= 0 {
             return Err(format!("bad overlay size {width}×{height}").into());
         }

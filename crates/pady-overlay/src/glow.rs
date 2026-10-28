@@ -26,7 +26,7 @@ const TIGHT: f32 = 6.0;
 /// The rim's width on the pill's edge, in logical pixels.
 const RIM: f32 = 1.6;
 
-fn ring_colour(at: f32) -> [f32; 3] {
+pub(crate) fn ring_colour(at: f32) -> [f32; 3] {
     let at = at.rem_euclid(1.0);
     for pair in STOPS.windows(2) {
         let ((a, ca), (b, cb)) = (pair[0], pair[1]);
