@@ -130,6 +130,10 @@ pub enum EngineEvent {
         action: String,
         error: String,
     },
+    /// A gesture was ignored because a full-screen game is in front.
+    Paused {
+        trigger: String,
+    },
 }
 
 pub type Observer = Arc<dyn Fn(EngineEvent) + Send + Sync>;
@@ -332,6 +336,7 @@ impl ActionLoop {
         self.refresh_config();
         if self.paused() {
             log::debug!("{trigger} ignored: a full-screen game is running");
+            (self.observer)(EngineEvent::Paused { trigger: trigger.to_string() });
             return;
         }
         let app = if self.config.profiles.is_empty() { None } else { self.exec.foreground_app() };

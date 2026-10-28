@@ -39,6 +39,9 @@ pub struct Settings {
     pub multi_tap_ms: u64,
     /// Ignore gestures while a game runs in exclusive full screen (Windows).
     pub pause_in_fullscreen: bool,
+    /// A small "Copied" notice in the top-right corner after every copy
+    /// (Windows). Pady is told that something was copied, never what.
+    pub show_copy_notice: bool,
     /// The first-run tutorial has been completed or skipped.
     pub onboarded: bool,
     /// Look for a new version on GitHub twice a day.
@@ -65,6 +68,7 @@ impl Default for Settings {
             show_overlay: !cfg!(windows),
             multi_tap_ms: 300,
             pause_in_fullscreen: true,
+            show_copy_notice: true,
             onboarded: false,
             check_updates: true,
             autostart_configured: false,
