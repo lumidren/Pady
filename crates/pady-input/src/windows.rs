@@ -22,6 +22,8 @@ use windows::core::{w, PCWSTR};
 use windows::Win32::Devices::HumanInterfaceDevice::*;
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Power::RegisterSuspendResumeNotification;
+use windows::Win32::System::RemoteDesktop::{WTSRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION};
 use windows::Win32::UI::Input::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -123,7 +125,48 @@ unsafe fn create_sink_window() -> windows::core::Result<HWND> {
         hwndTarget: hwnd,
     };
     RegisterRawInputDevices(&[device], size_of::<RAWINPUTDEVICE>() as u32)?;
+    // Hear about waking from sleep and unlocking, to start clean afterwards.
+    // Neither is essential, so a failure is only logged.
+    if let Err(e) = RegisterSuspendResumeNotification(HANDLE(hwnd.0), DEVICE_NOTIFY_WINDOW_HANDLE) {
+        log::warn!("no wake-from-sleep notifications: {e}");
+    }
+    if let Err(e) = WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) {
+        log::warn!("no unlock notifications: {e}");
+    }
     Ok(hwnd)
+}
+
+/// After sleep or the lock screen: register for touchpad input again, pick
+/// up touchpads that came back under a new handle, and end any touch that
+/// was cut off, so the next gesture starts from a clean slate.
+fn on_wake(state: &mut State, hwnd: HWND, why: &str) {
+    log::info!("{why}: refreshing touchpad input");
+    let device = RAWINPUTDEVICE {
+        usUsagePage: PAGE_DIGITIZER,
+        usUsage: USAGE_TOUCHPAD,
+        dwFlags: RIDEV_INPUTSINK | RIDEV_DEVNOTIFY,
+        hwndTarget: hwnd,
+    };
+    if let Err(e) = unsafe { RegisterRawInputDevices(&[device], size_of::<RAWINPUTDEVICE>() as u32) } {
+        log::warn!("could not re-register for touchpad input: {e}");
+    }
+    for handle in enumerate_touchpads() {
+        on_device_change(state, handle, true);
+    }
+    for pad in state.parsers.values_mut().flatten() {
+        pad.assembler = FrameAssembler::default();
+    }
+    if let Some(pad) = state.parsers.values().flatten().next() {
+        let lifted = TouchFrame {
+            time_ms: now_ms(),
+            contacts: Vec::new(),
+            width_mm: pad.info.width_mm,
+            height_mm: pad.info.height_mm,
+        };
+        if state.frames.send(lifted).is_err() {
+            unsafe { PostQuitMessage(0) };
+        }
+    }
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -142,6 +185,22 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             STATE.with(|s| {
                 if let Some(state) = s.borrow_mut().as_mut() {
                     on_device_change(state, handle, wparam.0 as u32 == GIDC_ARRIVAL);
+                }
+            });
+            LRESULT(0)
+        }
+        WM_POWERBROADCAST if matches!(wparam.0 as u32, PBT_APMRESUMEAUTOMATIC | PBT_APMRESUMESUSPEND) => {
+            STATE.with(|s| {
+                if let Some(state) = s.borrow_mut().as_mut() {
+                    on_wake(state, hwnd, "woke from sleep");
+                }
+            });
+            LRESULT(1)
+        }
+        WM_WTSSESSION_CHANGE if wparam.0 as u32 == WTS_SESSION_UNLOCK => {
+            STATE.with(|s| {
+                if let Some(state) = s.borrow_mut().as_mut() {
+                    on_wake(state, hwnd, "unlocked");
                 }
             });
             LRESULT(0)
