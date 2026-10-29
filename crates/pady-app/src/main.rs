@@ -13,7 +13,9 @@ mod update;
 use crossbeam_channel::Sender;
 use pady_actions::Conflict;
 use pady_core::engine::Observer;
-use pady_core::{Action, Config, Engine, EngineEvent, Level, Preset, Settings, SharedConfig, TouchFrame, PRESETS};
+use pady_core::{
+    Action, Config, Engine, EngineEvent, Level, NotAShape, Preset, Settings, SharedConfig, TouchFrame, PRESETS,
+};
 use pady_input::{DeviceInfo, InputHandle};
 use serde::Serialize;
 use serde_json::json;
@@ -201,6 +203,12 @@ fn enable_autostart_once(app: &AppHandle) {
 #[tauri::command]
 fn test_action(pady: State<Pady>, action: Action) {
     pady.engine.run_action(action);
+}
+
+/// Record the next two-finger stroke as a shape (`pady://shape-recorded`), or stop.
+#[tauri::command]
+fn record_shape(pady: State<Pady>, on: bool) {
+    pady.engine.record_shape(on);
 }
 
 #[tauri::command]
@@ -483,6 +491,10 @@ fn observer(
         }
         EngineEvent::ActionFailed { action, error } => {
             let _ = app.emit("pady://action-failed", json!({ "action": action, "error": error }));
+        }
+        EngineEvent::ShapeRecorded { points, problem } => {
+            let message = problem.map(NotAShape::message);
+            let _ = app.emit("pady://shape-recorded", json!({ "points": points, "problem": message }));
         }
         // Never ignore a gesture silently; once in a while is enough to explain why.
         EngineEvent::Paused { .. } => {
@@ -774,6 +786,7 @@ fn main() {
             check_update,
             install_update,
             pick_program,
+            record_shape,
         ])
         .setup(move |app| {
             let config_path = Config::default_path()?;
