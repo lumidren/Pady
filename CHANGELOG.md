@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Two-finger shapes.** On the new 2 fingers tab, click Record a shape, draw a circle, a V, a Z or anything else with two fingers, name it and pick what it does. Draw it again to run it. A straight two-finger slide is never a shape, so scrolling stays as it is.
+- **Glyphs: draw your own gestures.** On the new Glyphs page, click Record a glyph, draw a circle, a V, a Z or anything else with two fingers, name it and pick what it does. Draw it again to run it. A straight two-finger slide is never a glyph, so scrolling stays as it is.
 - **More animation options.** A Glow switch for every glow (notices, the swipe glow and the app's own highlights), glow strength, animation speed and how long notices stay.
 
 ### Fixed
