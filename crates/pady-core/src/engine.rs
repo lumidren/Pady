@@ -239,8 +239,10 @@ impl Engine {
         self.recording.store(on, Ordering::Relaxed);
     }
 
-    /// Run an action right away (the UI's "Test" button).
-    pub fn run_action(&self, action: Action) {
+    /// Run an action right away (the UI's "Test" button). Like bindings,
+    /// it is kept in range first: it comes straight from the UI.
+    pub fn run_action(&self, mut action: Action) {
+        action.sanitize();
         let _ = self.jobs.send(Job::Run(action));
     }
 
@@ -427,7 +429,9 @@ impl Pointer {
         let x = dx_mm * gain + self.rem.0;
         let y = dy_mm * gain + self.rem.1;
         let (ix, iy) = (x.trunc(), y.trunc());
-        self.rem = (x - ix, y - iy);
+        // A move too big for f32 must not leave a NaN behind that stalls the drag.
+        let rem = |v: f32, i: f32| if (v - i).is_finite() { v - i } else { 0.0 };
+        self.rem = (rem(x, ix), rem(y, iy));
         (ix as i32, iy as i32)
     }
 
@@ -500,6 +504,9 @@ impl EngineLoop {
                 Some(due) => frames.recv_timeout(Duration::from_millis(due.saturating_sub(now_ms()))),
                 None => frames.recv().map_err(|_| RecvTimeoutError::Disconnected),
             };
+            // The config may have changed while we slept: pausing gestures
+            // must stop the very next frame or timer, not the one after.
+            self.refresh_config();
             match received {
                 Ok(frame) => self.on_frame(frame),
                 Err(RecvTimeoutError::Timeout) => {
@@ -545,8 +552,10 @@ impl EngineLoop {
     /// A two-finger stroke ended: record it, or fire the shape it matches.
     fn on_stroke(&mut self, path: &[(f32, f32)], t: u64) {
         if self.recording.swap(false, Ordering::Relaxed) {
-            let event = match shapes::check(path) {
-                Ok(()) => EngineEvent::ShapeRecorded { points: shapes::normalize(path), problem: None },
+            // A stroke too broken to measure is reported as too short, so the
+            // UI always hears either a shape or what was wrong with it.
+            let event = match shapes::check(path).and_then(|()| shapes::normalize(path).ok_or(NotAShape::TooShort)) {
+                Ok(points) => EngineEvent::ShapeRecorded { points: Some(points), problem: None },
                 Err(problem) => EngineEvent::ShapeRecorded { points: None, problem: Some(problem) },
             };
             (self.observer)(event);
@@ -630,6 +639,7 @@ mod tests {
     use crate::config::{Binding, Profile};
     use crate::frame::Contact;
     use crate::gesture::Direction;
+    use std::sync::atomic::AtomicUsize;
     use std::sync::Mutex;
 
     struct Recorder {
@@ -1038,5 +1048,350 @@ mod tests {
             total += p.step(0.05, 0.0, i * 10, 10.0, 0.0).0;
         }
         assert_eq!(total, 5, "10 × 0.05mm × 10px/mm = 5px, none lost to rounding");
+    }
+
+    #[test]
+    fn test_actions_are_kept_in_range() {
+        let jobs = Arc::new(Mutex::new(Vec::new()));
+        let (tx, rx) = unbounded::<TouchFrame>();
+        let rec = jobs.clone();
+        let engine = Engine::spawn(
+            Arc::new(SharedConfig::new(Config::default())),
+            rx,
+            move || Box::new(Recorder { jobs: rec, app: None, fullscreen: false }),
+            Arc::new(|_| {}),
+        );
+        engine.run_action(Action::Volume { step: i32::MAX });
+        engine.run_action(Action::Brightness { step: i32::MIN });
+        drop(tx);
+        engine.join();
+        assert_eq!(
+            *jobs.lock().unwrap(),
+            vec![Job::Run(Action::Volume { step: 100 }), Job::Run(Action::Brightness { step: -100 })]
+        );
+    }
+
+    /// An engine whose events arrive on a channel, to wait for it to see a frame.
+    struct Watched {
+        engine: Engine,
+        frames: Sender<TouchFrame>,
+        config: Arc<SharedConfig>,
+        events: Receiver<EngineEvent>,
+        jobs: Arc<Mutex<Vec<Job>>>,
+    }
+
+    fn watched_engine(cfg: Config) -> Watched {
+        let jobs = Arc::new(Mutex::new(Vec::new()));
+        let (tx, rx) = unbounded();
+        let (ev_tx, ev_rx) = unbounded();
+        let shared = Arc::new(SharedConfig::new(cfg));
+        let rec = jobs.clone();
+        let engine = Engine::spawn(
+            shared.clone(),
+            rx,
+            move || Box::new(Recorder { jobs: rec, app: None, fullscreen: false }),
+            Arc::new(move |e| {
+                let _ = ev_tx.send(e);
+            }),
+        );
+        Watched { engine, frames: tx, config: shared, events: ev_rx, jobs }
+    }
+
+    fn wait_for_frame(events: &Receiver<EngineEvent>) {
+        loop {
+            match events.recv_timeout(Duration::from_secs(10)) {
+                Ok(EngineEvent::Frame(_)) => return,
+                Ok(_) => {}
+                Err(e) => panic!("the engine never saw the frame: {e}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_lift_right_after_pausing_is_not_a_tap() {
+        let mut cfg = Config { bindings: Vec::new(), ..Config::default() };
+        cfg.set_binding(Trigger::Tap(3), Action::Lock, false);
+        let Watched { engine, frames: tx, config: shared, events, jobs } = watched_engine(cfg);
+        let t = now_ms();
+        tx.send(frame(t, 3, 0.0, 0.0)).unwrap();
+        wait_for_frame(&events);
+        shared.update(|c| c.settings.enabled = false);
+        tx.send(frame(t + 50, 0, 0.0, 0.0)).unwrap();
+        drop(tx);
+        engine.join();
+        assert!(jobs.lock().unwrap().is_empty(), "{:?}", jobs.lock().unwrap());
+    }
+
+    #[test]
+    fn resting_fingers_do_not_hold_once_gestures_are_paused() {
+        let mut cfg = Config { bindings: Vec::new(), ..Config::default() };
+        cfg.settings.hold_ms = 1_000;
+        cfg.set_binding(Trigger::Hold(3), Action::Lock, false);
+        let Watched { engine, frames: tx, config: shared, events, jobs } = watched_engine(cfg);
+        tx.send(frame(now_ms(), 3, 0.0, 0.0)).unwrap();
+        wait_for_frame(&events);
+        // The hold timer is running; pausing must stop it.
+        shared.update(|c| c.settings.enabled = false);
+        std::thread::sleep(Duration::from_millis(1_300));
+        drop(tx);
+        engine.join();
+        assert!(jobs.lock().unwrap().is_empty(), "{:?}", jobs.lock().unwrap());
+    }
+
+    #[test]
+    fn a_stroke_too_broken_to_measure_says_so_when_recorded() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let ev = events.clone();
+        let (jobs, _) = unbounded();
+        let mut engine = EngineLoop::new(
+            Arc::new(SharedConfig::new(Config::default())),
+            jobs,
+            Arc::new(move |e| ev.lock().unwrap().push(e)),
+            |_| {},
+            Arc::new(AtomicBool::new(true)),
+        );
+        // Not straight and long enough, but too big to normalise in f32.
+        let big = 3e38;
+        engine.on_stroke(&[(0.0, 0.0), (big, 0.0), (big, big), (0.0, big)], 0);
+        let events = events.lock().unwrap();
+        assert!(
+            matches!(events[..], [EngineEvent::ShapeRecorded { points: None, problem: Some(NotAShape::TooShort) }]),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn a_huge_drag_step_does_not_stall_the_pointer() {
+        let mut p = Pointer::default();
+        p.reset(0);
+        p.step(3e38, -3e38, 10, 9.0, 1.0);
+        let total: i32 = (2..=11).map(|i| p.step(0.5, 0.0, i * 10, 10.0, 0.0).0).sum();
+        assert_eq!(total, 50, "10 × 0.5mm × 10px/mm");
+    }
+
+    /// Records the mouse button, and can claim a full-screen game is running.
+    struct Soak {
+        buttons: Arc<Mutex<Vec<bool>>>,
+        runs: Arc<AtomicUsize>,
+        fullscreen: Arc<AtomicBool>,
+    }
+
+    impl Executor for Soak {
+        fn run(&mut self, _: &Action) -> Result<Option<Level>, ActionError> {
+            self.runs.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+        fn mouse_button(&mut self, down: bool) -> Result<(), ActionError> {
+            self.buttons.lock().unwrap().push(down);
+            Ok(())
+        }
+        fn mouse_move(&mut self, _: i32, _: i32) -> Result<(), ActionError> {
+            Ok(())
+        }
+        fn fullscreen_game(&mut self) -> bool {
+            self.fullscreen.load(Ordering::SeqCst)
+        }
+    }
+
+    struct SoakRun {
+        buttons: Vec<bool>,
+        runs: usize,
+        frames: usize,
+        events: Vec<EngineEvent>,
+    }
+
+    /// Random, often broken, frames and two-finger strokes, while the test
+    /// thread swaps the config, toggles shape recording and full-screen
+    /// games at random, unsynchronised with the engine.
+    fn soak(seed: u64, frames: usize, change: impl Fn(&mut crate::Rng, &mut Config)) -> SoakRun {
+        let mut rng = crate::Rng::new(seed);
+        let (buttons, runs) = (Arc::new(Mutex::new(Vec::new())), Arc::new(AtomicUsize::new(0)));
+        let fullscreen = Arc::new(AtomicBool::new(false));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::new(AtomicUsize::new(0));
+        let mut cfg = Config::default();
+        change(&mut rng, &mut cfg);
+        let shared = Arc::new(SharedConfig::new(cfg));
+        let (tx, rx) = unbounded();
+        let (b, r, f) = (buttons.clone(), runs.clone(), fullscreen.clone());
+        let (ev, count) = (events.clone(), seen.clone());
+        let engine = Engine::spawn(
+            shared.clone(),
+            rx,
+            move || Box::new(Soak { buttons: b, runs: r, fullscreen: f }),
+            Arc::new(move |e| match e {
+                EngineEvent::Frame(_) => {
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
+                e => ev.lock().unwrap().push(e),
+            }),
+        );
+        let mut sent = 0;
+        let mut t = now_ms();
+        while sent < frames {
+            match rng.below(200) {
+                0 => {
+                    shared.update(|c| change(&mut rng, c));
+                }
+                1 => engine.record_shape(rng.below(2) == 0),
+                2 => fullscreen.store(rng.below(4) == 0, Ordering::SeqCst),
+                _ => {}
+            }
+            let batch: Vec<TouchFrame> = if rng.below(30) == 0 {
+                vee_frames(t.min(u64::MAX / 2))
+            } else {
+                t = match rng.below(50) {
+                    0 => t.saturating_sub(rng.below(5_000)),
+                    1 => t.saturating_add(rng.below(100_000)),
+                    2 => u64::MAX - rng.below(100),
+                    _ => t.saturating_add(rng.below(20)),
+                };
+                let n = [0, 0, 1, 2, 3, 3, 3, 4, 5, 6][rng.below(10) as usize];
+                let mut f = frame(t, n, rng.below(30) as f32, rng.below(30) as f32);
+                for c in &mut f.contacts {
+                    if rng.below(30) == 0 {
+                        c.x = rng.mm();
+                    }
+                    if rng.below(30) == 0 {
+                        c.id = 0;
+                    }
+                }
+                if rng.below(10) == 0 {
+                    (f.width_mm, f.height_mm) = (0.0, 0.0);
+                }
+                vec![f]
+            };
+            sent += batch.len();
+            batch.into_iter().for_each(|f| tx.send(f).unwrap());
+        }
+        // However far behind the engine is, at least one stroke is recorded.
+        engine.record_shape(true);
+        sent += vee_frames(now_ms()).into_iter().map(|f| tx.send(f).unwrap()).count();
+        drop(tx);
+        engine.join();
+        let buttons = buttons.lock().unwrap().clone();
+        let events = std::mem::take(&mut *events.lock().unwrap());
+        let soaked =
+            SoakRun { buttons, runs: runs.load(Ordering::SeqCst), frames: seen.load(Ordering::SeqCst), events };
+        assert_eq!(soaked.frames, sent, "the engine stopped early (a panic?)");
+        soaked
+    }
+
+    fn assert_button_balanced(buttons: &[bool]) {
+        for (i, &down) in buttons.iter().enumerate() {
+            assert_eq!(down, i % 2 == 0, "pressed twice or released twice: {buttons:?}");
+        }
+        assert!(buttons.len() % 2 == 0, "the button was left held: {buttons:?}");
+    }
+
+    fn assert_shapes_finite(events: &[EngineEvent]) {
+        for e in events {
+            if let EngineEvent::ShapeRecorded { points, problem } = e {
+                assert!(points.is_some() != problem.is_some(), "{e:?}");
+                assert!(points.iter().flatten().flatten().all(|v| v.is_finite()), "{e:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn soak_config_swaps_mid_drag_never_leave_the_button_held() {
+        for seed in [1, 2, 3] {
+            let run = soak(seed, 20_000, |rng, c| {
+                c.settings.enabled = rng.below(4) != 0;
+                c.settings.drag_release_ms = [0, 50, 350, 5_000][rng.below(4) as usize];
+                c.settings.pause_in_fullscreen = rng.below(2) == 0;
+                let drag = if rng.below(3) == 0 { Action::None } else { Action::Drag };
+                c.set_binding(Trigger::Drag(3), drag, false);
+                c.set_binding(Trigger::Tap(4), Action::Mute, false);
+            });
+            assert_button_balanced(&run.buttons);
+            assert_shapes_finite(&run.events);
+            assert!(!run.buttons.is_empty(), "seed {seed}: the soak should drag now and then");
+        }
+    }
+
+    #[test]
+    fn soak_while_paused_never_acts() {
+        let run = soak(4, 20_000, |rng, c| {
+            c.settings.enabled = false;
+            c.settings.drag_release_ms = [0, 350][rng.below(2) as usize];
+            c.set_binding(Trigger::Tap(3), Action::Mute, false);
+        });
+        assert!(run.buttons.is_empty() && run.runs == 0, "{:?}, {} actions", run.buttons, run.runs);
+        assert_shapes_finite(&run.events);
+        let gestures: Vec<_> = run.events.iter().filter(|e| matches!(e, EngineEvent::Gesture { .. })).collect();
+        assert!(gestures.is_empty(), "{gestures:?}");
+        assert!(run.events.iter().any(|e| matches!(e, EngineEvent::ShapeRecorded { .. })), "recording still works");
+    }
+
+    #[test]
+    fn the_engine_keeps_up_with_a_flood_of_frames() {
+        let mut frames = Vec::with_capacity(100_100);
+        let mut t = 0;
+        while frames.len() < 100_000 {
+            for (n, dx, dy) in [(3, 0.0, 0.0), (4, 0.0, -1.5), (3, 1.2, 0.4), (4, 0.0, 0.0)] {
+                for i in 0..40 {
+                    frames.push(frame(t, n, dx * i as f32, dy * i as f32));
+                    t += 8;
+                }
+                frames.push(frame(t, 0, 0.0, 0.0));
+                t += 300;
+            }
+        }
+        let count = frames.len();
+        let seen = Arc::new(AtomicUsize::new(0));
+        let s = seen.clone();
+        let (tx, rx) = unbounded();
+        let start = std::time::Instant::now();
+        let engine = Engine::spawn(
+            Arc::new(SharedConfig::new(Config::default())),
+            rx,
+            || Box::new(LogExecutor) as Box<dyn Executor>,
+            Arc::new(move |e| {
+                if let EngineEvent::Frame(_) = e {
+                    s.fetch_add(1, Ordering::Relaxed);
+                }
+            }),
+        );
+        frames.into_iter().for_each(|f| tx.send(f).unwrap());
+        drop(tx);
+        engine.join();
+        let took = start.elapsed();
+        assert_eq!(seen.load(Ordering::Relaxed), count);
+        // Tens of milliseconds in release; generous for debug builds on shared CI runners.
+        let budget = Duration::from_millis(if cfg!(debug_assertions) { 15_000 } else { 500 });
+        assert!(took < budget, "{count} frames took {took:?}");
+    }
+
+    /// The stroke [`vee_frames`] draws, normalised: a shape to bind.
+    fn vee_shape(id: u8) -> crate::Shape {
+        let mut strokes = StrokeTracker::default();
+        let path = vee_frames(0).iter().find_map(|f| strokes.update(f)).expect("a stroke");
+        crate::Shape { id, name: "V".into(), points: shapes::normalize(&path).expect("a shape") }
+    }
+
+    #[test]
+    fn switching_recording_mid_stroke_decides_how_the_stroke_ends() {
+        for record_at_the_end in [false, true] {
+            let mut cfg = Config { bindings: Vec::new(), ..Config::default() };
+            cfg.shapes.push(vee_shape(4));
+            cfg.set_binding(Trigger::Shape(4), Action::Lock, false);
+            let Watched { engine, frames, events, jobs, .. } = watched_engine(cfg);
+            engine.record_shape(!record_at_the_end);
+            let mut stroke = vee_frames(now_ms());
+            let lift = stroke.pop().unwrap();
+            for f in stroke {
+                frames.send(f).unwrap();
+                wait_for_frame(&events);
+            }
+            engine.record_shape(record_at_the_end);
+            frames.send(lift).unwrap();
+            drop(frames);
+            engine.join();
+            let recorded = events.try_iter().any(|e| matches!(e, EngineEvent::ShapeRecorded { points: Some(_), .. }));
+            assert_eq!(recorded, record_at_the_end);
+            let fired = *jobs.lock().unwrap() == vec![Job::Run(Action::Lock)];
+            assert_eq!(fired, !record_at_the_end, "a recorded stroke doesn't also fire");
+        }
     }
 }
