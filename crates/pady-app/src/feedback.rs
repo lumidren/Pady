@@ -25,6 +25,10 @@ pub fn notice_for(s: &Settings, gesture: &Gesture, trigger: Option<&str>, action
     if is_combo(action, &["ctrl+c", "ctrl+x", "ctrl+insert"]) {
         return None;
     }
+    // Switching the keyboard language shows the new language itself (when that notice is on).
+    if is_combo(action, &["win+space"]) {
+        return None;
+    }
     if is_combo(action, &["ctrl+v", "shift+insert"]) {
         return (s.animates(s.show_copy_notice) && step(gesture) == 0).then_some(Notice::Pasted);
     }
@@ -85,6 +89,17 @@ mod tests {
         assert_eq!(notice_for(&s, &drop, Some("pinch:3:out"), Some("Press ctrl+v")), Some(Notice::Pasted));
         let off = Settings { show_copy_notice: false, ..Settings::default() };
         assert_eq!(notice_for(&off, &drop, Some("pinch:3:out"), Some("Press ctrl+v")), None);
+    }
+
+    #[test]
+    fn switching_the_keyboard_language_leaves_it_to_the_language_notice() {
+        let hints = Settings { anim_hints: true, ..Settings::default() };
+        let tap = Gesture::Tap { fingers: 4 };
+        assert_eq!(notice_for(&hints, &tap, Some("tap:4"), Some("Press win+space")), None);
+        assert!(
+            notice_for(&hints, &tap, Some("tap:4"), Some("Press win+d")).is_some(),
+            "other shortcuts still get a hint"
+        );
     }
 
     #[test]

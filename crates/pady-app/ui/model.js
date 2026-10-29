@@ -260,6 +260,9 @@
   const programName = (p) => String(p || '').split(/[\\/]/).pop();
 
   /** Rich summary for chips: { icon, text, keys? } */
+  /** Shortcuts that switch the keyboard language (Windows and GNOME use Win/Super+Space). */
+  M.isLanguageSwitch = (combo) => /^(win\+space|space\+win)$/i.test(String(combo || '').replace(/\s+/g, ''));
+
   M.summarize = function (action, platform) {
     const a = action || { type: 'none' };
     const t = M.TYPES[a.type] || M.TYPES.none;
@@ -272,7 +275,9 @@
         const k = M.MEDIA_KEYS.find((x) => x.key === a.key);
         return { icon: k ? k.icon : 'play-pause', text: k ? k.long.replace(' (OS overlay)', '') : a.key };
       }
-      case 'keys': { const caps = M.keycaps(a.combo, platform); return { icon: 'keyboard', text: caps.join('+'), keys: caps }; }
+      case 'keys': {
+        if (M.isLanguageSwitch(a.combo)) return { icon: 'keyboard', text: 'Switch keyboard language' };
+        const caps = M.keycaps(a.combo, platform); return { icon: 'keyboard', text: caps.join('+'), keys: caps }; }
       case 'open_url': return { icon: /youtube\./i.test(a.url) ? 'youtube' : 'globe', text: `Open ${prettyUrl(a.url)}${a.browser ? ' in ' + browserName(a.browser) : ''}` };
       case 'launch': return { icon: 'apps', text: `Launch ${programName(a.program)}` };
       case 'focus_or_launch': return { icon: 'switch', text: `Switch to ${programName(a.program)}` };
@@ -360,6 +365,7 @@
       { id: 'shot', label: 'Screenshot', icon: 'screenshot', action: k(linux ? 'printscreen' : 'win+shift+s') },
       { id: 'close', label: 'Close window', icon: 'close-window', action: k('alt+f4') },
       { id: 'lock', label: 'Lock', icon: 'lock', action: { type: 'lock' } },
+      { id: 'language', label: 'Switch keyboard language', icon: 'keyboard', action: k('win+space') },
       { id: 'chrome', label: 'Open Chrome', icon: 'browser', action: { type: 'focus_or_launch', program: linux ? 'google-chrome' : 'chrome.exe' } },
       { id: 'youtube', label: 'Open YouTube', icon: 'youtube', action: { type: 'open_url', url: 'https://youtube.com', browser: 'chrome' } },
     ];
