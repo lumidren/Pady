@@ -136,14 +136,19 @@ pub fn best_match(glyphs: &[Glyph], path: &[(f32, f32)]) -> Option<(u8, f32)> {
         .max_by(|a, b| a.1.total_cmp(&b.1))
 }
 
-/// Follows two-finger strokes: the path of the fingers' midpoint from the
-/// moment two fingers land until they all lift. A stroke that ever had a
-/// third finger, or started with one, is not a two-finger stroke.
+/// Follows two-finger strokes: the path of the fingers' midpoint while two
+/// fingers are down, reported when they all lift. Fingers rarely land in the
+/// same instant, so one landing a moment before the other is fine; a third
+/// finger at any point makes it something else. Once a finger lifts the path
+/// ends, so putting it back can't add a jump.
 #[derive(Debug, Default)]
 pub struct StrokeTracker {
     path: Vec<(f32, f32)>,
     active: bool,
-    two_only: bool,
+    /// A third finger touched: not a two-finger stroke.
+    crowded: bool,
+    /// Fewer than two fingers since the path began: it's over.
+    ended: bool,
 }
 
 /// Paths longer than this are not glyphs anyone draws; stop collecting.
@@ -154,20 +159,24 @@ impl StrokeTracker {
     pub fn update(&mut self, frame: &TouchFrame) -> Option<Vec<(f32, f32)>> {
         let n = frame.contacts.len();
         if n == 0 {
-            let done = self.active && self.two_only && self.path.len() >= 2;
+            let done = self.active && !self.crowded && self.path.len() >= 2;
             self.active = false;
             return done.then(|| std::mem::take(&mut self.path));
         }
         if !self.active {
             self.active = true;
-            self.two_only = n == 2;
+            self.crowded = false;
+            self.ended = false;
             self.path.clear();
         }
         if n > 2 {
-            self.two_only = false;
+            self.crowded = true;
         }
         // One finger lifting first is the end of the glyph, not part of it.
-        if n == 2 && self.two_only && self.path.len() < MAX_PATH {
+        if n < 2 && !self.path.is_empty() {
+            self.ended = true;
+        }
+        if n == 2 && !self.crowded && !self.ended && self.path.len() < MAX_PATH {
             let c = &frame.contacts;
             let mid = ((c[0].x + c[1].x) / 2.0, (c[0].y + c[1].y) / 2.0);
             let moved = self.path.last().is_none_or(|l| (mid.0 - l.0).hypot(mid.1 - l.1) >= 0.25);
@@ -281,6 +290,25 @@ mod tests {
         assert_eq!(t.update(&frame(&[(1.0, 1.0)])), None, "one finger lifting first ends nothing yet");
         let path = t.update(&frame(&[])).expect("a stroke");
         assert_eq!(best_match(&[glyph(2, &vee(20.0))], &path).map(|m| m.0), Some(2));
+    }
+
+    #[test]
+    fn fingers_landing_and_lifting_one_at_a_time_still_draw() {
+        // As on a real touchpad: one finger lands a frame before the other,
+        // and they lift one after the other.
+        let mut t = StrokeTracker::default();
+        let path = vee(20.0);
+        t.update(&frame(&[(path[0].0 - 5.0, path[0].1)]));
+        for p in &path {
+            t.update(&frame(&[(p.0 - 5.0, p.1), (p.0 + 5.0, p.1)]));
+        }
+        let last = path[path.len() - 1];
+        t.update(&frame(&[(last.0 + 5.0, last.1)]));
+        // Putting the finger back doesn't add to a glyph that's over.
+        t.update(&frame(&[(90.0, 90.0), (95.0, 90.0)]));
+        let drawn = t.update(&frame(&[])).expect("a stroke");
+        assert_eq!(best_match(&[glyph(2, &vee(20.0))], &drawn).map(|m| m.0), Some(2));
+        assert!(drawn.iter().all(|p| p.0 < 60.0), "nothing after the lift: {drawn:?}");
     }
 
     #[test]
