@@ -181,6 +181,7 @@
   function applyState(state) {
     if (!state || !state.config) return;
     store.app = state;
+    M.setShapes(state.config);
     renderShell();
     if (store.page === 'gestures') renderGestures();
     else if (store.page === 'settings') renderSettings();
@@ -402,6 +403,7 @@
     `<g class="illo-f"><circle class="illo-halo" cx="${x}" cy="${y}" r="${r * 2}"/><circle class="illo-finger" cx="${x}" cy="${y}" r="${r}"/></g>`).join('');
 
   function illoSVG(kind, n, dir) {
+    if (kind === 'shape') return shapeSVG(Array.isArray(dir) ? dir : (M.shapeById(dir) || {}).points);
     const r = n === 5 ? 4.1 : 4.6;
     let inner = '';
     if (kind === 'swipe') {
@@ -439,6 +441,24 @@
     return `<svg class="illo illo--${kind}${dir ? ' illo--' + dir : ''}" viewBox="0 0 120 76" aria-hidden="true" focusable="false"><rect class="illo-pad" x="2" y="2" width="116" height="72" rx="12"/>${inner}</svg>`;
   }
 
+  /** A two-finger shape on the pad: a faint track, the drawn stroke, and two fingertips at its end. */
+  function shapeSVG(points) {
+    const pts = (points || []).map(([x, y]) => [60 + x * 54, 38 + y * 54]);
+    const pad = '<rect class="illo-pad" x="2" y="2" width="116" height="72" rx="12"/>';
+    if (pts.length < 2) return `<svg class="illo illo--shape" viewBox="0 0 120 76" aria-hidden="true" focusable="false">${pad}</svg>`;
+    const f = (v) => v.toFixed(1);
+    const d = 'M' + pts.map(([x, y]) => f(x) + ' ' + f(y)).join(' L');
+    const [ex, ey] = pts[pts.length - 1];
+    const [sx, sy] = pts[0];
+    const tips = [ex - 4, ex + 4];
+    return `<svg class="illo illo--shape" viewBox="0 0 120 76" aria-hidden="true" focusable="false">${pad}`
+      + `<path class="illo-shape-track" d="${d}"/><path class="illo-shape-path" d="${d}" pathLength="100"/>`
+      + `<circle class="illo-shape-start" cx="${f(sx)}" cy="${f(sy)}" r="2.2"/><g class="illo-fingers">`
+      + tips.map((x) => `<circle class="illo-halo" cx="${f(x)}" cy="${f(ey)}" r="7"/>`).join('')
+      + tips.map((x) => `<circle class="illo-finger" cx="${f(x)}" cy="${f(ey)}" r="3.6"/>`).join('')
+      + '</g></svg>';
+  }
+
   // Finger angles (degrees, y down) for the pinch illustration: fingertips above, thumb below.
   const PINCH_ANGLES = { 3: [-140, -40, 95], 4: [-150, -95, -40, 100], 5: [-155, -112, -68, -25, 110] };
 
@@ -464,7 +484,7 @@
     const page = $('#page-gestures');
     gestUI.banners = h('div', { class: 'banners' });
     gestUI.seg = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'Number of fingers' }, h('span', { class: 'seg-indicator', 'aria-hidden': 'true' }));
-    M.FINGERS.forEach((n) => {
+    [M.SHAPE_FINGERS, ...M.FINGERS].forEach((n) => {
       const btn = h('button', { class: 'seg-btn', type: 'button', role: 'radio', 'data-n': n, onClick: () => pickFingers(n) },
         h('span', { class: 'seg-fingers', 'aria-hidden': 'true' }, Array.from({ length: n }, () => h('i'))),
         `${n} fingers`, h('span', { class: 'seg-count' }, '0'));
@@ -608,6 +628,8 @@
     gestUI.syncRoving();
     requestAnimationFrame(positionSegIndicator);
 
+    if (n === M.SHAPE_FINGERS) { renderShapes(view, intro); return; }
+
     if (view) {
       // Drag is always global, so a profile can change one slot fewer.
       const changed = M.SLOTS.filter((sl) => M.overrideFor(view.profile, M.triggerOf(sl, n))).length;
@@ -642,13 +664,137 @@
   }
 
   /**
+   * The 2 fingers tab: shapes you record and draw with two fingers. Two
+   * fingers otherwise belong to the OS (scrolling), so only shapes count.
+   */
+  function renderShapes(view, intro) {
+    const cfg = store.app.config;
+    const shapes = cfg.shape || [];
+    gestUI.summary.textContent = shapes.length
+      ? `${shapes.length} shape${shapes.length === 1 ? '' : 's'} recorded`
+      : 'Record a shape to start';
+    const grid = h('div', { class: 'grid grid--4' });
+    shapes.forEach((sh, i) => grid.append(cardEl(M.slotOfTrigger(`shape:${sh.id}`), M.SHAPE_FINGERS, i, intro, false, view)));
+    const full = M.nextShapeId(cfg) == null;
+    grid.append(h('button', {
+      type: 'button', class: 'card card--record' + (intro ? ' intro enter' : ''), disabled: full || !!view,
+      style: { '--i': String(shapes.length) },
+      title: view ? 'Shapes are recorded under All apps' : full ? `You can have up to ${M.MAX_SHAPES} shapes` : 'Record a new two-finger shape',
+      onClick: () => openShapeRecorder(),
+    }, h('div', { class: 'card-record-icon' }, ico('plus', 22)),
+    h('div', { class: 'card-record-text' }, h('strong', null, 'Record a shape'), h('span', null, 'Draw it with two fingers, then pick what it does'))));
+    const head = h('div', { class: 'group-head' }, h('h2', { class: 'group-title' }, 'Two-finger shapes'));
+    const note = h('p', { class: 'group-help' },
+      'Draw a circle, a V, a Z or a check mark with two fingers. Scrolling stays as it is: a straight two-finger slide is never a shape.');
+    gestUI.groups.replaceChildren(h('section', { class: 'group' }, head, note, grid));
+    if (intro && !reducedMotion()) {
+      const cards = $$('.card', gestUI.groups);
+      setTimeout(() => cards.forEach((c) => c.classList.remove('intro')), 2600 + cards.length * 110);
+    }
+  }
+
+  /* ---------- Shape recorder ---------- */
+
+  let recorder = null;
+
+  /** Record a two-finger shape: wait for it, show it, name it, then pick its action. */
+  function openShapeRecorder() {
+    if (recorder || editor || profEd) return;
+    const id = M.nextShapeId(store.app.config);
+    if (id == null) return;
+    const rec = { id, points: null, busy: false, prevFocus: document.activeElement };
+    recorder = rec;
+    rec.body = h('div', { class: 'drawer-body shape-rec' });
+    rec.saveBtn = h('button', { class: 'btn btn--primary', type: 'button', disabled: true, onClick: saveShape }, ico('check', 15), 'Save and choose action');
+    rec.againBtn = h('button', { class: 'btn', type: 'button', hidden: true, onClick: () => armRecorder() }, ico('repeat', 15), 'Draw again');
+    rec.drawer = mountDrawer({
+      headIcon: h('div', { class: 'illo-wrap' }, illoEl('shape', M.SHAPE_FINGERS, [])),
+      title: 'Record a shape',
+      sub: [h('span', null, 'Two fingers · draw, then lift')],
+      body: rec.body,
+      foot: [h('span', { class: 'spacer' }), rec.againBtn, rec.saveBtn],
+      onClose: closeShapeRecorder,
+      onKey: (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); closeShapeRecorder(); }
+        else if (e.key === 'Enter' && rec.points && e.target.tagName !== 'BUTTON') { e.preventDefault(); saveShape(); }
+      },
+    });
+    armRecorder();
+  }
+
+  function armRecorder(problem) {
+    const rec = recorder;
+    if (!rec) return;
+    rec.points = null;
+    rec.saveBtn.disabled = true;
+    rec.againBtn.hidden = true;
+    rec.body.replaceChildren(...[
+      h('div', { class: 'shape-wait' + (reducedMotion() ? '' : ' is-animated') },
+        h('div', { class: 'shape-wait-pad' }, h('i'), h('i'))),
+      h('p', { class: 'shape-rec-lead' }, 'Draw a shape on your touchpad with two fingers, then lift them.'),
+      problem ? h('div', { class: 'shape-rec-problem', role: 'alert' }, ico('warning', 15), problem) : null,
+      h('p', { class: 'help' }, 'A circle, a V, a Z, a check mark or a letter all work. Keep it simple and draw it the same way each time. The page under the pointer may scroll a little while you draw.'),
+    ].filter(Boolean));
+    call('record_shape', { on: true }, { errorTitle: 'Couldn’t start recording' }).catch(() => {});
+  }
+
+  /** The backend's answer: the stroke drawn, or why it isn't a shape. */
+  function onShapeRecorded(p) {
+    const rec = recorder;
+    if (!rec || !p) return;
+    if (!p.points) { armRecorder(p.problem || 'That wasn’t a shape. Try again.'); return; }
+    rec.points = p.points;
+    rec.nameInput = h('input', { class: 'input', type: 'text', maxlength: 40, value: `Shape ${rec.id}`, 'aria-label': 'Name' });
+    rec.body.replaceChildren(
+      h('div', { class: 'shape-preview' + (reducedMotion() ? '' : ' is-new') }, illoEl('shape', M.SHAPE_FINGERS, p.points)),
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Name'), rec.nameInput),
+      h('p', { class: 'help' }, 'Next, choose what drawing it does. You can delete it any time.'));
+    rec.saveBtn.disabled = false;
+    rec.againBtn.hidden = false;
+    rec.nameInput.focus();
+    rec.nameInput.select();
+  }
+
+  async function saveShape() {
+    const rec = recorder;
+    if (!rec || !rec.points || rec.busy) return;
+    rec.busy = true;
+    const name = rec.nameInput.value.trim() || `Shape ${rec.id}`;
+    const config = JSON.parse(JSON.stringify(store.app.config));
+    config.shape = (config.shape || []).concat([{ id: rec.id, name, points: rec.points }]);
+    try {
+      applyState(await call('save_config', { config }, { errorTitle: 'Couldn’t save the shape' }));
+      closeShapeRecorder();
+      openEditor(`shape:${rec.id}`);
+    } catch (_) { rec.busy = false; }
+  }
+
+  function closeShapeRecorder() {
+    const rec = recorder;
+    if (!rec) return;
+    recorder = null;
+    call('record_shape', { on: false }, { quiet: true }).catch(() => {});
+    rec.drawer.close();
+    if (rec.prevFocus && rec.prevFocus.isConnected) rec.prevFocus.focus();
+  }
+
+  /** Delete a shape and whatever it's bound to, everywhere. */
+  async function deleteShape(id) {
+    const name = M.shapeName(id);
+    try {
+      applyState(await call('save_config', { config: M.withoutShape(store.app.config, id) }, { errorTitle: 'Couldn’t delete the shape' }));
+      toast({ title: `“${name}” deleted`, text: 'Drawing it does nothing now.' });
+    } catch (_) { /* toast shown */ }
+  }
+
+  /**
    * One gesture slot. In a profile view the card shows the profile's override
    * if there is one ("Off in this app" for a `none` override), otherwise the
    * All-apps binding, muted. Drag is global, so it's read-only in profiles.
    */
   function cardEl(slot, n, index, intro, dragOn, view) {
     const s = store.app;
-    const trigger = M.triggerOf(slot, n);
+    const trigger = slot.kind === 'shape' ? `shape:${slot.shape}` : M.triggerOf(slot, n);
     const label = M.triggerLabel(trigger);
     const global = M.bindingFor(s.config, trigger);
     const override = view ? M.overrideFor(view.profile, trigger) : null;
@@ -683,7 +829,7 @@
       : shown ? M.summarize(shown.action, platform()).text + (inherited ? ' (from All apps)' : '')
         : 'not set';
     const kids = [
-      h('div', { class: 'card-illo' }, illoEl(slot.kind, n, slot.dir), badges),
+      h('div', { class: 'card-illo' }, illoEl(slot.kind, n, slot.kind === 'shape' ? slot.shape : slot.dir), badges),
       h('div', { class: 'card-body' },
         h('div', { class: 'card-title' }, h('span', { class: 'card-name' }, slot.name), readonly ? null : h('span', { class: 'card-edit' }, ico('chevron', 15))),
         body,
@@ -820,14 +966,18 @@
     ed.removeBtn = h('button', { class: 'btn btn--danger', type: 'button', onClick: removeEditor }, ico('trash', 15), 'Remove');
     // In a profile, "Use All-apps setting" is the way to remove an override.
     ed.removeBtn.hidden = !ed.original || !!ed.scope;
+    // A shape can be deleted outright (from All apps): it and its bindings go.
+    ed.deleteBtn = ed.slot.kind === 'shape' && !ed.scope
+      ? h('button', { class: 'btn btn--danger', type: 'button', onClick: () => { const id = ed.slot.shape; closeEditor(); deleteShape(id); } }, ico('trash', 15), 'Delete shape')
+      : null;
 
     ed.drawer = mountDrawer({
-      headIcon: h('div', { class: 'illo-wrap illo-live' }, illoEl(ed.slot.kind, ed.n, ed.slot.dir)),
+      headIcon: h('div', { class: 'illo-wrap illo-live' }, illoEl(ed.slot.kind, ed.n, ed.slot.kind === 'shape' ? ed.slot.shape : ed.slot.dir)),
       title: cap(label),
       sub: [h('code', null, ed.trigger), h('span', null, '·'), ed.scope ? profileBadge(ed.scope.name) : h('span', null, ed.slot.hint)],
       body: ed.body,
       after: ed.errorEl,
-      foot: [ed.removeBtn, h('span', { class: 'spacer' }), ed.testBtn, ed.saveBtn],
+      foot: [ed.deleteBtn || ed.removeBtn, h('span', { class: 'spacer' }), ed.testBtn, ed.saveBtn],
       onClose: closeEditor,
       onKey: onDrawerKey,
     });
@@ -3228,6 +3378,7 @@
     on('pady://frame', (e) => onFrame(e.payload));
     on('pady://gesture', (e) => onGesture(e.payload));
     on('pady://update', (e) => announceUpdate(e.payload));
+    on('pady://shape-recorded', (e) => onShapeRecorded(e.payload));
     on('pady://action-failed', (e) => {
       const p = e.payload || {};
       toast({ kind: 'error', title: p.action ? `“${p.action}” failed` : 'Action failed', text: p.error });

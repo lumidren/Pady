@@ -1560,3 +1560,64 @@ a { color: var(--accent-text); }
   .done-sparks circle { animation: none !important; opacity: .85; }
   .tour-sparks { display: none; }
 }
+
+/* ---------- Two-finger shapes ---------- */
+.illo-shape-track { fill: none; stroke: var(--illo-stroke); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; opacity: .55; }
+.illo-shape-path {
+  fill: none; stroke: var(--accent); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 100; stroke-dashoffset: 0; filter: drop-shadow(0 0 3px var(--accent-glow));
+}
+.illo-shape-start { fill: var(--accent-text); opacity: .7; }
+:is(.card:hover, .card:focus-visible, .card.is-fired, .card.is-demo, .card.intro, .illo-live, .shape-preview.is-new) .illo--shape .illo-shape-path { animation: illo-shape-draw 2.4s var(--ease-in-out) infinite; }
+:is(.card:hover, .card:focus-visible, .card.is-fired, .card.is-demo, .card.intro, .illo-live, .shape-preview.is-new) .illo--shape .illo-fingers { animation: illo-shape-tips 2.4s var(--ease-in-out) infinite; }
+.shape-preview.is-new .illo * { animation-iteration-count: 1 !important; }
+@keyframes illo-shape-draw {
+  0% { stroke-dashoffset: 0; }
+  12% { stroke-dashoffset: 100; }
+  72%, 100% { stroke-dashoffset: 0; }
+}
+@keyframes illo-shape-tips {
+  0%, 72%, 100% { opacity: 1; }
+  12%, 60% { opacity: .25; }
+}
+
+.group-help { margin: -4px 0 14px; font-size: 12.5px; color: var(--text-3); max-width: 70ch; }
+.card--record {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  min-height: 168px; padding: 18px; text-align: center;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 40%, var(--border)); background: transparent;
+}
+.card--record:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-softer); }
+.card--record:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.card-record-icon {
+  display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px;
+  background: var(--accent-grad); color: #fff; box-shadow: 0 6px 20px -6px var(--accent-glow);
+}
+.card-record-text { display: flex; flex-direction: column; gap: 3px; }
+.card-record-text strong { font-size: 13.5px; }
+.card-record-text span { font-size: 12px; color: var(--text-3); }
+
+.shape-rec { display: flex; flex-direction: column; gap: 14px; }
+.shape-rec-lead { margin: 0; font-weight: 600; text-align: center; }
+.shape-rec-problem { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--amber-soft, rgba(245, 158, 11, .12)); color: var(--amber-text); font-size: 12.5px; }
+.shape-wait { display: grid; place-items: center; padding: 8px 0; }
+.shape-wait-pad {
+  position: relative; width: 220px; height: 140px; border-radius: 18px;
+  background: var(--illo-pad); border: 1px solid var(--illo-stroke);
+  box-shadow: inset 0 0 40px -10px var(--accent-glow);
+}
+.shape-wait-pad i {
+  position: absolute; top: 50%; left: 50%; width: 18px; height: 18px; margin: -9px; border-radius: 50%;
+  background: var(--finger); box-shadow: 0 0 16px 2px var(--finger-glow);
+}
+.shape-wait-pad i:first-child { translate: -12px 0; }
+.shape-wait-pad i:last-child { translate: 12px 0; }
+.shape-wait.is-animated .shape-wait-pad i { animation: shape-wait-loop 2.6s var(--ease-in-out) infinite; }
+@keyframes shape-wait-loop {
+  0%, 100% { transform: translate(0, -34px); }
+  25% { transform: translate(52px, 0); }
+  50% { transform: translate(0, 34px); }
+  75% { transform: translate(-52px, 0); }
+}
+.shape-preview { display: grid; place-items: center; padding: 6px 0; }
+.shape-preview .illo { width: 240px; height: 152px; }

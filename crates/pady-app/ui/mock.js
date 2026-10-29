@@ -205,8 +205,10 @@
   /** Canonical trigger string; forgiving about case and spaces like the Rust parser. */
   function checkTrigger(t) {
     const canon = String(t).split(':').map((p) => p.trim().toLowerCase()).join(':');
-    const ok = /^(tap|doubletap|tripletap|hold|drag):[345]$|^swipe:[345]:(up|down|left|right)$|^pinch:[345]:(in|out)$/.test(canon);
-    if (!ok) throw `invalid trigger \`${t}\` (expected e.g. tap:3, doubletap:3, hold:4, swipe:3:up, pinch:4:in, drag:3)`;
+    const shape = /^shape:(\d+)$/.exec(canon);
+    const ok = /^(tap|doubletap|tripletap|hold|drag):[345]$|^swipe:[345]:(up|down|left|right)$|^pinch:[345]:(in|out)$/.test(canon)
+      || (!!shape && Number(shape[1]) >= 1 && Number(shape[1]) <= 32);
+    if (!ok) throw `invalid trigger \`${t}\` (expected e.g. tap:3, doubletap:3, hold:4, swipe:3:up, pinch:4:in, drag:3, shape:1)`;
     return canon;
   }
   const fingersOf = (trigger) => Number(trigger.split(':')[1]);
@@ -247,6 +249,15 @@
   }
 
   function normalize(cfg) {
+    // Shapes: valid ids, one each, 32 points, a name; bindings to missing shapes go.
+    const ids = new Set();
+    const shapes = (Array.isArray(cfg.shape) ? cfg.shape : []).filter((sh) => sh && Number.isInteger(sh.id) && sh.id >= 1 && sh.id <= 32
+      && !ids.has(sh.id) && ids.add(sh.id) && Array.isArray(sh.points) && sh.points.length === 32)
+      .map((sh) => ({ id: sh.id, name: String(sh.name || '').trim() || `Shape ${sh.id}`, points: clone(sh.points) }));
+    if (shapes.length) cfg.shape = shapes; else delete cfg.shape;
+    const known = (b) => !(b && /^shape:/i.test(String(b.trigger)) && !ids.has(Number(String(b.trigger).split(':')[1])));
+    cfg.binding = (cfg.binding || []).filter(known);
+    for (const p of cfg.profile || []) if (p && Array.isArray(p.binding)) p.binding = p.binding.filter(known);
     // Global: no `none`, and drag only on drag:N (and drag:N only accepts drag).
     cfg.binding = dedupe(cfg.binding, (t, a) => a.type !== 'none' && t.startsWith('drag:') === (a.type === 'drag'));
     // Profiles keep `none` (= off in that app) but never drag.
@@ -347,6 +358,19 @@
   /* ---------- Event bus ---------- */
 
   const listeners = new Map();
+  let recordTimer = 0;
+  let recordTurn = 0;
+  /** 32 points of a V (0) or a circle (1), normalised like pady-core's shapes. */
+  function sampleShape(kind) {
+    const pts = Array.from({ length: 32 }, (_, i) => {
+      const t = i / 31;
+      if (kind === 1) return [Math.cos(t * 2 * Math.PI - Math.PI / 2) * 0.5, Math.sin(t * 2 * Math.PI - Math.PI / 2) * 0.5];
+      return t < 0.5 ? [t - 0.5, t * 2 - 0.5] : [t - 0.5, (1 - t) * 2 - 0.5];
+    });
+    const cx = pts.reduce((a, p) => a + p[0], 0) / 32, cy = pts.reduce((a, p) => a + p[1], 0) / 32;
+    return pts.map(([x, y]) => [+(x - cx).toFixed(4), +(y - cy).toFixed(4)]);
+  }
+
   function emit(name, payload) {
     const set = listeners.get(name);
     if (!set) return;
@@ -416,6 +440,17 @@
       state.config = normalize(Object.assign(clone(state.config), { binding: clone(preset.binding) }));
       recompute();
       return snapshot();
+    },
+    // Pretend the user draws: a V, then a circle, then a straight scroll (rejected).
+    record_shape: ({ on }) => {
+      clearTimeout(recordTimer);
+      if (on) {
+        const kind = recordTurn++ % 3;
+        recordTimer = setTimeout(() => emit('pady://shape-recorded', kind === 2
+          ? { points: null, problem: 'That was a straight line, which is how you scroll. Draw a shape: a circle, a V, a Z or a check mark.' }
+          : { points: sampleShape(kind), problem: null }), 1800);
+      }
+      return null;
     },
     test_action: ({ action }) => {
       checkAction(action);

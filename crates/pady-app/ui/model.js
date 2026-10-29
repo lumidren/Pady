@@ -13,6 +13,33 @@
 
   M.FINGERS = [3, 4, 5];
 
+  /*
+   * Two-finger shapes: recorded strokes bound as `shape:<id>`. The app keeps
+   * the config's list here (`M.setShapes`) so labels can use their names.
+   */
+  M.SHAPE_FINGERS = 2;
+  M.MAX_SHAPES = 32;
+  M.shapes = [];
+  M.setShapes = (config) => { M.shapes = (config && Array.isArray(config.shape)) ? config.shape : []; };
+  M.isShape = (t) => String(t || '').startsWith('shape:');
+  M.shapeById = (id) => M.shapes.find((sh) => sh.id === Number(id)) || null;
+  M.shapeName = (id) => { const sh = M.shapeById(id); return sh ? sh.name : `Shape ${id}`; };
+  /** The lowest free shape id, or null when all are taken. */
+  M.nextShapeId = (config) => {
+    const used = new Set(((config && config.shape) || []).map((sh) => sh.id));
+    for (let id = 1; id <= M.MAX_SHAPES; id++) if (!used.has(id)) return id;
+    return null;
+  };
+  /** A copy of config without a shape and anything bound to it. */
+  M.withoutShape = function (config, id) {
+    const next = JSON.parse(JSON.stringify(config));
+    const t = `shape:${id}`;
+    next.shape = (next.shape || []).filter((sh) => sh.id !== id);
+    next.binding = (next.binding || []).filter((b) => b.trigger !== t);
+    for (const p of next.profile || []) p.binding = (p.binding || []).filter((b) => b.trigger !== t);
+    return next;
+  };
+
   M.SLOTS = [
     { id: 'tap', kind: 'tap', name: 'Tap', hint: 'Touch and lift quickly' },
     { id: 'doubletap', kind: 'doubletap', name: 'Double tap', hint: 'Tap twice quickly' },
@@ -41,17 +68,20 @@
 
   M.parseTrigger = function (t) {
     const [kind, n, dir] = String(t || '').split(':');
+    if (kind === 'shape') return { kind, fingers: M.SHAPE_FINGERS, id: Number(n), dir: null };
     return { kind, fingers: Number(n), dir: dir || null };
   };
 
   M.slotOfTrigger = function (t) {
     const p = M.parseTrigger(t);
+    if (p.kind === 'shape') return { id: 'shape', kind: 'shape', shape: p.id, name: M.shapeName(p.id), hint: 'Draw it with two fingers' };
     return M.SLOTS.find((s) => s.kind === p.kind && (s.dir || null) === p.dir) || null;
   };
 
   /** "4-finger swipe up", "3-finger double tap" */
   M.triggerLabel = function (t) {
     const p = M.parseTrigger(t);
+    if (p.kind === 'shape') return `“${M.shapeName(p.id)}” shape`;
     return `${p.fingers}-finger ${KIND_WORDS[p.kind] || p.kind}${p.dir ? ' ' + p.dir : ''}`;
   };
 
@@ -67,6 +97,7 @@
       case 'swipe': return `Swipe ${p.dir} with ${n} fingers`;
       case 'pinch': return p.dir === 'in' ? `Pinch ${n} fingers together` : `Spread ${n} fingers apart`;
       case 'drag': return `Drag with ${n} fingers`;
+      case 'shape': return `Draw “${M.shapeName(p.id)}” with two fingers`;
       default: return M.triggerLabel(t);
     }
   };
@@ -83,6 +114,7 @@
       case 'pinch': return `${f}pinch ${g.direction}`;
       case 'drag_start': return `${f}drag`;
       case 'drag_end': return 'Drag released';
+      case 'shape': return `“${M.shapeName(g.id)}” shape`;
       default: return g.kind;
     }
   };
