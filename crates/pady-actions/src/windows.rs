@@ -92,10 +92,12 @@ impl Executor for WindowsExecutor {
             Action::Mute => tap_vk(VK_VOLUME_MUTE),
             Action::Keys { combo } => send_combo(&combo.parse::<KeyCombo>()?),
             Action::Media { key } => tap_vk(media_vk(*key)),
-            Action::OpenUrl { url, browser } => match browser.as_deref().filter(|b| !b.trim().is_empty()) {
-                Some(b) => shell_open(&browser_exe(b), Some(&quote_arg(url))),
-                None => shell_open(url, None),
-            },
+            Action::OpenUrl { url, browser } => {
+                crate::check_url(url).and_then(|()| match browser.as_deref().filter(|b| !b.trim().is_empty()) {
+                    Some(b) => shell_open(&browser_exe(b), Some(&quote_arg(url))),
+                    None => shell_open(url, None),
+                })
+            }
             Action::Launch { program, args } => shell_open(&resolve_program(program), join_args(args).as_deref()),
             Action::FocusOrLaunch { program, args } => {
                 if focus_or_minimize(program) {
@@ -496,12 +498,25 @@ fn browser_exe(name: &str) -> String {
     }
 }
 
+/// One argument as programs split their command line back up
+/// (`CommandLineToArgvW`): inside quotes, backslashes only need doubling
+/// before a quote, the closing one included (`"C:\My Dir\\"`).
 fn quote_arg(arg: &str) -> String {
-    if arg.contains([' ', '\t', '"']) {
-        format!("\"{}\"", arg.replace('"', "\\\""))
-    } else {
-        arg.to_string()
+    if !arg.is_empty() && !arg.contains([' ', '\t', '"']) {
+        return arg.to_string();
     }
+    let mut out = String::from("\"");
+    let mut backslashes = 0;
+    for c in arg.chars() {
+        if c == '"' {
+            out.push_str(&"\\".repeat(backslashes + 1));
+        }
+        backslashes = if c == '\\' { backslashes + 1 } else { 0 };
+        out.push(c);
+    }
+    out.push_str(&"\\".repeat(backslashes));
+    out.push('"');
+    out
 }
 
 fn join_args(args: &[String]) -> Option<String> {
@@ -848,5 +863,51 @@ mod tests {
         assert_eq!(browser_exe("Chrome"), "chrome.exe");
         assert_eq!(browser_exe("edge"), "msedge.exe");
         assert_eq!(browser_exe("vivaldi.exe"), "vivaldi.exe");
+    }
+
+    /// How a program splits its command line back into arguments.
+    fn split(command_line: &str) -> Vec<String> {
+        use windows::Win32::UI::Shell::CommandLineToArgvW;
+        let wide = HSTRING::from(command_line);
+        let mut count = 0;
+        let argv = unsafe { CommandLineToArgvW(&wide, &mut count) };
+        assert!(!argv.is_null());
+        (0..count as usize).map(|i| unsafe { (*argv.add(i)).to_string().unwrap() }).collect()
+    }
+
+    #[test]
+    fn arguments_reach_the_program_exactly_as_written() {
+        let tricky = [
+            r"C:\My Dir\",
+            r"C:\My Dir\\",
+            r#"say "hi""#,
+            r#"a\"b"#,
+            r#"a\\"b c"#,
+            "",
+            " ",
+            "\t",
+            "--flag=\"x y\"",
+            r"\\server\share\",
+            "é 🙂",
+        ];
+        for arg in tricky {
+            let args = vec![arg.to_string(), "--next".to_string()];
+            let line = format!("prog.exe {}", join_args(&args).unwrap());
+            assert_eq!(split(&line)[1..], args[..], "{line}");
+        }
+        let alphabet = ['a', ' ', '\t', '"', '\\', 'é', '-'];
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = |n: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed as usize % n
+        };
+        for _ in 0..5_000 {
+            let args: Vec<String> =
+                (0..1 + next(4)).map(|_| (0..next(9)).map(|_| alphabet[next(alphabet.len())]).collect()).collect();
+            let line = format!("prog.exe {}", join_args(&args).unwrap());
+            assert_eq!(split(&line)[1..], args[..], "{line}");
+        }
     }
 }

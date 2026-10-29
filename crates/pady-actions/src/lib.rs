@@ -22,6 +22,17 @@ pub fn executor() -> Box<dyn Executor> {
     return Box::new(pady_core::engine::LogExecutor);
 }
 
+/// A link is handed to a browser or the system opener as a command-line
+/// argument, so one starting with `-` would be read as an option (Chromium's
+/// `--gpu-launcher=` runs a program). No real link starts with one.
+#[cfg(any(windows, target_os = "linux"))]
+fn check_url(url: &str) -> Result<(), ActionError> {
+    if url.trim_start().starts_with('-') {
+        return Err(format!("`{url}` is not a link (links can't start with `-`)").into());
+    }
+    Ok(())
+}
+
 /// Let go of the mouse button if a drag holds it; for crash handlers. On
 /// Linux the kernel releases it by itself when Pady's virtual device closes.
 pub fn release_held_button() {
@@ -107,5 +118,18 @@ pub fn set_autostart(enabled: bool, exe: &Path) -> Result<(), ActionError> {
     {
         let _ = (enabled, exe);
         Err("not supported on this OS".into())
+    }
+}
+
+#[cfg(all(test, any(windows, target_os = "linux")))]
+mod tests {
+    #[test]
+    fn links_cannot_smuggle_in_options() {
+        for bad in ["--gpu-launcher=calc.exe", " -profile /tmp/x", "-", "\t--help"] {
+            assert!(super::check_url(bad).is_err(), "{bad:?}");
+        }
+        for good in ["https://example.com/a-b", "mailto:me@example.com", "ms-settings:display", "spotify:track:1"] {
+            assert!(super::check_url(good).is_ok(), "{good:?}");
+        }
     }
 }

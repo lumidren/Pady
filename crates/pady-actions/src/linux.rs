@@ -810,6 +810,7 @@ fn browser_candidates(browser: &str) -> Vec<&str> {
 }
 
 fn open_url(url: &str, browser: Option<&str>) -> Result<(), ActionError> {
+    crate::check_url(url)?;
     let Some(browser) = browser.map(str::trim).filter(|b| !b.is_empty()) else {
         return spawn_detached(Command::new("xdg-open").arg(url)).map_err(|e| spawn_error("xdg-open", &e).into());
     };
