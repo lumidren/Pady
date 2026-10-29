@@ -142,6 +142,14 @@ impl LinuxExecutor {
     /// Change the volume and read back the result (`None` if no tool could
     /// report it). Turning it up while muted also unmutes, as volume keys do.
     fn volume(&mut self, step: i32) -> Result<Option<Level>, ActionError> {
+        // pactl has no limit like wpctl's `-l 1.0`: stop the step at 100%
+        // rather than over-amplify.
+        let step = match (step > 0, self.audio) {
+            (true, Some(AudioTool::Pactl)) => {
+                AudioTool::Pactl.read_level().map_or(step, |l| step.min(100 - i32::from(l.percent)).max(0))
+            }
+            _ => step,
+        };
         if step != 0 {
             self.audio_command(|tool| tool.volume_args(step))
                 .map_err(|e| format!("could not change the volume: {e}"))?;
