@@ -136,4 +136,8 @@ pub enum Gesture {
         dy: f32,
     },
     DragEnd,
+    /// A recorded two-finger shape was drawn (`id` as in `shape:<id>`).
+    Shape {
+        id: u8,
+    },
 }

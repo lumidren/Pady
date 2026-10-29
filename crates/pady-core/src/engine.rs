@@ -13,9 +13,11 @@ use crate::config::{Config, Resolution, SharedConfig};
 use crate::frame::{now_ms, TouchFrame};
 use crate::gesture::Gesture;
 use crate::recognizer::{Recognizer, SwipeProgress};
+use crate::shapes::{self, NotAShape, StrokeTracker};
 use crate::trigger::Trigger;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -144,6 +146,12 @@ pub enum EngineEvent {
     SwipeEnded {
         fired: bool,
     },
+    /// While recording a shape: the two-finger stroke just drawn, normalised
+    /// (see [`crate::shapes::normalize`]), or why it can't be a shape.
+    ShapeRecorded {
+        points: Option<Vec<[f32; 2]>>,
+        problem: Option<NotAShape>,
+    },
 }
 
 pub type Observer = Arc<dyn Fn(EngineEvent) + Send + Sync>;
@@ -168,6 +176,7 @@ impl Default for Scheduling {
 
 pub struct Engine {
     jobs: Sender<Job>,
+    recording: Arc<AtomicBool>,
     engine_thread: JoinHandle<()>,
     action_thread: JoinHandle<()>,
 }
@@ -211,15 +220,23 @@ impl Engine {
             .expect("spawn action thread");
 
         let engine_jobs = jobs_tx.clone();
+        let recording = Arc::new(AtomicBool::new(false));
+        let engine_recording = recording.clone();
         let engine_thread = std::thread::Builder::new()
             .name("pady-engine".into())
             .spawn(move || {
                 (scheduling.thread_start)();
-                EngineLoop::new(config, engine_jobs, observer, scheduling.precise_timers).run(frames)
+                EngineLoop::new(config, engine_jobs, observer, scheduling.precise_timers, engine_recording).run(frames)
             })
             .expect("spawn engine thread");
 
-        Engine { jobs: jobs_tx, engine_thread, action_thread }
+        Engine { jobs: jobs_tx, recording, engine_thread, action_thread }
+    }
+
+    /// Record the next two-finger stroke as a shape (reported as
+    /// [`EngineEvent::ShapeRecorded`]) instead of matching it, or stop waiting.
+    pub fn record_shape(&self, on: bool) {
+        self.recording.store(on, Ordering::Relaxed);
     }
 
     /// Run an action right away (the UI's "Test" button).
@@ -240,7 +257,7 @@ impl Engine {
     /// Wait for the engine to stop (after the frame source closes) and for
     /// queued actions to finish.
     pub fn join(self) {
-        let Engine { jobs, engine_thread, action_thread } = self;
+        let Engine { jobs, engine_thread, action_thread, .. } = self;
         let _ = engine_thread.join();
         // The engine thread's sender is gone; dropping ours lets the action thread drain and exit.
         drop(jobs);
@@ -433,10 +450,20 @@ struct EngineLoop {
     precise: bool,
     /// The last swipe progress reported, to send only changes.
     progress: Option<SwipeProgress>,
+    /// Two-finger strokes, for shapes.
+    strokes: StrokeTracker,
+    /// The next stroke is being recorded rather than matched.
+    recording: Arc<AtomicBool>,
 }
 
 impl EngineLoop {
-    fn new(shared: Arc<SharedConfig>, jobs: Sender<Job>, observer: Observer, precise_timers: fn(bool)) -> Self {
+    fn new(
+        shared: Arc<SharedConfig>,
+        jobs: Sender<Job>,
+        observer: Observer,
+        precise_timers: fn(bool),
+        recording: Arc<AtomicBool>,
+    ) -> Self {
         let config = shared.get();
         EngineLoop {
             generation: shared.generation(),
@@ -449,6 +476,8 @@ impl EngineLoop {
             precise_timers,
             precise: false,
             progress: None,
+            strokes: StrokeTracker::default(),
+            recording,
         }
     }
 
@@ -504,9 +533,32 @@ impl EngineLoop {
     fn on_frame(&mut self, frame: TouchFrame) {
         let gestures = if self.config.settings.enabled { self.recognizer.update(&frame) } else { Vec::new() };
         let t = frame.time_ms;
+        let stroke = self.strokes.update(&frame);
         (self.observer)(EngineEvent::Frame(frame));
         self.report_progress(&gestures);
         self.dispatch(gestures, t);
+        if let Some(path) = stroke {
+            self.on_stroke(&path, t);
+        }
+    }
+
+    /// A two-finger stroke ended: record it, or fire the shape it matches.
+    fn on_stroke(&mut self, path: &[(f32, f32)], t: u64) {
+        if self.recording.swap(false, Ordering::Relaxed) {
+            let event = match shapes::check(path) {
+                Ok(()) => EngineEvent::ShapeRecorded { points: shapes::normalize(path), problem: None },
+                Err(problem) => EngineEvent::ShapeRecorded { points: None, problem: Some(problem) },
+            };
+            (self.observer)(event);
+            return;
+        }
+        if !self.config.settings.enabled || self.config.shapes.is_empty() {
+            return;
+        }
+        if let Some((id, score)) = shapes::best_match(&self.config.shapes, path) {
+            log::debug!("two-finger shape {id} ({score:.2})");
+            self.handle(Gesture::Shape { id }, t);
+        }
     }
 
     /// Tells observers how far a swipe has come, and when it fires or is let go.
@@ -728,6 +780,85 @@ mod tests {
         let (_, events) = run_engine(cfg, let_go);
         assert_eq!(progress(&events).iter().map(|p| p.1).collect::<Vec<_>>(), vec![false], "swiping down isn't bound");
         assert_eq!(ended(&events), vec![false]);
+    }
+
+    /// Two fingers drawing a V (down-right, then up-right), then lifting.
+    fn vee_frames(t0: u64) -> Vec<TouchFrame> {
+        let mut out: Vec<TouchFrame> = (0..=20)
+            .map(|i| {
+                let x = i as f32 * 1.5;
+                let y = if i <= 10 { i as f32 * 3.0 } else { (20 - i) as f32 * 3.0 };
+                frame(t0 + i as u64 * 10, 2, x, y)
+            })
+            .collect();
+        out.push(frame(t0 + 220, 0, 0.0, 0.0));
+        out
+    }
+
+    #[test]
+    fn a_recorded_two_finger_shape_fires_its_binding() {
+        // Record: the stroke comes back as a shape instead of being matched.
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let ev = events.clone();
+        let (tx, rx) = unbounded();
+        let engine = Engine::spawn(
+            Arc::new(SharedConfig::new(Config::default())),
+            rx,
+            || Box::new(LogExecutor) as Box<dyn Executor>,
+            Arc::new(move |e| ev.lock().unwrap().push(e)),
+        );
+        engine.record_shape(true);
+        vee_frames(0).into_iter().for_each(|f| tx.send(f).unwrap());
+        drop(tx);
+        engine.join();
+        let points = events
+            .lock()
+            .unwrap()
+            .iter()
+            .find_map(|e| match e {
+                EngineEvent::ShapeRecorded { points, problem: None } => points.clone(),
+                _ => None,
+            })
+            .expect("the V was recorded");
+
+        // Draw it again: the shape's binding runs.
+        let mut cfg = Config::default();
+        cfg.bindings.clear();
+        cfg.shapes.push(crate::Shape { id: 4, name: "V".into(), points });
+        cfg.set_binding(Trigger::Shape(4), Action::Lock, false);
+        let (jobs, events) = run_engine(cfg.clone(), vee_frames(1_000));
+        assert_eq!(jobs, vec![Job::Run(Action::Lock)]);
+        assert!(events.iter().any(|e| matches!(e, EngineEvent::Gesture { trigger: Some(t), .. } if t == "shape:4")));
+
+        // A plain two-finger scroll is left to the OS.
+        let scroll: Vec<_> =
+            (0..=10).map(|i| frame(i * 10, 2, 0.0, i as f32 * 4.0)).chain([frame(120, 0, 0.0, 0.0)]).collect();
+        assert!(run_engine(cfg, scroll).0.is_empty());
+    }
+
+    #[test]
+    fn recording_a_scroll_says_why_it_is_not_a_shape() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let ev = events.clone();
+        let (tx, rx) = unbounded();
+        let engine = Engine::spawn(
+            Arc::new(SharedConfig::new(Config::default())),
+            rx,
+            || Box::new(LogExecutor) as Box<dyn Executor>,
+            Arc::new(move |e| ev.lock().unwrap().push(e)),
+        );
+        engine.record_shape(true);
+        (0..=10)
+            .map(|i| frame(i * 10, 2, 0.0, i as f32 * 4.0))
+            .chain([frame(120, 0, 0.0, 0.0)])
+            .for_each(|f| tx.send(f).unwrap());
+        drop(tx);
+        engine.join();
+        let got = events.lock().unwrap().iter().find_map(|e| match e {
+            EngineEvent::ShapeRecorded { points, problem } => Some((points.is_some(), *problem)),
+            _ => None,
+        });
+        assert_eq!(got, Some((false, Some(NotAShape::Straight))));
     }
 
     #[test]

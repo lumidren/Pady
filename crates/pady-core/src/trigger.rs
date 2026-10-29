@@ -6,7 +6,8 @@ use std::str::FromStr;
 /// A gesture slot that can be bound to an action.
 ///
 /// Written in config files as compact strings: `tap:3`, `doubletap:3`,
-/// `tripletap:3`, `hold:4`, `swipe:3:up`, `pinch:4:in`, `drag:3`.
+/// `tripletap:3`, `hold:4`, `swipe:3:up`, `pinch:4:in`, `drag:3`, and
+/// `shape:1` for a recorded two-finger shape.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Trigger {
     Tap(u8),
@@ -16,6 +17,8 @@ pub enum Trigger {
     Swipe(u8, Direction),
     Pinch(u8, PinchDirection),
     Drag(u8),
+    /// A recorded two-finger shape, by id (1..=[`crate::shapes::MAX_SHAPES`]).
+    Shape(u8),
 }
 
 impl Trigger {
@@ -31,6 +34,7 @@ impl Trigger {
             | Trigger::Swipe(n, _)
             | Trigger::Pinch(n, _)
             | Trigger::Drag(n) => n,
+            Trigger::Shape(_) => 2,
         }
     }
 
@@ -60,6 +64,7 @@ impl Trigger {
             Gesture::Swipe { fingers, direction, .. } => Some(Trigger::Swipe(fingers, direction)),
             Gesture::Pinch { fingers, direction, .. } => Some(Trigger::Pinch(fingers, direction)),
             Gesture::DragStart { fingers } => Some(Trigger::Drag(fingers)),
+            Gesture::Shape { id } => Some(Trigger::Shape(id)),
             Gesture::DragMove { .. } | Gesture::DragEnd => None,
         }
     }
@@ -87,6 +92,7 @@ impl Trigger {
             Trigger::Swipe(n, d) => format!("{n}-finger swipe {d}"),
             Trigger::Pinch(n, d) => format!("{n}-finger pinch {d}"),
             Trigger::Drag(n) => format!("{n}-finger drag"),
+            Trigger::Shape(id) => format!("2-finger shape {id}"),
         }
     }
 }
@@ -101,12 +107,13 @@ impl fmt::Display for Trigger {
             Trigger::Swipe(n, d) => write!(f, "swipe:{n}:{d}"),
             Trigger::Pinch(n, d) => write!(f, "pinch:{n}:{d}"),
             Trigger::Drag(n) => write!(f, "drag:{n}"),
+            Trigger::Shape(id) => write!(f, "shape:{id}"),
         }
     }
 }
 
 #[derive(Debug, thiserror::Error, PartialEq)]
-#[error("invalid trigger `{0}` (expected e.g. tap:3, doubletap:3, hold:4, swipe:3:up, pinch:4:in, drag:3)")]
+#[error("invalid trigger `{0}` (expected e.g. tap:3, doubletap:3, hold:4, swipe:3:up, pinch:4:in, drag:3, shape:1)")]
 pub struct ParseTriggerError(pub String);
 
 impl FromStr for Trigger {
@@ -115,7 +122,12 @@ impl FromStr for Trigger {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let err = || ParseTriggerError(s.to_string());
         let parts: Vec<&str> = s.trim().split(':').map(str::trim).collect();
-        let fingers: u8 = parts.get(1).and_then(|n| n.parse().ok()).ok_or_else(err)?;
+        let number: u8 = parts.get(1).and_then(|n| n.parse().ok()).ok_or_else(err)?;
+        if parts[0].eq_ignore_ascii_case("shape") {
+            let ok = parts.len() == 2 && (1..=crate::shapes::MAX_SHAPES).contains(&number);
+            return if ok { Ok(Trigger::Shape(number)) } else { Err(err()) };
+        }
+        let fingers = number;
         if !(Trigger::MIN_FINGERS..=Trigger::MAX_FINGERS).contains(&fingers) {
             return Err(err());
         }
@@ -165,11 +177,28 @@ mod tests {
         assert_eq!("PINCH:3:Out".parse(), Ok(Trigger::Pinch(3, PinchDirection::Out)));
         assert_eq!(" DoubleTap:4".parse(), Ok(Trigger::DoubleTap(4)));
         assert_eq!(Trigger::TripleTap(3).tap_count(), 3);
+        assert_eq!(" Shape:7".parse(), Ok(Trigger::Shape(7)));
+        assert_eq!(Trigger::Shape(7).to_string(), "shape:7");
+        assert_eq!(Trigger::Shape(7).fingers(), 2);
     }
 
     #[test]
     fn rejects_bad_input() {
-        for bad in ["", "tap", "tap:2", "tap:6", "swipe:3", "swipe:3:north", "pinch:3", "pinch:3:up", "tap:3:up"] {
+        for bad in [
+            "",
+            "tap",
+            "tap:2",
+            "tap:6",
+            "swipe:3",
+            "swipe:3:north",
+            "pinch:3",
+            "pinch:3:up",
+            "tap:3:up",
+            "shape",
+            "shape:0",
+            "shape:33",
+            "shape:1:up",
+        ] {
             assert!(bad.parse::<Trigger>().is_err(), "{bad} should not parse");
         }
     }
@@ -188,7 +217,7 @@ mod tests {
     #[test]
     fn fuzzed_trigger_strings_never_panic() {
         let alphabet: Vec<char> = "tapdoublrihswpncg:0123456789 -+é🙂\u{0}".chars().collect();
-        let names = ["tap", "doubletap", "tripletap", "hold", "swipe", "pinch", "drag", "x"];
+        let names = ["tap", "doubletap", "tripletap", "hold", "swipe", "pinch", "drag", "shape"];
         let tails = ["", ":up", ":left", ":in", ":out", ":sideways", ":up:up"];
         let mut rng = crate::Rng::new(0x1234_5678_9ABC_DEF1);
         for i in 0..30_000 {

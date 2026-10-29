@@ -1,5 +1,6 @@
 use crate::action::Action;
 use crate::recognizer::RecognizerSettings;
+use crate::shapes::{Shape, MAX_SHAPES, POINTS};
 use crate::trigger::Trigger;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -219,6 +220,9 @@ pub struct Config {
     pub bindings: Vec<Binding>,
     #[serde(default, rename = "profile", skip_serializing_if = "Vec::is_empty")]
     pub profiles: Vec<Profile>,
+    /// Recorded two-finger shapes, bound like any gesture as `shape:<id>`.
+    #[serde(default, rename = "shape", skip_serializing_if = "Vec::is_empty")]
+    pub shapes: Vec<Shape>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -237,6 +241,7 @@ const HEADER: &str = r#"# Pady configuration.
 #
 # Triggers:  tap:N  doubletap:N  tripletap:N  hold:N  swipe:N:up|down|left|right
 #            pinch:N:in|out  drag:N                       (N = 3..5 fingers)
+#            shape:ID   a two-finger shape recorded in the app ([[shape]] below)
 # Actions:   none | keys{combo} | volume{step} | mute | brightness{step}
 #            media{key = play_pause|next|previous|stop|volume_up|volume_down|mute}
 #            open_url{url, browser?} | launch{program, args?} | focus_or_launch{program, args?}
@@ -260,6 +265,7 @@ impl Default for Config {
             settings: Settings::default(),
             bindings: crate::presets::bindings("recommended").unwrap_or_default(),
             profiles: Vec::new(),
+            shapes: Vec::new(),
         }
     }
 }
@@ -380,6 +386,28 @@ impl Config {
             p.bindings = dedupe(std::mem::take(&mut p.bindings), |b| {
                 !matches!(b.trigger, Trigger::Drag(_)) && !matches!(b.action, Action::Drag)
             });
+        }
+        // Shapes: valid ids, one per id, the right number of finite points, a name.
+        let mut seen = [false; MAX_SHAPES as usize + 1];
+        self.shapes.retain(|s| {
+            let ok = (1..=MAX_SHAPES).contains(&s.id)
+                && !std::mem::replace(&mut seen[s.id as usize], true)
+                && s.points.len() == POINTS
+                && s.points.iter().flatten().all(|v| v.is_finite());
+            ok
+        });
+        for s in &mut self.shapes {
+            s.name = s.name.trim().to_string();
+            if s.name.is_empty() {
+                s.name = format!("Shape {}", s.id);
+            }
+        }
+        // A binding for a shape that's gone would never fire.
+        let shapes = &self.shapes;
+        let known = |t: Trigger| !matches!(t, Trigger::Shape(id) if !shapes.iter().any(|s| s.id == id));
+        self.bindings.retain(|b| known(b.trigger));
+        for p in &mut self.profiles {
+            p.bindings.retain(|b| known(b.trigger));
         }
         let profile_bindings = self.profiles.iter_mut().flat_map(|p| p.bindings.iter_mut());
         self.bindings.iter_mut().chain(profile_bindings).for_each(|b| b.action.sanitize());
@@ -698,6 +726,26 @@ mod tests {
         cfg.set_binding(Trigger::TripleTap(4), Action::Lock, false);
         let m = cfg.multi_tap_fingers();
         assert_eq!((m[3], m[4], m[5]), (2, 3, 1));
+    }
+
+    #[test]
+    fn shapes_round_trip_and_bindings_to_missing_shapes_are_dropped() {
+        let points: Vec<[f32; 2]> = (0..POINTS).map(|i| [i as f32 / 31.0 - 0.5, 0.0]).collect();
+        let mut cfg = Config::default();
+        cfg.shapes.push(Shape { id: 2, name: "  Zig ".into(), points: points.clone() });
+        cfg.shapes.push(Shape { id: 2, name: "dupe".into(), points: points.clone() });
+        cfg.shapes.push(Shape { id: 40, name: "bad id".into(), points: points.clone() });
+        cfg.shapes.push(Shape { id: 3, name: "".into(), points: points[..5].to_vec() });
+        cfg.set_binding(Trigger::Shape(2), Action::Lock, false);
+        cfg.set_binding(Trigger::Shape(3), Action::Mute, false);
+        cfg.normalize();
+        assert_eq!(cfg.shapes.len(), 1);
+        assert_eq!(cfg.shapes[0].name, "Zig");
+        assert!(cfg.binding(Trigger::Shape(3)).is_none(), "shape 3 had too few points, so it was dropped");
+
+        let back = Config::from_toml(&cfg.to_toml().unwrap()).unwrap();
+        assert_eq!(back.shapes, cfg.shapes);
+        assert_eq!(back.binding(Trigger::Shape(2)).map(|b| &b.action), Some(&Action::Lock));
     }
 
     #[test]

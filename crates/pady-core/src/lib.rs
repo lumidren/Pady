@@ -18,6 +18,7 @@ pub mod gesture;
 pub mod keys;
 pub mod presets;
 pub mod recognizer;
+pub mod shapes;
 pub mod trigger;
 
 pub use action::{Action, MediaKey};
@@ -28,6 +29,7 @@ pub use gesture::{Direction, Gesture, PinchDirection};
 pub use keys::{Key, KeyCombo, Modifiers};
 pub use presets::{Preset, PRESETS};
 pub use recognizer::{Recognizer, RecognizerSettings, SwipeProgress};
+pub use shapes::{NotAShape, Shape};
 pub use trigger::Trigger;
 
 /// Deterministic random input for the fuzz tests (xorshift64*): the same
