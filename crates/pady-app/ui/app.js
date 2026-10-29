@@ -761,14 +761,75 @@
     rec.points = null;
     rec.saveBtn.disabled = true;
     rec.againBtn.hidden = true;
+    rec.stroke = liveStroke();
+    wantLive('glyph', true);
     rec.body.replaceChildren(...[
-      h('div', { class: 'glyph-wait' + (reducedMotion() ? '' : ' is-animated') },
-        h('div', { class: 'glyph-wait-pad' }, h('i'), h('i'))),
+      rec.stroke.el,
       h('p', { class: 'glyph-rec-lead' }, 'Draw a glyph on your touchpad with two fingers, then lift them.'),
       problem ? h('div', { class: 'glyph-rec-problem', role: 'alert' }, ico('warning', 15), problem) : null,
       h('p', { class: 'help' }, 'A circle, a V, a Z, a check mark or a letter all work. Keep it simple and draw it the same way each time. The page under the pointer may scroll a little while you draw.'),
     ].filter(Boolean));
     call('record_glyph', { on: true }, { errorTitle: 'Couldn’t start recording' }).catch(() => {});
+  }
+
+  /**
+   * The recorder's touchpad: your two fingers' path drawn as you move them,
+   * by the same rules the backend records with. Fingers may land one at a
+   * time; a third finger spoils the stroke; lifting one ends it.
+   */
+  function liveStroke() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'glyph-live-svg');
+    svg.setAttribute('aria-hidden', 'true');
+    const trail = document.createElementNS(ns, 'path');
+    trail.setAttribute('class', 'glyph-live-trail');
+    const tips = [0, 1, 2, 3, 4].map(() => {
+      const c = document.createElementNS(ns, 'circle');
+      c.setAttribute('class', 'glyph-live-tip');
+      svg.append(c);
+      return c;
+    });
+    svg.prepend(trail);
+    const hint = h('div', { class: 'glyph-live-hint' }, h('i'), h('i'));
+    const pad = h('div', { class: 'glyph-live' + (reducedMotion() ? '' : ' is-animated') }, svg, hint);
+    const st = { active: false, crowded: false, ended: false, pts: [], mm: null };
+    const fmt = (v) => v.toFixed(2);
+    function draw(f) {
+      const n = f.contacts.length;
+      trail.setAttribute('d', st.pts.length > 1 ? 'M' + st.pts.map(([x, y]) => fmt(x) + ' ' + fmt(y)).join(' L') : '');
+      pad.classList.toggle('is-crowded', st.crowded);
+      pad.classList.toggle('is-touched', st.active || st.pts.length > 0);
+      tips.forEach((c, i) => {
+        const t = f.contacts[i];
+        c.style.display = t && Number.isFinite(t.x) && Number.isFinite(t.y) ? '' : 'none';
+        if (t) { c.setAttribute('cx', fmt(t.x)); c.setAttribute('cy', fmt(t.y)); }
+      });
+      if (!n) tips.forEach((c) => (c.style.display = 'none'));
+    }
+    return {
+      el: pad,
+      feed(f) {
+        const w = f.width_mm > 0 ? f.width_mm : 100, hgt = f.height_mm > 0 ? f.height_mm : 65;
+        if (!st.mm || st.mm[0] !== w || st.mm[1] !== hgt) {
+          st.mm = [w, hgt];
+          svg.setAttribute('viewBox', `0 0 ${w} ${hgt}`);
+          pad.style.aspectRatio = `${w} / ${hgt}`;
+        }
+        const n = f.contacts.length;
+        if (!n) { st.active = false; draw(f); return; }
+        if (!st.active) Object.assign(st, { active: true, crowded: false, ended: false, pts: [] });
+        if (n > 2) st.crowded = true;
+        if (n < 2 && st.pts.length) st.ended = true;
+        if (n === 2 && !st.crowded && !st.ended) {
+          const [a, b] = f.contacts;
+          const mid = [(a.x + b.x) / 2, (a.y + b.y) / 2];
+          const last = st.pts[st.pts.length - 1];
+          if (Number.isFinite(mid[0]) && Number.isFinite(mid[1]) && (!last || Math.hypot(mid[0] - last[0], mid[1] - last[1]) >= 0.25)) st.pts.push(mid);
+        }
+        draw(f);
+      },
+    };
   }
 
   /** The backend's answer: the stroke drawn, or why it isn't a glyph. */
@@ -777,6 +838,7 @@
     if (!rec || !p) return;
     if (!p.points) { armRecorder(p.problem || 'That wasn’t a glyph. Try again.'); return; }
     rec.points = p.points;
+    wantLive('glyph', false);
     rec.nameInput = h('input', { class: 'input', type: 'text', maxlength: 40, value: `Glyph ${rec.id}`, 'aria-label': 'Name' });
     rec.body.replaceChildren(
       h('div', { class: 'glyph-preview' + (reducedMotion() ? '' : ' is-new') }, illoEl('glyph', M.GLYPH_FINGERS, p.points)),
@@ -806,6 +868,7 @@
     const rec = recorder;
     if (!rec) return;
     recorder = null;
+    wantLive('glyph', false);
     call('record_glyph', { on: false }, { quiet: true }).catch(() => {});
     rec.drawer.close();
     if (rec.prevFocus && rec.prevFocus.isConnected) rec.prevFocus.focus();
@@ -2043,6 +2106,7 @@
     live.frame = f;
     live.frameTimes.push(now);
     if (tour.open && tour.feel) feelFingers(f.contacts.length); // event-driven, not tied to animation frames
+    if (recorder && !recorder.points && recorder.stroke) recorder.stroke.feed(f);
     for (const c of f.contacts) {
       let t = live.trails.get(c.id);
       if (!t) live.trails.set(c.id, (t = []));

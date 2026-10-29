@@ -359,6 +359,7 @@
 
   const listeners = new Map();
   let recordTimer = 0;
+  let pretendUntil = 0; // the virtual hand keeps off the pad while a pretend glyph is drawn
   let recordTurn = 0;
   /** 32 points of a V (0) or a circle (1), normalised like pady-core's glyphs. */
   function sampleGlyph(kind) {
@@ -369,6 +370,23 @@
     });
     const cx = pts.reduce((a, p) => a + p[0], 0) / 32, cy = pts.reduce((a, p) => a + p[1], 0) / 32;
     return pts.map(([x, y]) => [+(x - cx).toFixed(4), +(y - cy).toFixed(4)]);
+  }
+
+  /** Two pretend fingers draw a V, a circle or a straight scroll, landing one at a time. */
+  function drawPretendStroke(kind) {
+    const pad = state.devices[0] || { width_mm: 105, height_mm: 68 };
+    const w = pad.width_mm, hh = pad.height_mm;
+    const pts = kind === 2 ? Array.from({ length: 32 }, (_, i) => [0, i / 31 - 0.5]) : sampleGlyph(kind);
+    const frame = (contacts, i) => ({ time_ms: Math.round(performance.now()) + i, contacts, width_mm: w, height_mm: hh });
+    const at = ([x, y]) => [w / 2 + x * hh * 0.55, hh / 2 + y * hh * 0.55];
+    const steps = 36, t0 = 150;
+    pretendUntil = performance.now() + 2000;
+    pts.forEach(([x, y], i) => {
+      const [cx, cy] = at([x, y]);
+      const two = [{ id: 1, x: cx - 6, y: cy }, { id: 2, x: cx + 6, y: cy }];
+      setTimeout(() => emit('pady://frame', frame(i === 0 ? [two[0]] : two, i)), t0 + (i * 1300) / steps);
+    });
+    setTimeout(() => emit('pady://frame', frame([], 99)), t0 + 1400);
   }
 
   function emit(name, payload) {
@@ -446,6 +464,7 @@
       clearTimeout(recordTimer);
       if (on) {
         const kind = recordTurn++ % 3;
+        drawPretendStroke(kind);
         recordTimer = setTimeout(() => emit('pady://glyph-recorded', kind === 2
           ? { points: null, problem: 'That was a straight line, which is how you scroll. Draw a glyph: a circle, a V, a Z or a check mark.' }
           : { points: sampleGlyph(kind), problem: null }), 1800);
@@ -746,7 +765,7 @@
     const pts = contactsFor(now);
     if (pts.length && !lastContactCount) contactBase = (contactBase + 7) % 40; // fresh ids per touch
     // Only stream while live, and only when something touches (plus one empty frame on lift).
-    if (live && (pts.length || lastContactCount)) {
+    if (live && (pts.length || lastContactCount) && performance.now() > pretendUntil) {
       emit('pady://frame', {
         time_ms: Math.round(now),
         contacts: pts.map((c, i) => ({ id: contactBase + i, x: +clamp(c.x, 0, PAD_W).toFixed(2), y: +clamp(c.y, 0, PAD_H).toFixed(2) })),
