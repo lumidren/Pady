@@ -215,16 +215,17 @@ pub fn compose_touches(
     let tip_size = (tip.len() as f64).sqrt() as usize;
     out.copy_from_slice(bg);
     let a = (alpha.clamp(0.0, 1.0) * 256.0) as u32;
-    for &(px, py) in points {
-        let x0 = px.round() as i64 - tip_size as i64 / 2;
-        let y0 = py.round() as i64 - tip_size as i64 / 2;
+    // A broken position (NaN, infinite) has no fingertip; a huge one is off the pad.
+    for &(px, py) in points.iter().filter(|p| p.0.is_finite() && p.1.is_finite()) {
+        let x0 = (px.round() as i64).saturating_sub(tip_size as i64 / 2);
+        let y0 = (py.round() as i64).saturating_sub(tip_size as i64 / 2);
         for ty in 0..tip_size {
-            let y = y0 + ty as i64;
+            let y = y0.saturating_add(ty as i64);
             if y < 0 || y >= h as i64 {
                 continue;
             }
             for tx in 0..tip_size {
-                let x = x0 + tx as i64;
+                let x = x0.saturating_add(tx as i64);
                 if x < 0 || x >= w as i64 {
                     continue;
                 }
@@ -344,5 +345,19 @@ mod tests {
         let mut faded = vec![0u32; w * h];
         compose_touches(&mut faded, &bg, (w, h), &tip, &[(30.0, 40.0)], 0.3);
         assert!((faded[40 * w + 30] >> 16 & 0xff) < (lit >> 16 & 0xff), "fading out dims it");
+    }
+
+    #[test]
+    fn absurd_touch_positions_draw_nothing_and_never_panic() {
+        let (w, h) = (120, 80);
+        let bg = pad_background(w, h, 1.0);
+        let tip = fingertip(24);
+        let mut out = vec![0u32; w * h];
+        let (nan, inf, big) = (f32::NAN, f32::INFINITY, 1e30);
+        let absurd = [(big, 40.0), (40.0, big), (-big, 40.0), (big, big), (inf, 40.0), (40.0, -inf), (nan, 40.0)];
+        for point in absurd {
+            compose_touches(&mut out, &bg, (w, h), &tip, &[point], 1.0);
+            assert!(out == bg, "{point:?} drew on the pad");
+        }
     }
 }
