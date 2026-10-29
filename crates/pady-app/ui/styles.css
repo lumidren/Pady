@@ -382,7 +382,7 @@ a { color: var(--accent-text); }
 .seg-btn .seg-fingers { display: inline-flex; gap: 2px; }
 .seg-btn .seg-fingers i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .55; }
 .seg-btn[aria-checked="true"] .seg-fingers i { background: var(--finger); opacity: 1; }
-.seg-btn.is-ping::after {
+.seg-btn.is-ping::after, .nav-item.is-ping::after {
   content: ""; position: absolute; inset: 0; border-radius: 9px;
   box-shadow: 0 0 0 1.5px var(--accent); animation: ping .9s var(--ease) forwards;
 }
@@ -1561,27 +1561,40 @@ a { color: var(--accent-text); }
   .tour-sparks { display: none; }
 }
 
-/* ---------- Two-finger shapes ---------- */
-.illo-shape-track { fill: none; stroke: var(--illo-stroke); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; opacity: .55; }
-.illo-shape-path {
+/* ---------- Two-finger glyphs ---------- */
+.illo-glyph-track { fill: none; stroke: var(--illo-stroke); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; opacity: .55; }
+.illo-glyph-path {
   fill: none; stroke: var(--accent); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;
   stroke-dasharray: 100; stroke-dashoffset: 0; filter: drop-shadow(0 0 3px var(--accent-glow));
 }
-.illo-shape-start { fill: var(--accent-text); opacity: .7; }
-:is(.card:hover, .card:focus-visible, .card.is-fired, .card.is-demo, .card.intro, .illo-live, .shape-preview.is-new) .illo--shape .illo-shape-path { animation: illo-shape-draw 2.4s var(--ease-in-out) infinite; }
-:is(.card:hover, .card:focus-visible, .card.is-fired, .card.is-demo, .card.intro, .illo-live, .shape-preview.is-new) .illo--shape .illo-fingers { animation: illo-shape-tips 2.4s var(--ease-in-out) infinite; }
-.shape-preview.is-new .illo * { animation-iteration-count: 1 !important; }
-@keyframes illo-shape-draw {
+.illo-glyph-start { fill: var(--accent-text); opacity: .7; }
+:is(.card:hover, .card:focus-visible, .card.is-fired, .card.is-demo, .card.intro, .illo-live, .glyph-preview.is-new) .illo--glyph .illo-glyph-path { animation: illo-glyph-draw 2.4s var(--ease-in-out) infinite; }
+:is(.card:hover, .card:focus-visible, .card.is-fired, .card.is-demo, .card.intro, .illo-live, .glyph-preview.is-new) .illo--glyph .illo-fingers { animation: illo-glyph-tips 2.4s var(--ease-in-out) infinite; }
+.glyph-preview.is-new .illo * { animation-iteration-count: 1 !important; }
+@keyframes illo-glyph-draw {
   0% { stroke-dashoffset: 0; }
   12% { stroke-dashoffset: 100; }
   72%, 100% { stroke-dashoffset: 0; }
 }
-@keyframes illo-shape-tips {
+@keyframes illo-glyph-tips {
   0%, 72%, 100% { opacity: 1; }
   12%, 60% { opacity: .25; }
 }
 
 .group-help { margin: -4px 0 14px; font-size: 12.5px; color: var(--text-3); max-width: 70ch; }
+.glyph-intro {
+  display: flex; gap: 22px; align-items: center; margin-bottom: 26px; padding: 18px 22px; border-radius: var(--radius);
+  background: radial-gradient(260px 160px at 12% 50%, var(--accent-softer), transparent 75%), var(--surface);
+  border: 1px solid var(--border);
+}
+.glyph-intro-art .illo { width: 170px; height: 108px; }
+.glyph-intro-text strong { font-size: 15px; }
+.glyph-intro-text p { margin: 6px 0 10px; color: var(--text-2); font-size: 13px; max-width: 60ch; }
+.glyph-tips { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: 12.5px; color: var(--text-2); }
+.glyph-tips li { display: flex; gap: 8px; align-items: center; }
+.glyph-tips .icon { color: var(--accent-text); flex: none; }
+#page-glyphs .group-head { display: flex; align-items: baseline; justify-content: space-between; }
+@media (max-width: 720px) { .glyph-intro { flex-direction: column; align-items: flex-start; } }
 .card--record {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
   min-height: 168px; padding: 18px; text-align: center;
@@ -1597,27 +1610,27 @@ a { color: var(--accent-text); }
 .card-record-text strong { font-size: 13.5px; }
 .card-record-text span { font-size: 12px; color: var(--text-3); }
 
-.shape-rec { display: flex; flex-direction: column; gap: 14px; }
-.shape-rec-lead { margin: 0; font-weight: 600; text-align: center; }
-.shape-rec-problem { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--amber-soft, rgba(245, 158, 11, .12)); color: var(--amber-text); font-size: 12.5px; }
-.shape-wait { display: grid; place-items: center; padding: 8px 0; }
-.shape-wait-pad {
+.glyph-rec { display: flex; flex-direction: column; gap: 14px; }
+.glyph-rec-lead { margin: 0; font-weight: 600; text-align: center; }
+.glyph-rec-problem { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--amber-soft, rgba(245, 158, 11, .12)); color: var(--amber-text); font-size: 12.5px; }
+.glyph-wait { display: grid; place-items: center; padding: 8px 0; }
+.glyph-wait-pad {
   position: relative; width: 220px; height: 140px; border-radius: 18px;
   background: var(--illo-pad); border: 1px solid var(--illo-stroke);
   box-shadow: inset 0 0 40px -10px var(--accent-glow);
 }
-.shape-wait-pad i {
+.glyph-wait-pad i {
   position: absolute; top: 50%; left: 50%; width: 18px; height: 18px; margin: -9px; border-radius: 50%;
   background: var(--finger); box-shadow: 0 0 16px 2px var(--finger-glow);
 }
-.shape-wait-pad i:first-child { translate: -12px 0; }
-.shape-wait-pad i:last-child { translate: 12px 0; }
-.shape-wait.is-animated .shape-wait-pad i { animation: shape-wait-loop 2.6s var(--ease-in-out) infinite; }
-@keyframes shape-wait-loop {
+.glyph-wait-pad i:first-child { translate: -12px 0; }
+.glyph-wait-pad i:last-child { translate: 12px 0; }
+.glyph-wait.is-animated .glyph-wait-pad i { animation: glyph-wait-loop 2.6s var(--ease-in-out) infinite; }
+@keyframes glyph-wait-loop {
   0%, 100% { transform: translate(0, -34px); }
   25% { transform: translate(52px, 0); }
   50% { transform: translate(0, 34px); }
   75% { transform: translate(-52px, 0); }
 }
-.shape-preview { display: grid; place-items: center; padding: 6px 0; }
-.shape-preview .illo { width: 240px; height: 152px; }
+.glyph-preview { display: grid; place-items: center; padding: 6px 0; }
+.glyph-preview .illo { width: 240px; height: 152px; }

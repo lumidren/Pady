@@ -181,12 +181,13 @@
   function applyState(state) {
     if (!state || !state.config) return;
     store.app = state;
-    M.setShapes(state.config);
+    M.setGlyphs(state.config);
     renderShell();
     if (store.page === 'gestures') renderGestures();
     else if (store.page === 'settings') renderSettings();
     else if (store.page === 'live') renderLive();
     else if (store.page === 'about') renderAbout();
+    else if (store.page === 'glyphs') renderGlyphs();
     if (tour.open) tourOnState();
   }
 
@@ -314,7 +315,7 @@
      5. Shell
      ===================================================================== */
 
-  const PAGES = ['gestures', 'live', 'settings', 'about'];
+  const PAGES = ['gestures', 'glyphs', 'live', 'settings', 'about'];
 
   function initShell() {
     $$('.nav-item').forEach((btn) => {
@@ -333,9 +334,9 @@
         e.target.checked = !want;
       }
     });
-    // Ctrl+1..4 jumps between pages.
+    // Ctrl+1..5 jumps between pages.
     document.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && /^[1-4]$/.test(e.key) && !$('#app').inert) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && /^[1-5]$/.test(e.key) && !$('#app').inert) {
         e.preventDefault();
         route(PAGES[Number(e.key) - 1]);
       }
@@ -357,6 +358,7 @@
     if (prev === 'settings' && page !== 'settings' && setUI.mirror) setUI.mirror.stop();
     if (!store.app) return;
     if (page === 'gestures') renderGestures(true);
+    if (page === 'glyphs') renderGlyphs(true);
     if (page === 'settings') renderSettings();
     if (page === 'about') renderAbout();
     if (page === 'live') { renderLive(); liveView.start(); }
@@ -403,7 +405,7 @@
     `<g class="illo-f"><circle class="illo-halo" cx="${x}" cy="${y}" r="${r * 2}"/><circle class="illo-finger" cx="${x}" cy="${y}" r="${r}"/></g>`).join('');
 
   function illoSVG(kind, n, dir) {
-    if (kind === 'shape') return shapeSVG(Array.isArray(dir) ? dir : (M.shapeById(dir) || {}).points);
+    if (kind === 'glyph') return glyphSVG(Array.isArray(dir) ? dir : (M.glyphById(dir) || {}).points);
     const r = n === 5 ? 4.1 : 4.6;
     let inner = '';
     if (kind === 'swipe') {
@@ -441,19 +443,19 @@
     return `<svg class="illo illo--${kind}${dir ? ' illo--' + dir : ''}" viewBox="0 0 120 76" aria-hidden="true" focusable="false"><rect class="illo-pad" x="2" y="2" width="116" height="72" rx="12"/>${inner}</svg>`;
   }
 
-  /** A two-finger shape on the pad: a faint track, the drawn stroke, and two fingertips at its end. */
-  function shapeSVG(points) {
+  /** A two-finger glyph on the pad: a faint track, the drawn stroke, and two fingertips at its end. */
+  function glyphSVG(points) {
     const pts = (points || []).map(([x, y]) => [60 + x * 54, 38 + y * 54]);
     const pad = '<rect class="illo-pad" x="2" y="2" width="116" height="72" rx="12"/>';
-    if (pts.length < 2) return `<svg class="illo illo--shape" viewBox="0 0 120 76" aria-hidden="true" focusable="false">${pad}</svg>`;
+    if (pts.length < 2) return `<svg class="illo illo--glyph" viewBox="0 0 120 76" aria-hidden="true" focusable="false">${pad}</svg>`;
     const f = (v) => v.toFixed(1);
     const d = 'M' + pts.map(([x, y]) => f(x) + ' ' + f(y)).join(' L');
     const [ex, ey] = pts[pts.length - 1];
     const [sx, sy] = pts[0];
     const tips = [ex - 4, ex + 4];
-    return `<svg class="illo illo--shape" viewBox="0 0 120 76" aria-hidden="true" focusable="false">${pad}`
-      + `<path class="illo-shape-track" d="${d}"/><path class="illo-shape-path" d="${d}" pathLength="100"/>`
-      + `<circle class="illo-shape-start" cx="${f(sx)}" cy="${f(sy)}" r="2.2"/><g class="illo-fingers">`
+    return `<svg class="illo illo--glyph" viewBox="0 0 120 76" aria-hidden="true" focusable="false">${pad}`
+      + `<path class="illo-glyph-track" d="${d}"/><path class="illo-glyph-path" d="${d}" pathLength="100"/>`
+      + `<circle class="illo-glyph-start" cx="${f(sx)}" cy="${f(sy)}" r="2.2"/><g class="illo-fingers">`
       + tips.map((x) => `<circle class="illo-halo" cx="${f(x)}" cy="${f(ey)}" r="7"/>`).join('')
       + tips.map((x) => `<circle class="illo-finger" cx="${f(x)}" cy="${f(ey)}" r="3.6"/>`).join('')
       + '</g></svg>';
@@ -484,7 +486,7 @@
     const page = $('#page-gestures');
     gestUI.banners = h('div', { class: 'banners' });
     gestUI.seg = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'Number of fingers' }, h('span', { class: 'seg-indicator', 'aria-hidden': 'true' }));
-    [M.SHAPE_FINGERS, ...M.FINGERS].forEach((n) => {
+    M.FINGERS.forEach((n) => {
       const btn = h('button', { class: 'seg-btn', type: 'button', role: 'radio', 'data-n': n, onClick: () => pickFingers(n) },
         h('span', { class: 'seg-fingers', 'aria-hidden': 'true' }, Array.from({ length: n }, () => h('i'))),
         `${n} fingers`, h('span', { class: 'seg-count' }, '0'));
@@ -628,8 +630,6 @@
     gestUI.syncRoving();
     requestAnimationFrame(positionSegIndicator);
 
-    if (n === M.SHAPE_FINGERS) { renderShapes(view, intro); return; }
-
     if (view) {
       // Drag is always global, so a profile can change one slot fewer.
       const changed = M.SLOTS.filter((sl) => M.overrideFor(view.profile, M.triggerOf(sl, n))).length;
@@ -664,59 +664,88 @@
   }
 
   /**
-   * The 2 fingers tab: shapes you record and draw with two fingers. Two
-   * fingers otherwise belong to the OS (scrolling), so only shapes count.
+   * The 2 fingers tab: glyphs you record and draw with two fingers. Two
+   * fingers otherwise belong to the OS (scrolling), so only glyphs count.
    */
-  function renderShapes(view, intro) {
+  /*
+   * The Glyphs page: shapes you record and draw with two fingers. Two
+   * fingers otherwise belong to the OS (scrolling), so only glyphs count.
+   * Glyphs work in every app; their actions are set here, for All apps.
+   */
+  const glyphUI = { built: false };
+
+  function buildGlyphs() {
+    const page = $('#page-glyphs');
+    glyphUI.intro = h('div', { class: 'glyph-intro' },
+      h('div', { class: 'glyph-intro-art', 'aria-hidden': 'true' }, illoEl('glyph', M.GLYPH_FINGERS, GLYPH_SAMPLE)),
+      h('div', { class: 'glyph-intro-text' },
+        h('strong', null, 'Your own two-finger gestures'),
+        h('p', null, 'Record a circle, a check mark, a Z or a letter once. Draw it again with two fingers and Pady runs what you gave it.'),
+        h('ul', { class: 'glyph-tips' },
+          h('li', null, ico('check', 14), 'Scrolling stays as it is: a straight slide is never a glyph.'),
+          h('li', null, ico('check', 14), 'Draw it the same way and in the same direction each time.'),
+          h('li', null, ico('check', 14), `Up to ${M.MAX_GLYPHS} glyphs, each with any action.`))));
+    glyphUI.summary = h('span', { class: 'summary' });
+    glyphUI.grid = h('div', { class: 'grid grid--4' });
+    page.append(glyphUI.intro,
+      h('div', { class: 'group-head' }, h('h2', { class: 'group-title' }, 'Your glyphs'), glyphUI.summary),
+      glyphUI.grid);
+    glyphUI.built = true;
+  }
+
+  // A circle for the intro's drawing (normalised, like a recorded glyph).
+  const GLYPH_SAMPLE = Array.from({ length: 32 }, (_, i) => {
+    const a = -Math.PI / 2 + (i / 31) * Math.PI * 2;
+    return [Math.cos(a) * 0.5, Math.sin(a) * 0.5];
+  });
+
+  function renderGlyphs(intro) {
+    if (!glyphUI.built) buildGlyphs();
     const cfg = store.app.config;
-    const shapes = cfg.shape || [];
-    gestUI.summary.textContent = shapes.length
-      ? `${shapes.length} shape${shapes.length === 1 ? '' : 's'} recorded`
-      : 'Record a shape to start';
-    const grid = h('div', { class: 'grid grid--4' });
-    shapes.forEach((sh, i) => grid.append(cardEl(M.slotOfTrigger(`shape:${sh.id}`), M.SHAPE_FINGERS, i, intro, false, view)));
-    const full = M.nextShapeId(cfg) == null;
+    const glyphs = cfg.glyph || [];
+    glyphUI.summary.textContent = glyphs.length
+      ? `${glyphs.length} of ${M.MAX_GLYPHS}`
+      : 'None yet';
+    const grid = glyphUI.grid;
+    grid.replaceChildren(...glyphs.map((g, i) => cardEl(M.slotOfTrigger(`glyph:${g.id}`), M.GLYPH_FINGERS, i, intro, false, null)));
+    const full = M.nextGlyphId(cfg) == null;
     grid.append(h('button', {
-      type: 'button', class: 'card card--record' + (intro ? ' intro enter' : ''), disabled: full || !!view,
-      style: { '--i': String(shapes.length) },
-      title: view ? 'Shapes are recorded under All apps' : full ? `You can have up to ${M.MAX_SHAPES} shapes` : 'Record a new two-finger shape',
-      onClick: () => openShapeRecorder(),
+      type: 'button', class: 'card card--record' + (intro ? ' intro enter' : ''), disabled: full,
+      style: { '--i': String(glyphs.length) },
+      title: full ? `You can have up to ${M.MAX_GLYPHS} glyphs` : 'Record a new two-finger glyph',
+      onClick: () => openGlyphRecorder(),
     }, h('div', { class: 'card-record-icon' }, ico('plus', 22)),
-    h('div', { class: 'card-record-text' }, h('strong', null, 'Record a shape'), h('span', null, 'Draw it with two fingers, then pick what it does'))));
-    const head = h('div', { class: 'group-head' }, h('h2', { class: 'group-title' }, 'Two-finger shapes'));
-    const note = h('p', { class: 'group-help' },
-      'Draw a circle, a V, a Z or a check mark with two fingers. Scrolling stays as it is: a straight two-finger slide is never a shape.');
-    gestUI.groups.replaceChildren(h('section', { class: 'group' }, head, note, grid));
+    h('div', { class: 'card-record-text' }, h('strong', null, 'Record a glyph'), h('span', null, 'Draw it with two fingers, then pick what it does'))));
     if (intro && !reducedMotion()) {
-      const cards = $$('.card', gestUI.groups);
+      const cards = $$('.card', grid);
       setTimeout(() => cards.forEach((c) => c.classList.remove('intro')), 2600 + cards.length * 110);
     }
   }
 
-  /* ---------- Shape recorder ---------- */
+  /* ---------- Glyph recorder ---------- */
 
   let recorder = null;
 
-  /** Record a two-finger shape: wait for it, show it, name it, then pick its action. */
-  function openShapeRecorder() {
+  /** Record a two-finger glyph: wait for it, show it, name it, then pick its action. */
+  function openGlyphRecorder() {
     if (recorder || editor || profEd) return;
-    const id = M.nextShapeId(store.app.config);
+    const id = M.nextGlyphId(store.app.config);
     if (id == null) return;
     const rec = { id, points: null, busy: false, prevFocus: document.activeElement };
     recorder = rec;
-    rec.body = h('div', { class: 'drawer-body shape-rec' });
-    rec.saveBtn = h('button', { class: 'btn btn--primary', type: 'button', disabled: true, onClick: saveShape }, ico('check', 15), 'Save and choose action');
+    rec.body = h('div', { class: 'drawer-body glyph-rec' });
+    rec.saveBtn = h('button', { class: 'btn btn--primary', type: 'button', disabled: true, onClick: saveGlyph }, ico('check', 15), 'Save and choose action');
     rec.againBtn = h('button', { class: 'btn', type: 'button', hidden: true, onClick: () => armRecorder() }, ico('repeat', 15), 'Draw again');
     rec.drawer = mountDrawer({
-      headIcon: h('div', { class: 'illo-wrap' }, illoEl('shape', M.SHAPE_FINGERS, [])),
-      title: 'Record a shape',
+      headIcon: h('div', { class: 'illo-wrap' }, illoEl('glyph', M.GLYPH_FINGERS, [])),
+      title: 'Record a glyph',
       sub: [h('span', null, 'Two fingers · draw, then lift')],
       body: rec.body,
       foot: [h('span', { class: 'spacer' }), rec.againBtn, rec.saveBtn],
-      onClose: closeShapeRecorder,
+      onClose: closeGlyphRecorder,
       onKey: (e) => {
-        if (e.key === 'Escape') { e.preventDefault(); closeShapeRecorder(); }
-        else if (e.key === 'Enter' && rec.points && e.target.tagName !== 'BUTTON') { e.preventDefault(); saveShape(); }
+        if (e.key === 'Escape') { e.preventDefault(); closeGlyphRecorder(); }
+        else if (e.key === 'Enter' && rec.points && e.target.tagName !== 'BUTTON') { e.preventDefault(); saveGlyph(); }
       },
     });
     armRecorder();
@@ -729,24 +758,24 @@
     rec.saveBtn.disabled = true;
     rec.againBtn.hidden = true;
     rec.body.replaceChildren(...[
-      h('div', { class: 'shape-wait' + (reducedMotion() ? '' : ' is-animated') },
-        h('div', { class: 'shape-wait-pad' }, h('i'), h('i'))),
-      h('p', { class: 'shape-rec-lead' }, 'Draw a shape on your touchpad with two fingers, then lift them.'),
-      problem ? h('div', { class: 'shape-rec-problem', role: 'alert' }, ico('warning', 15), problem) : null,
+      h('div', { class: 'glyph-wait' + (reducedMotion() ? '' : ' is-animated') },
+        h('div', { class: 'glyph-wait-pad' }, h('i'), h('i'))),
+      h('p', { class: 'glyph-rec-lead' }, 'Draw a glyph on your touchpad with two fingers, then lift them.'),
+      problem ? h('div', { class: 'glyph-rec-problem', role: 'alert' }, ico('warning', 15), problem) : null,
       h('p', { class: 'help' }, 'A circle, a V, a Z, a check mark or a letter all work. Keep it simple and draw it the same way each time. The page under the pointer may scroll a little while you draw.'),
     ].filter(Boolean));
-    call('record_shape', { on: true }, { errorTitle: 'Couldn’t start recording' }).catch(() => {});
+    call('record_glyph', { on: true }, { errorTitle: 'Couldn’t start recording' }).catch(() => {});
   }
 
-  /** The backend's answer: the stroke drawn, or why it isn't a shape. */
-  function onShapeRecorded(p) {
+  /** The backend's answer: the stroke drawn, or why it isn't a glyph. */
+  function onGlyphRecorded(p) {
     const rec = recorder;
     if (!rec || !p) return;
-    if (!p.points) { armRecorder(p.problem || 'That wasn’t a shape. Try again.'); return; }
+    if (!p.points) { armRecorder(p.problem || 'That wasn’t a glyph. Try again.'); return; }
     rec.points = p.points;
-    rec.nameInput = h('input', { class: 'input', type: 'text', maxlength: 40, value: `Shape ${rec.id}`, 'aria-label': 'Name' });
+    rec.nameInput = h('input', { class: 'input', type: 'text', maxlength: 40, value: `Glyph ${rec.id}`, 'aria-label': 'Name' });
     rec.body.replaceChildren(
-      h('div', { class: 'shape-preview' + (reducedMotion() ? '' : ' is-new') }, illoEl('shape', M.SHAPE_FINGERS, p.points)),
+      h('div', { class: 'glyph-preview' + (reducedMotion() ? '' : ' is-new') }, illoEl('glyph', M.GLYPH_FINGERS, p.points)),
       h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Name'), rec.nameInput),
       h('p', { class: 'help' }, 'Next, choose what drawing it does. You can delete it any time.'));
     rec.saveBtn.disabled = false;
@@ -755,34 +784,34 @@
     rec.nameInput.select();
   }
 
-  async function saveShape() {
+  async function saveGlyph() {
     const rec = recorder;
     if (!rec || !rec.points || rec.busy) return;
     rec.busy = true;
-    const name = rec.nameInput.value.trim() || `Shape ${rec.id}`;
+    const name = rec.nameInput.value.trim() || `Glyph ${rec.id}`;
     const config = JSON.parse(JSON.stringify(store.app.config));
-    config.shape = (config.shape || []).concat([{ id: rec.id, name, points: rec.points }]);
+    config.glyph = (config.glyph || []).concat([{ id: rec.id, name, points: rec.points }]);
     try {
-      applyState(await call('save_config', { config }, { errorTitle: 'Couldn’t save the shape' }));
-      closeShapeRecorder();
-      openEditor(`shape:${rec.id}`);
+      applyState(await call('save_config', { config }, { errorTitle: 'Couldn’t save the glyph' }));
+      closeGlyphRecorder();
+      openEditor(`glyph:${rec.id}`);
     } catch (_) { rec.busy = false; }
   }
 
-  function closeShapeRecorder() {
+  function closeGlyphRecorder() {
     const rec = recorder;
     if (!rec) return;
     recorder = null;
-    call('record_shape', { on: false }, { quiet: true }).catch(() => {});
+    call('record_glyph', { on: false }, { quiet: true }).catch(() => {});
     rec.drawer.close();
     if (rec.prevFocus && rec.prevFocus.isConnected) rec.prevFocus.focus();
   }
 
-  /** Delete a shape and whatever it's bound to, everywhere. */
-  async function deleteShape(id) {
-    const name = M.shapeName(id);
+  /** Delete a glyph and whatever it's bound to, everywhere. */
+  async function deleteGlyph(id) {
+    const name = M.glyphName(id);
     try {
-      applyState(await call('save_config', { config: M.withoutShape(store.app.config, id) }, { errorTitle: 'Couldn’t delete the shape' }));
+      applyState(await call('save_config', { config: M.withoutGlyph(store.app.config, id) }, { errorTitle: 'Couldn’t delete the glyph' }));
       toast({ title: `“${name}” deleted`, text: 'Drawing it does nothing now.' });
     } catch (_) { /* toast shown */ }
   }
@@ -794,7 +823,7 @@
    */
   function cardEl(slot, n, index, intro, dragOn, view) {
     const s = store.app;
-    const trigger = slot.kind === 'shape' ? `shape:${slot.shape}` : M.triggerOf(slot, n);
+    const trigger = slot.kind === 'glyph' ? `glyph:${slot.glyph}` : M.triggerOf(slot, n);
     const label = M.triggerLabel(trigger);
     const global = M.bindingFor(s.config, trigger);
     const override = view ? M.overrideFor(view.profile, trigger) : null;
@@ -829,7 +858,7 @@
       : shown ? M.summarize(shown.action, platform()).text + (inherited ? ' (from All apps)' : '')
         : 'not set';
     const kids = [
-      h('div', { class: 'card-illo' }, illoEl(slot.kind, n, slot.kind === 'shape' ? slot.shape : slot.dir), badges),
+      h('div', { class: 'card-illo' }, illoEl(slot.kind, n, slot.kind === 'glyph' ? slot.glyph : slot.dir), badges),
       h('div', { class: 'card-body' },
         h('div', { class: 'card-title' }, h('span', { class: 'card-name' }, slot.name), readonly ? null : h('span', { class: 'card-edit' }, ico('chevron', 15))),
         body,
@@ -871,6 +900,17 @@
    * profile overriding it is shown), ping that scope's pill instead.
    */
   function fireCard(trigger, profileName) {
+    if (M.isGlyph(trigger)) {
+      if (store.page !== 'glyphs' || !glyphUI.built) { ping($('.nav-item[data-page="glyphs"]')); return; }
+      const card = $(`#page-glyphs .card[data-trigger="${trigger}"]`);
+      if (!card) return;
+      card.classList.remove('is-fired', 'intro');
+      void card.offsetWidth; // restart animations
+      card.classList.add('is-fired');
+      clearTimeout(card._firedTimer);
+      card._firedTimer = setTimeout(() => card.classList.remove('is-fired'), 2300);
+      return;
+    }
     if (!trigger || store.page !== 'gestures' || !gestUI.built) return;
     const view = viewProfile();
     const shownHere = profileName
@@ -934,7 +974,7 @@
   function openEditor(trigger) {
     if (editor || profEd) return;
     const s = store.app;
-    const view = viewProfile();
+    const view = M.isGlyph(trigger) ? null : viewProfile();
     const slot = M.slotOfTrigger(trigger);
     if (!slot || (view && slot.kind === 'drag')) return; // drag is global-only
     const p = M.parseTrigger(trigger);
@@ -966,13 +1006,13 @@
     ed.removeBtn = h('button', { class: 'btn btn--danger', type: 'button', onClick: removeEditor }, ico('trash', 15), 'Remove');
     // In a profile, "Use All-apps setting" is the way to remove an override.
     ed.removeBtn.hidden = !ed.original || !!ed.scope;
-    // A shape can be deleted outright (from All apps): it and its bindings go.
-    ed.deleteBtn = ed.slot.kind === 'shape' && !ed.scope
-      ? h('button', { class: 'btn btn--danger', type: 'button', onClick: () => { const id = ed.slot.shape; closeEditor(); deleteShape(id); } }, ico('trash', 15), 'Delete shape')
+    // A glyph can be deleted outright (from All apps): it and its bindings go.
+    ed.deleteBtn = ed.slot.kind === 'glyph' && !ed.scope
+      ? h('button', { class: 'btn btn--danger', type: 'button', onClick: () => { const id = ed.slot.glyph; closeEditor(); deleteGlyph(id); } }, ico('trash', 15), 'Delete glyph')
       : null;
 
     ed.drawer = mountDrawer({
-      headIcon: h('div', { class: 'illo-wrap illo-live' }, illoEl(ed.slot.kind, ed.n, ed.slot.kind === 'shape' ? ed.slot.shape : ed.slot.dir)),
+      headIcon: h('div', { class: 'illo-wrap illo-live' }, illoEl(ed.slot.kind, ed.n, ed.slot.kind === 'glyph' ? ed.slot.glyph : ed.slot.dir)),
       title: cap(label),
       sub: [h('code', null, ed.trigger), h('span', null, '·'), ed.scope ? profileBadge(ed.scope.name) : h('span', null, ed.slot.hint)],
       body: ed.body,
@@ -3378,7 +3418,7 @@
     on('pady://frame', (e) => onFrame(e.payload));
     on('pady://gesture', (e) => onGesture(e.payload));
     on('pady://update', (e) => announceUpdate(e.payload));
-    on('pady://shape-recorded', (e) => onShapeRecorded(e.payload));
+    on('pady://glyph-recorded', (e) => onGlyphRecorded(e.payload));
     on('pady://action-failed', (e) => {
       const p = e.payload || {};
       toast({ kind: 'error', title: p.action ? `“${p.action}” failed` : 'Action failed', text: p.error });

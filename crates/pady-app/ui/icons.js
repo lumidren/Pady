@@ -53,6 +53,7 @@
     touchpad: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 15.5h18M12 15.5V20"/>',
     hold: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     tap: '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5" opacity=".5"/>',
+    glyph: '<path d="M4.5 15.5c2.2-6 5.8-9.6 8-8.1 2.6 1.8-3.6 8.6-1.4 10.1 1.9 1.3 5.4-3.5 8.4-8.5"/><circle cx="4.5" cy="15.5" r="1.3"/>',
     sparkle: '<path d="M12 3.5 13.8 10.2 20.5 12 13.8 13.8 12 20.5 10.2 13.8 3.5 12 10.2 10.2z"/>',
     copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="2.2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/>',
     record: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5"/>',

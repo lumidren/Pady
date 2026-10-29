@@ -205,10 +205,10 @@
   /** Canonical trigger string; forgiving about case and spaces like the Rust parser. */
   function checkTrigger(t) {
     const canon = String(t).split(':').map((p) => p.trim().toLowerCase()).join(':');
-    const shape = /^shape:(\d+)$/.exec(canon);
+    const glyph = /^glyph:(\d+)$/.exec(canon);
     const ok = /^(tap|doubletap|tripletap|hold|drag):[345]$|^swipe:[345]:(up|down|left|right)$|^pinch:[345]:(in|out)$/.test(canon)
-      || (!!shape && Number(shape[1]) >= 1 && Number(shape[1]) <= 32);
-    if (!ok) throw `invalid trigger \`${t}\` (expected e.g. tap:3, doubletap:3, hold:4, swipe:3:up, pinch:4:in, drag:3, shape:1)`;
+      || (!!glyph && Number(glyph[1]) >= 1 && Number(glyph[1]) <= 32);
+    if (!ok) throw `invalid trigger \`${t}\` (expected e.g. tap:3, doubletap:3, hold:4, swipe:3:up, pinch:4:in, drag:3, glyph:1)`;
     return canon;
   }
   const fingersOf = (trigger) => Number(trigger.split(':')[1]);
@@ -249,13 +249,13 @@
   }
 
   function normalize(cfg) {
-    // Shapes: valid ids, one each, 32 points, a name; bindings to missing shapes go.
+    // Glyphs: valid ids, one each, 32 points, a name; bindings to missing glyphs go.
     const ids = new Set();
-    const shapes = (Array.isArray(cfg.shape) ? cfg.shape : []).filter((sh) => sh && Number.isInteger(sh.id) && sh.id >= 1 && sh.id <= 32
+    const glyphs = (Array.isArray(cfg.glyph) ? cfg.glyph : []).filter((sh) => sh && Number.isInteger(sh.id) && sh.id >= 1 && sh.id <= 32
       && !ids.has(sh.id) && ids.add(sh.id) && Array.isArray(sh.points) && sh.points.length === 32)
-      .map((sh) => ({ id: sh.id, name: String(sh.name || '').trim() || `Shape ${sh.id}`, points: clone(sh.points) }));
-    if (shapes.length) cfg.shape = shapes; else delete cfg.shape;
-    const known = (b) => !(b && /^shape:/i.test(String(b.trigger)) && !ids.has(Number(String(b.trigger).split(':')[1])));
+      .map((sh) => ({ id: sh.id, name: String(sh.name || '').trim() || `Glyph ${sh.id}`, points: clone(sh.points) }));
+    if (glyphs.length) cfg.glyph = glyphs; else delete cfg.glyph;
+    const known = (b) => !(b && /^glyph:/i.test(String(b.trigger)) && !ids.has(Number(String(b.trigger).split(':')[1])));
     cfg.binding = (cfg.binding || []).filter(known);
     for (const p of cfg.profile || []) if (p && Array.isArray(p.binding)) p.binding = p.binding.filter(known);
     // Global: no `none`, and drag only on drag:N (and drag:N only accepts drag).
@@ -360,8 +360,8 @@
   const listeners = new Map();
   let recordTimer = 0;
   let recordTurn = 0;
-  /** 32 points of a V (0) or a circle (1), normalised like pady-core's shapes. */
-  function sampleShape(kind) {
+  /** 32 points of a V (0) or a circle (1), normalised like pady-core's glyphs. */
+  function sampleGlyph(kind) {
     const pts = Array.from({ length: 32 }, (_, i) => {
       const t = i / 31;
       if (kind === 1) return [Math.cos(t * 2 * Math.PI - Math.PI / 2) * 0.5, Math.sin(t * 2 * Math.PI - Math.PI / 2) * 0.5];
@@ -442,13 +442,13 @@
       return snapshot();
     },
     // Pretend the user draws: a V, then a circle, then a straight scroll (rejected).
-    record_shape: ({ on }) => {
+    record_glyph: ({ on }) => {
       clearTimeout(recordTimer);
       if (on) {
         const kind = recordTurn++ % 3;
-        recordTimer = setTimeout(() => emit('pady://shape-recorded', kind === 2
-          ? { points: null, problem: 'That was a straight line, which is how you scroll. Draw a shape: a circle, a V, a Z or a check mark.' }
-          : { points: sampleShape(kind), problem: null }), 1800);
+        recordTimer = setTimeout(() => emit('pady://glyph-recorded', kind === 2
+          ? { points: null, problem: 'That was a straight line, which is how you scroll. Draw a glyph: a circle, a V, a Z or a check mark.' }
+          : { points: sampleGlyph(kind), problem: null }), 1800);
       }
       return null;
     },

@@ -14,27 +14,27 @@
   M.FINGERS = [3, 4, 5];
 
   /*
-   * Two-finger shapes: recorded strokes bound as `shape:<id>`. The app keeps
-   * the config's list here (`M.setShapes`) so labels can use their names.
+   * Two-finger glyphs: recorded strokes bound as `glyph:<id>`. The app keeps
+   * the config's list here (`M.setGlyphs`) so labels can use their names.
    */
-  M.SHAPE_FINGERS = 2;
-  M.MAX_SHAPES = 32;
-  M.shapes = [];
-  M.setShapes = (config) => { M.shapes = (config && Array.isArray(config.shape)) ? config.shape : []; };
-  M.isShape = (t) => String(t || '').startsWith('shape:');
-  M.shapeById = (id) => M.shapes.find((sh) => sh.id === Number(id)) || null;
-  M.shapeName = (id) => { const sh = M.shapeById(id); return sh ? sh.name : `Shape ${id}`; };
-  /** The lowest free shape id, or null when all are taken. */
-  M.nextShapeId = (config) => {
-    const used = new Set(((config && config.shape) || []).map((sh) => sh.id));
-    for (let id = 1; id <= M.MAX_SHAPES; id++) if (!used.has(id)) return id;
+  M.GLYPH_FINGERS = 2;
+  M.MAX_GLYPHS = 32;
+  M.glyphs = [];
+  M.setGlyphs = (config) => { M.glyphs = (config && Array.isArray(config.glyph)) ? config.glyph : []; };
+  M.isGlyph = (t) => String(t || '').startsWith('glyph:');
+  M.glyphById = (id) => M.glyphs.find((sh) => sh.id === Number(id)) || null;
+  M.glyphName = (id) => { const sh = M.glyphById(id); return sh ? sh.name : `Glyph ${id}`; };
+  /** The lowest free glyph id, or null when all are taken. */
+  M.nextGlyphId = (config) => {
+    const used = new Set(((config && config.glyph) || []).map((sh) => sh.id));
+    for (let id = 1; id <= M.MAX_GLYPHS; id++) if (!used.has(id)) return id;
     return null;
   };
-  /** A copy of config without a shape and anything bound to it. */
-  M.withoutShape = function (config, id) {
+  /** A copy of config without a glyph and anything bound to it. */
+  M.withoutGlyph = function (config, id) {
     const next = JSON.parse(JSON.stringify(config));
-    const t = `shape:${id}`;
-    next.shape = (next.shape || []).filter((sh) => sh.id !== id);
+    const t = `glyph:${id}`;
+    next.glyph = (next.glyph || []).filter((sh) => sh.id !== id);
     next.binding = (next.binding || []).filter((b) => b.trigger !== t);
     for (const p of next.profile || []) p.binding = (p.binding || []).filter((b) => b.trigger !== t);
     return next;
@@ -68,20 +68,20 @@
 
   M.parseTrigger = function (t) {
     const [kind, n, dir] = String(t || '').split(':');
-    if (kind === 'shape') return { kind, fingers: M.SHAPE_FINGERS, id: Number(n), dir: null };
+    if (kind === 'glyph') return { kind, fingers: M.GLYPH_FINGERS, id: Number(n), dir: null };
     return { kind, fingers: Number(n), dir: dir || null };
   };
 
   M.slotOfTrigger = function (t) {
     const p = M.parseTrigger(t);
-    if (p.kind === 'shape') return { id: 'shape', kind: 'shape', shape: p.id, name: M.shapeName(p.id), hint: 'Draw it with two fingers' };
+    if (p.kind === 'glyph') return { id: 'glyph', kind: 'glyph', glyph: p.id, name: M.glyphName(p.id), hint: 'Draw it with two fingers' };
     return M.SLOTS.find((s) => s.kind === p.kind && (s.dir || null) === p.dir) || null;
   };
 
   /** "4-finger swipe up", "3-finger double tap" */
   M.triggerLabel = function (t) {
     const p = M.parseTrigger(t);
-    if (p.kind === 'shape') return `“${M.shapeName(p.id)}” shape`;
+    if (p.kind === 'glyph') return `“${M.glyphName(p.id)}” glyph`;
     return `${p.fingers}-finger ${KIND_WORDS[p.kind] || p.kind}${p.dir ? ' ' + p.dir : ''}`;
   };
 
@@ -97,7 +97,7 @@
       case 'swipe': return `Swipe ${p.dir} with ${n} fingers`;
       case 'pinch': return p.dir === 'in' ? `Pinch ${n} fingers together` : `Spread ${n} fingers apart`;
       case 'drag': return `Drag with ${n} fingers`;
-      case 'shape': return `Draw “${M.shapeName(p.id)}” with two fingers`;
+      case 'glyph': return `Draw “${M.glyphName(p.id)}” with two fingers`;
       default: return M.triggerLabel(t);
     }
   };
@@ -114,7 +114,7 @@
       case 'pinch': return `${f}pinch ${g.direction}`;
       case 'drag_start': return `${f}drag`;
       case 'drag_end': return 'Drag released';
-      case 'shape': return `“${M.shapeName(g.id)}” shape`;
+      case 'glyph': return `“${M.glyphName(g.id)}” glyph`;
       default: return g.kind;
     }
   };
@@ -301,7 +301,7 @@
     }
   };
 
-  /** Canonical shape for the backend: trims strings, drops empty optional fields. */
+  /** Canonical glyph for the backend: trims strings, drops empty optional fields. */
   M.clean = function (a) {
     const out = { type: a.type };
     switch (a.type) {
