@@ -334,12 +334,15 @@ impl Recognizer {
                     && self.travel.0.hypot(self.travel.1) <= s.tap_slop_mm
                     && self.spread.abs() <= s.tap_slop_mm =>
             {
-                Some(self.anchor_time + s.hold_ms)
+                Some(self.anchor_time.saturating_add(s.hold_ms))
             }
-            Phase::Dragging { lifted_at: Some(at) } => Some(at + s.drag_release_ms),
+            Phase::Dragging { lifted_at: Some(at) } => Some(at.saturating_add(s.drag_release_ms)),
             _ => None,
         };
-        let tap = self.pending_tap.filter(|&p| !self.next_tap_underway(p)).map(|p| p.lifted_at + s.multi_tap_ms + 1);
+        let tap = self
+            .pending_tap
+            .filter(|&p| !self.next_tap_underway(p))
+            .map(|p| p.lifted_at.saturating_add(s.multi_tap_ms).saturating_add(1));
         timer.into_iter().chain(tap).min()
     }
 
@@ -406,10 +409,13 @@ impl Recognizer {
     }
 
     fn track_wander(&mut self, contacts: &[Contact]) {
-        for c in contacts {
+        for c in contacts.iter().filter(|c| sane(c)) {
             match self.origins.iter().find(|o| o.0 == c.id) {
                 Some(&(_, ox, oy)) => self.max_wander = self.max_wander.max((c.x - ox).hypot(c.y - oy)),
-                None => self.origins.push((c.id, c.x, c.y)),
+                // A session that never ends (a resting finger while others come
+                // and go) would otherwise remember every finger forever.
+                None if self.origins.len() < MAX_ORIGINS => self.origins.push((c.id, c.x, c.y)),
+                None => {}
             }
         }
     }
@@ -509,6 +515,9 @@ fn axis_direction(axis: Axis, progress: f32) -> Direction {
     }
 }
 
+/// Fingers whose landing spot a session remembers, far more than fit on a pad.
+const MAX_ORIGINS: usize = 32;
+
 /// Most repeat steps one frame may produce. Fingers move well under two
 /// steps per frame; a bigger jump can only come from a broken driver.
 const MAX_STEPS_PER_FRAME: u32 = 8;
@@ -528,11 +537,22 @@ fn take_steps(progress: &mut f32, size: f32) -> u32 {
     steps
 }
 
+/// Fingers present in both frames, as (before, now). One at a broken
+/// position is left out, as if it had briefly lifted: it would otherwise
+/// fire a swipe, or stall one for good once a total turns NaN.
+fn pairs<'a>(prev: &'a [Contact], cur: &'a [Contact]) -> impl Iterator<Item = (&'a Contact, &'a Contact)> {
+    cur.iter().filter(|c| sane(c)).filter_map(|c| prev.iter().find(|p| p.id == c.id && sane(p)).map(|p| (p, c)))
+}
+
+/// Within ten metres of the pad's corner: finite, and not a driver's garbage.
+fn sane(c: &Contact) -> bool {
+    c.x.abs() <= 10_000.0 && c.y.abs() <= 10_000.0
+}
+
 /// Change in how spread out the fingers present in both frames are: the
 /// mean distance from their centroid now, minus the same measure before.
 fn spread_delta(prev: &[Contact], cur: &[Contact]) -> f32 {
-    let pairs: Vec<(&Contact, &Contact)> =
-        cur.iter().filter_map(|c| prev.iter().find(|p| p.id == c.id).map(|p| (p, c))).collect();
+    let pairs: Vec<(&Contact, &Contact)> = pairs(prev, cur).collect();
     if pairs.len() < 2 {
         return 0.0;
     }
@@ -548,8 +568,7 @@ fn spread_delta(prev: &[Contact], cur: &[Contact]) -> f32 {
 /// Change in the hand's span (the largest distance between two fingers),
 /// for the fingers present in both frames. Independent of the hand's angle.
 fn span_delta(prev: &[Contact], cur: &[Contact]) -> f32 {
-    let pairs: Vec<(&Contact, &Contact)> =
-        cur.iter().filter_map(|c| prev.iter().find(|p| p.id == c.id).map(|p| (p, c))).collect();
+    let pairs: Vec<(&Contact, &Contact)> = pairs(prev, cur).collect();
     if pairs.len() < 2 {
         return 0.0;
     }
@@ -572,12 +591,10 @@ fn widest(points: &[(f32, f32)]) -> f32 {
 /// Mean movement of fingers present in both frames.
 fn shared_delta(prev: &[Contact], cur: &[Contact]) -> (f32, f32) {
     let (mut sx, mut sy, mut k) = (0.0, 0.0, 0u32);
-    for c in cur {
-        if let Some(p) = prev.iter().find(|p| p.id == c.id) {
-            sx += c.x - p.x;
-            sy += c.y - p.y;
-            k += 1;
-        }
+    for (p, c) in pairs(prev, cur) {
+        sx += c.x - p.x;
+        sy += c.y - p.y;
+        k += 1;
     }
     if k == 0 {
         (0.0, 0.0)
@@ -1146,5 +1163,190 @@ mod tests {
         assert_eq!(take_steps(&mut progress, 7.0), 0);
         let mut progress = -15.0;
         assert_eq!((take_steps(&mut progress, 7.0), progress), (2, -1.0));
+    }
+
+    /// [`Script::frame`] with three fingers, the first at `bad` (NaN,
+    /// infinite, absurd): a frame a broken driver might send mid-touch.
+    fn broken_frame(s: &mut Script, t: u64, bad: f32, x: f32, y: f32) {
+        hand(s, t, &[(bad, bad), (35.0 + x, 30.0 + y), (50.0 + x, 30.0 + y)]);
+    }
+
+    #[test]
+    fn a_broken_position_fires_nothing() {
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 1e9, -3e38] {
+            for cfg in [settings(), pinch_settings(), RecognizerSettings { drag_fingers: [true; 6], ..settings() }] {
+                let mut s = Script::new(cfg);
+                s.frame(0, 3, 0.0, 0.0).frame(20, 3, 0.2, 0.0);
+                broken_frame(&mut s, 40, bad, 0.2, 0.0);
+                s.frame(60, 3, 0.2, 0.0).frame(80, 3, 0.0, 0.0).lift(120);
+                assert_eq!(s.out, vec![Gesture::Tap { fingers: 3 }], "{bad}: {:?}", s.out);
+            }
+        }
+    }
+
+    #[test]
+    fn a_swipe_keeps_stepping_after_a_broken_frame() {
+        let mut s = Script::new(settings());
+        s.frame(0, 3, 0.0, 0.0).frame(10, 3, 0.0, -12.0);
+        broken_frame(&mut s, 20, f32::NAN, 0.0, -12.0);
+        s.frame(30, 3, 0.0, -12.0).frame(40, 3, 0.0, -18.0).frame(50, 3, 0.0, -24.0);
+        let up: Vec<_> = s.out.iter().map(|g| matches!(g, Gesture::Swipe { direction: Direction::Up, .. })).collect();
+        assert_eq!(up, vec![true, true, true], "{:?}", s.out);
+    }
+
+    #[test]
+    fn a_drag_never_moves_by_nan() {
+        let mut s = Script::new(RecognizerSettings { drag_fingers: [true; 6], ..settings() });
+        s.frame(0, 3, 0.0, 0.0).frame(10, 3, 12.0, 0.0);
+        broken_frame(&mut s, 20, f32::INFINITY, 12.0, 0.0);
+        s.frame(30, 3, 12.0, 0.0).frame(40, 3, 16.0, 0.0).lift(50);
+        for g in &s.out {
+            if let Gesture::DragMove { dx, dy } = g {
+                assert!(dx.is_finite() && dy.is_finite(), "{:?}", s.out);
+            }
+        }
+        assert_eq!(s.out.last(), Some(&Gesture::DragEnd));
+        assert!(s.out.contains(&Gesture::DragMove { dx: 4.0, dy: 0.0 }), "moves again once positions are sane");
+    }
+
+    #[test]
+    fn timestamps_at_the_end_of_time_do_not_overflow() {
+        let end = u64::MAX - 5;
+        let mut s = Script::new(RecognizerSettings { drag_release_ms: 300, ..multi_tap_settings(2) });
+        s.frame(end - 100, 3, 0.0, 0.0);
+        assert_eq!(s.rec.next_deadline(), Some(u64::MAX), "the hold timer saturates");
+        s.lift(end - 60);
+        assert_eq!(s.rec.next_deadline(), Some(u64::MAX), "so does the multi-tap timer");
+        s.tick(u64::MAX);
+        assert!(s.out.is_empty(), "a timer that can't run out doesn't: {:?}", s.out);
+
+        let mut s = Script::new(RecognizerSettings { drag_release_ms: 300, drag_fingers: [true; 6], ..settings() });
+        s.frame(end - 10, 3, 0.0, 0.0).frame(end - 5, 3, 12.0, 0.0).lift(end);
+        assert_eq!(s.rec.next_deadline(), Some(u64::MAX), "and the drag release timer");
+        s.tick(u64::MAX);
+        s.out.extend(s.rec.reset());
+        assert_eq!(s.out.last(), Some(&Gesture::DragEnd));
+    }
+
+    #[test]
+    fn a_session_that_never_ends_keeps_its_memory_bounded() {
+        // A resting finger while a driver hands out a new id every frame.
+        let mut rec = Recognizer::new(settings());
+        for i in 1..100_000u32 {
+            let contacts = vec![Contact { id: 0, x: 20.0, y: 20.0 }, Contact { id: i, x: 60.0, y: 30.0 }];
+            rec.update(&TouchFrame { time_ms: i as u64, contacts, width_mm: 100.0, height_mm: 60.0 });
+        }
+        assert!(rec.origins.len() <= MAX_ORIGINS, "{} origins", rec.origins.len());
+        assert!(rec.prev.len() <= 2);
+    }
+
+    /// Random, often broken, frames with settings swapped and the session
+    /// reset at random: the mouse button is never pressed twice, released
+    /// without a press, or left held, and a drag only moves by finite amounts.
+    #[test]
+    fn soak_drags_always_end() {
+        let mut rng = crate::Rng::new(0x9E37_79B9_7F4A_7C15);
+        let drag = [false, false, false, true, true, false];
+        let mut rec = Recognizer::new(RecognizerSettings { drag_fingers: drag, ..settings() });
+        let (mut held, mut starts, mut t) = (false, 0, 1_000u64);
+        let mut check = |gestures: Vec<Gesture>, held: &mut bool| {
+            for g in gestures {
+                match g {
+                    Gesture::DragStart { .. } => {
+                        assert!(!*held, "a second DragStart while dragging");
+                        *held = true;
+                        starts += 1;
+                    }
+                    Gesture::DragEnd => {
+                        assert!(*held, "DragEnd without a drag");
+                        *held = false;
+                    }
+                    Gesture::DragMove { dx, dy } => assert!(*held && dx.is_finite() && dy.is_finite(), "{g:?}"),
+                    _ => {}
+                }
+            }
+        };
+        for _ in 0..100_000 {
+            t = match rng.below(60) {
+                0 => t.saturating_sub(rng.below(10_000)),
+                1 => t.saturating_add(rng.below(1_000_000)),
+                2 => u64::MAX - rng.below(1_000),
+                3 => rng.below(1_000),
+                _ => t.saturating_add(rng.below(20)),
+            };
+            match rng.below(400) {
+                0 => {
+                    let mut s = rec.settings().clone();
+                    s.drag_fingers[3] = rng.below(2) == 0;
+                    s.drag_fingers[4] = rng.below(2) == 0;
+                    s.drag_release_ms = [0, 50, 350, 5_000][rng.below(4) as usize];
+                    rec.set_settings(s);
+                }
+                1 => check(rec.reset(), &mut held),
+                2 => check(rec.tick(t), &mut held),
+                _ => {}
+            }
+            let n = [0, 0, 1, 2, 3, 3, 3, 4, 4, 5, 6][rng.below(11) as usize];
+            let mut x = 20.0 + rng.below(40) as f32;
+            let contacts = (0..n)
+                .map(|i| {
+                    x += rng.below(3) as f32;
+                    let (x, y) = if rng.below(50) == 0 { (rng.mm(), rng.mm()) } else { (x + i as f32 * 12.0, 30.0) };
+                    Contact { id: if rng.below(20) == 0 { 0 } else { i }, x, y }
+                })
+                .collect();
+            let (w, h) = if rng.below(10) == 0 { (0.0, 0.0) } else { (100.0, 70.0) };
+            check(rec.update(&TouchFrame { time_ms: t, contacts, width_mm: w, height_mm: h }), &mut held);
+        }
+        check(rec.tick(u64::MAX), &mut held);
+        check(rec.reset(), &mut held);
+        assert!(!held, "the button was left held");
+        assert!(starts > 10, "the soak should drag now and then, dragged {starts} times");
+    }
+
+    /// Mixed sessions at 125 Hz: taps, swipes, pinches, drags and holds.
+    fn mixed_frames(count: usize) -> Vec<TouchFrame> {
+        let mut rng = crate::Rng::new(0xD1B5_4A32_D192_ED03);
+        let mut out = Vec::with_capacity(count + 100);
+        let mut t = 0u64;
+        while out.len() < count {
+            let n = 3 + rng.below(3) as u32;
+            let kind = rng.below(5) as usize;
+            for i in 0..[6, 30, 30, 40, 90][kind] {
+                let k = i as f32;
+                let (dx, dy, gap) = match kind {
+                    1 => (0.0, -k * 1.5, 12.0),
+                    2 => (0.0, 0.0, 12.0 + k * 0.8),
+                    3 => (k * 1.2, k * 0.5, 12.0),
+                    _ => (0.0, 0.0, 12.0),
+                };
+                let contacts = (0..n).map(|f| Contact { id: f, x: 20.0 + f as f32 * gap + dx, y: 40.0 + dy }).collect();
+                out.push(TouchFrame { time_ms: t, contacts, width_mm: 105.0, height_mm: 68.0 });
+                t += 8;
+            }
+            out.push(TouchFrame { time_ms: t, ..Default::default() });
+            t += 200;
+        }
+        out
+    }
+
+    #[test]
+    fn a_hundred_thousand_frames_are_recognised_quickly() {
+        let frames = mixed_frames(100_000);
+        let mut cfg = crate::Config::default();
+        cfg.set_binding(crate::Trigger::Pinch(4, PinchDirection::Out), crate::Action::Mute, false);
+        cfg.set_binding(crate::Trigger::DoubleTap(5), crate::Action::Mute, false);
+        let mut rec = Recognizer::new(cfg.recognizer_settings());
+        let start = std::time::Instant::now();
+        let mut gestures = 0;
+        for f in &frames {
+            gestures += rec.update(f).len();
+            gestures += rec.tick(f.time_ms).len();
+        }
+        let took = start.elapsed();
+        // A few milliseconds in release; debug builds on shared CI runners are much slower.
+        let budget = std::time::Duration::from_millis(if cfg!(debug_assertions) { 5_000 } else { 250 });
+        assert!(took < budget, "{} frames took {took:?}", frames.len());
+        assert!(gestures > 1_000, "the frames should make gestures, made {gestures}");
     }
 }
