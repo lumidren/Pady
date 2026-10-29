@@ -89,18 +89,17 @@
     .catch(() => {});
 })();
 
-// The copy and paste clip plays on its own, muted, while it's on screen,
+// The feature clips play on their own, muted, while they're on screen,
 // unless motion is reduced.
 (function () {
-  const v = document.getElementById('copy-paste-video');
-  if (!v) return;
-  v.removeAttribute('autoplay');
   if (matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) return;
-  let userPaused = false;
-  v.addEventListener('pause', () => { if (v.dataset.auto !== 'pause') userPaused = true; delete v.dataset.auto; });
-  v.addEventListener('play', () => { userPaused = false; });
-  new IntersectionObserver(([e]) => {
-    if (e.isIntersecting && !userPaused) v.play().catch(() => {});
-    else if (!e.isIntersecting && !v.paused) { v.dataset.auto = 'pause'; v.pause(); }
-  }, { threshold: 0.35 }).observe(v);
+  for (const v of document.querySelectorAll('video.autoclip')) {
+    let userPaused = false;
+    v.addEventListener('pause', () => { if (v.dataset.auto !== 'pause') userPaused = true; delete v.dataset.auto; });
+    v.addEventListener('play', () => { userPaused = false; });
+    new IntersectionObserver(([e]) => {
+      if (e.isIntersecting && !userPaused) v.play().catch(() => {});
+      else if (!e.isIntersecting && !v.paused) { v.dataset.auto = 'pause'; v.pause(); }
+    }, { threshold: 0.35 }).observe(v);
+  }
 })();
