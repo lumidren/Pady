@@ -57,7 +57,7 @@ fn length(path: &[(f32, f32)]) -> f32 {
 /// Can this stroke be a shape (rather than a scroll or a nudge)?
 pub fn check(path: &[(f32, f32)]) -> Result<(), NotAShape> {
     let len = length(path);
-    if path.len() < 4 || len < MIN_LENGTH_MM {
+    if path.len() < 4 || len.is_nan() || len < MIN_LENGTH_MM {
         return Err(NotAShape::TooShort);
     }
     // How far the stroke strays from the line through its ends, against its
@@ -83,9 +83,10 @@ pub fn check(path: &[(f32, f32)]) -> Result<(), NotAShape> {
 
 /// The path resampled to [`POINTS`] evenly spaced points, scaled so its
 /// longer side is 1 (keeping its proportions) and centred on the origin.
+/// `None` for a path with no length, or one too broken to measure.
 pub fn normalize(path: &[(f32, f32)]) -> Option<Vec<[f32; 2]>> {
     let total = length(path);
-    if path.len() < 2 || total <= 0.0 {
+    if path.len() < 2 || !total.is_finite() || total <= 0.0 {
         return None;
     }
     let step = total / (POINTS - 1) as f32;
@@ -111,7 +112,8 @@ pub fn normalize(path: &[(f32, f32)]) -> Option<Vec<[f32; 2]>> {
     let size = (max_x - min_x).max(max_y - min_y).max(1e-3);
     let (cx, cy) =
         (out.iter().map(|p| p.0).sum::<f32>() / POINTS as f32, out.iter().map(|p| p.1).sum::<f32>() / POINTS as f32);
-    Some(out.iter().map(|p| [(p.0 - cx) / size, (p.1 - cy) / size]).collect())
+    let points: Vec<[f32; 2]> = out.iter().map(|p| [(p.0 - cx) / size, (p.1 - cy) / size]).collect();
+    points.iter().flatten().all(|v| v.is_finite()).then_some(points)
 }
 
 /// How alike two normalised shapes are: 1 for the same, 0 for nothing alike.
@@ -169,7 +171,8 @@ impl StrokeTracker {
             let c = &frame.contacts;
             let mid = ((c[0].x + c[1].x) / 2.0, (c[0].y + c[1].y) / 2.0);
             let moved = self.path.last().is_none_or(|l| (mid.0 - l.0).hypot(mid.1 - l.1) >= 0.25);
-            if moved {
+            // A broken position (NaN, infinite) is skipped, not drawn.
+            if moved && mid.0.is_finite() && mid.1.is_finite() {
                 self.path.push(mid);
             }
         }
@@ -290,5 +293,127 @@ mod tests {
         t.update(&frame(&[(1.0, 1.0)]));
         t.update(&frame(&[(9.0, 9.0)]));
         assert_eq!(t.update(&frame(&[])), None);
+    }
+
+    fn finite(points: &[[f32; 2]]) -> bool {
+        points.iter().flatten().all(|v| v.is_finite())
+    }
+
+    #[test]
+    fn degenerate_strokes_never_make_nan_shapes() {
+        let (nan, inf, big) = (f32::NAN, f32::INFINITY, 3e38);
+        let mut paths: Vec<Vec<(f32, f32)>> = vec![
+            vec![],
+            vec![(5.0, 5.0)],
+            vec![(5.0, 5.0); 2],
+            vec![(5.0, 5.0); 500],
+            vec![(nan, nan); 10],
+            vec![(0.0, 0.0), (inf, 0.0), (0.0, 30.0), (30.0, 30.0)],
+            vec![(-big, -big), (big, big), (-big, big), (big, -big), (0.0, 0.0)],
+            vec![(1e30, 1e30), (1e30 + 1e25, 1e30), (1e30, 1e30 + 1e25), (1e30, 1e30)],
+        ];
+        let mut with_nan = circle(10.0, 1.0);
+        with_nan[0] = (nan, 3.0);
+        paths.push(with_nan);
+        let mut with_inf = vee(20.0);
+        with_inf[7] = (inf, -inf);
+        paths.push(with_inf);
+        let shapes = [shape(1, &circle(10.0, 1.0)), shape(2, &vee(20.0))];
+        for path in &paths {
+            let _ = check(path);
+            if let Some(points) = normalize(path) {
+                assert!(finite(&points) && points.len() == POINTS, "{path:?} gave {points:?}");
+            }
+            if let Some((_, score)) = best_match(&shapes, path) {
+                assert!(score.is_finite(), "{path:?}");
+            }
+        }
+        assert_eq!(normalize(&[(5.0, 5.0); 500]), None, "a stroke that never moved has no shape");
+        assert_eq!(check(&[(nan, nan); 10]), Err(NotAShape::TooShort));
+    }
+
+    #[test]
+    fn similarity_is_never_nan() {
+        let good = shape(1, &circle(10.0, 1.0)).points;
+        let huge = vec![[3e38f32, -3e38]; POINTS];
+        for other in [&good, &huge, &vec![[0.0, 0.0]; POINTS], &vec![[0.0, 0.0]; 3]] {
+            let s = similarity(&good, other);
+            assert!((0.0..=1.0).contains(&s), "{s}");
+        }
+        assert_eq!(similarity(&huge, &huge), 1.0);
+    }
+
+    #[test]
+    fn the_tracker_skips_broken_positions() {
+        let mut t = StrokeTracker::default();
+        t.update(&frame(&[(f32::NAN, 1.0), (5.0, 1.0)]));
+        for p in vee(20.0) {
+            t.update(&frame(&[(p.0 - 5.0, p.1), (p.0 + 5.0, p.1)]));
+            t.update(&frame(&[(f32::INFINITY, p.1), (p.0 + 5.0, p.1)]));
+        }
+        let path = t.update(&frame(&[])).expect("a stroke");
+        assert!(path.iter().all(|p| p.0.is_finite() && p.1.is_finite()), "{path:?}");
+        assert_eq!(best_match(&[shape(2, &vee(20.0))], &path).map(|m| m.0), Some(2));
+    }
+
+    #[test]
+    fn the_tracker_caps_a_stroke_that_never_ends() {
+        let mut t = StrokeTracker::default();
+        for i in 0..100_000 {
+            let x = (i % 400) as f32 * 0.3;
+            t.update(&frame(&[(x, (i / 400) as f32), (x + 10.0, 0.0)]));
+        }
+        let path = t.update(&frame(&[])).expect("a stroke");
+        assert_eq!(path.len(), MAX_PATH);
+        let _ = best_match(&[shape(1, &circle(10.0, 1.0))], &path);
+    }
+
+    /// Random strokes with random finger counts, broken positions and lifts.
+    #[test]
+    fn fuzzed_strokes_never_panic_or_make_nan_shapes() {
+        let mut rng = crate::Rng::new(0x2545_F491_4F6C_DD1D);
+        let shapes: Vec<Shape> =
+            (1..=MAX_SHAPES).map(|id| shape(id, &circle(5.0 + id as f32, 0.5 + id as f32 / 20.0))).collect();
+        let mut t = StrokeTracker::default();
+        let mut strokes = 0;
+        for _ in 0..50_000 {
+            let n = [0, 0, 1, 2, 2, 2, 2, 3][rng.below(8) as usize];
+            let points: Vec<(f32, f32)> = (0..n).map(|_| (rng.mm(), rng.mm())).collect();
+            if let Some(path) = t.update(&frame(&points)) {
+                strokes += 1;
+                if let Some(points) = normalize(&path) {
+                    assert!(finite(&points));
+                }
+                if let Some((id, score)) = best_match(&shapes, &path) {
+                    assert!((1..=MAX_SHAPES).contains(&id) && score.is_finite());
+                }
+            }
+            if rng.below(1_000) == 0 {
+                t.reset();
+            }
+        }
+        assert!(strokes > 100, "{strokes} strokes");
+    }
+
+    #[test]
+    fn matching_against_every_shape_is_quick() {
+        let shapes: Vec<Shape> =
+            (1..=MAX_SHAPES).map(|id| shape(id, &circle(5.0 + id as f32, 0.5 + id as f32 / 20.0))).collect();
+        // A long stroke: about two seconds of drawing at 125 Hz.
+        let path: Vec<(f32, f32)> = circle(14.0, 1.0)
+            .windows(2)
+            .flat_map(|w| (0..4).map(move |i| (w[0].0 + (w[1].0 - w[0].0) * i as f32 / 4.0, w[0].1)))
+            .collect();
+        let runs = 2_000;
+        let start = std::time::Instant::now();
+        let mut matched = 0;
+        for _ in 0..runs {
+            matched += best_match(&shapes, std::hint::black_box(&path)).is_some() as u32;
+        }
+        let each = start.elapsed() / runs;
+        // A few microseconds in release; the budget leaves room for slow CI runners.
+        let budget = std::time::Duration::from_micros(if cfg!(debug_assertions) { 2_000 } else { 200 });
+        assert!(each < budget, "{each:?} per stroke");
+        assert_eq!(matched, runs, "the circle matches one of the circles");
     }
 }
