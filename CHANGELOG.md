@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Two-finger shapes.** On the new 2 fingers tab, click Record a shape, draw a circle, a V, a Z or anything else with two fingers, name it and pick what it does. Draw it again to run it. A straight two-finger slide is never a shape, so scrolling stays as it is.
+- **More animation options.** A Glow switch for every glow (notices, the swipe glow and the app's own highlights), glow strength, animation speed and how long notices stay.
+
+### Fixed
+
+- The website's live demo no longer shows a warning on load or an old version number, and always loads matching files after an update.
+
 ## 0.6.1 (2026-10-29)
 
 ### Changed
