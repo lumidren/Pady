@@ -89,8 +89,18 @@
     .catch(() => {});
 })();
 
-// The copy and paste clip plays on its own, muted, unless motion is reduced.
+// The copy and paste clip plays on its own, muted, while it's on screen,
+// unless motion is reduced.
 (function () {
   const v = document.getElementById('copy-paste-video');
-  if (v && matchMedia('(prefers-reduced-motion: reduce)').matches) { v.removeAttribute('autoplay'); v.pause(); }
+  if (!v) return;
+  v.removeAttribute('autoplay');
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) return;
+  let userPaused = false;
+  v.addEventListener('pause', () => { if (v.dataset.auto !== 'pause') userPaused = true; delete v.dataset.auto; });
+  v.addEventListener('play', () => { userPaused = false; });
+  new IntersectionObserver(([e]) => {
+    if (e.isIntersecting && !userPaused) v.play().catch(() => {});
+    else if (!e.isIntersecting && !v.paused) { v.dataset.auto = 'pause'; v.pause(); }
+  }, { threshold: 0.35 }).observe(v);
 })();
