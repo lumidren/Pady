@@ -719,8 +719,9 @@ mod tests {
             r.compose(1.0 + (i % 10) as f32 * 0.03, i as f32 / 120.0).expect("compose");
         }
         let per_frame = start.elapsed() / 120;
-        // Debug builds are slower; release is several times quicker still.
-        assert!(per_frame < Duration::from_millis(8), "{per_frame:?} per frame at 200%");
+        // Release is what ships; debug builds (and CI runners) are several times slower.
+        let budget = Duration::from_millis(if cfg!(debug_assertions) { 30 } else { 8 });
+        assert!(per_frame < budget, "{per_frame:?} per frame at 200%");
     }
 
     /// Writes renders over a backdrop to `%TEMP%\pady-toast-preview`:
