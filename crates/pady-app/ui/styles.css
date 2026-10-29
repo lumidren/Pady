@@ -12,8 +12,8 @@
   --mono: "Cascadia Code", "Cascadia Mono", Consolas, "JetBrains Mono", "Ubuntu Mono", ui-monospace, monospace;
 
   --bg: #0b0c11;
-  --bg-glow-1: rgba(99, 102, 241, 0.13);
-  --bg-glow-2: rgba(168, 85, 247, 0.08);
+  --bg-glow-1: rgb(99 102 241 / calc(0.13 * var(--glow-k, 1)));
+  --bg-glow-2: rgb(168 85 247 / calc(0.08 * var(--glow-k, 1)));
   --sidebar: rgba(17, 18, 25, 0.72);
   --surface: rgba(255, 255, 255, 0.032);
   --surface-2: rgba(255, 255, 255, 0.055);
@@ -35,7 +35,7 @@
   --accent-soft: rgba(124, 108, 255, 0.15);
   --accent-softer: rgba(124, 108, 255, 0.08);
   --accent-text: #b9b0ff;
-  --accent-glow: rgba(124, 108, 255, 0.45);
+  --accent-glow: rgb(124 108 255 / calc(0.45 * var(--glow-k, 1)));
   --on-accent: #ffffff;
 
   --green: #34d399;
@@ -48,7 +48,7 @@
   --red-soft: rgba(248, 113, 113, 0.12);
 
   --finger: #9d8fff;
-  --finger-glow: rgba(141, 125, 255, 0.55);
+  --finger-glow: rgb(141 125 255 / calc(0.55 * var(--glow-k, 1)));
   --illo-pad: rgba(255, 255, 255, 0.035);
   --illo-stroke: rgba(255, 255, 255, 0.09);
 
@@ -70,8 +70,8 @@
   :root:not([data-theme="dark"]) {
     color-scheme: light;
     --bg: #f3f3f7;
-    --bg-glow-1: rgba(99, 102, 241, 0.09);
-    --bg-glow-2: rgba(192, 38, 211, 0.05);
+    --bg-glow-1: rgb(99 102 241 / calc(0.09 * var(--glow-k, 1)));
+    --bg-glow-2: rgb(192 38 211 / calc(0.05 * var(--glow-k, 1)));
     --sidebar: rgba(250, 250, 253, 0.75);
     --surface: rgba(255, 255, 255, 0.82);
     --surface-2: rgba(20, 22, 40, 0.045);
@@ -90,7 +90,7 @@
     --accent-soft: rgba(91, 76, 240, 0.11);
     --accent-softer: rgba(91, 76, 240, 0.06);
     --accent-text: #4a3ad8;
-    --accent-glow: rgba(91, 76, 240, 0.3);
+    --accent-glow: rgb(91 76 240 / calc(0.3 * var(--glow-k, 1)));
     --green: #059669;
     --green-soft: rgba(5, 150, 105, 0.1);
     --amber: #d97706;
@@ -100,7 +100,7 @@
     --red: #dc2626;
     --red-soft: rgba(220, 38, 38, 0.08);
     --finger: #6a5af5;
-    --finger-glow: rgba(106, 90, 245, 0.35);
+    --finger-glow: rgb(106 90 245 / calc(0.35 * var(--glow-k, 1)));
     --illo-pad: rgba(20, 22, 40, 0.035);
     --illo-stroke: rgba(20, 22, 40, 0.1);
     --shadow-sm: 0 1px 2px rgba(20, 22, 40, 0.08);
@@ -113,8 +113,8 @@
 :root[data-theme="light"] {
   color-scheme: light;
   --bg: #f3f3f7;
-  --bg-glow-1: rgba(99, 102, 241, 0.09);
-  --bg-glow-2: rgba(192, 38, 211, 0.05);
+  --bg-glow-1: rgb(99 102 241 / calc(0.09 * var(--glow-k, 1)));
+  --bg-glow-2: rgb(192 38 211 / calc(0.05 * var(--glow-k, 1)));
   --sidebar: rgba(250, 250, 253, 0.75);
   --surface: rgba(255, 255, 255, 0.82);
   --surface-2: rgba(20, 22, 40, 0.045);
@@ -133,7 +133,7 @@
   --accent-soft: rgba(91, 76, 240, 0.11);
   --accent-softer: rgba(91, 76, 240, 0.06);
   --accent-text: #4a3ad8;
-  --accent-glow: rgba(91, 76, 240, 0.3);
+  --accent-glow: rgb(91 76 240 / calc(0.3 * var(--glow-k, 1)));
   --green: #059669;
   --green-soft: rgba(5, 150, 105, 0.1);
   --amber: #d97706;
@@ -143,7 +143,7 @@
   --red: #dc2626;
   --red-soft: rgba(220, 38, 38, 0.08);
   --finger: #6a5af5;
-  --finger-glow: rgba(106, 90, 245, 0.35);
+  --finger-glow: rgb(106 90 245 / calc(0.35 * var(--glow-k, 1)));
   --illo-pad: rgba(20, 22, 40, 0.035);
   --illo-stroke: rgba(20, 22, 40, 0.1);
   --shadow-sm: 0 1px 2px rgba(20, 22, 40, 0.08);

@@ -2149,6 +2149,9 @@
     { group: 'recog', key: 'hold_ms', name: 'Hold time', min: 300, max: 1500, step: 50, fmt: (v) => [v, 'ms'], help: 'How long fingers rest without moving before it counts as a hold.' },
     { group: 'drag', key: 'drag_speed', name: 'Drag speed', min: 2, max: 25, step: 0.5, fmt: (v) => [Number(v).toFixed(1), 'px/mm'], help: 'Cursor pixels per millimetre of finger travel while dragging.' },
     { group: 'drag', key: 'drag_acceleration', name: 'Drag acceleration', min: 0, max: 3, step: 0.1, fmt: (v) => (Number(v) === 0 ? ['Linear', ''] : [Number(v).toFixed(1), '×']), help: 'How much faster quick flicks move the cursor. 0 keeps movement linear.' },
+    { group: 'anim', key: 'glow_strength', name: 'Glow strength', min: 0.3, max: 1.6, step: 0.05, fmt: (v) => [Math.round(v * 100), '%'], help: 'How bright every glow is: the notices, the swipe glow and the highlights in this window.' },
+    { group: 'anim', key: 'anim_speed', name: 'Animation speed', min: 0.5, max: 2, step: 0.05, fmt: (v) => (Math.abs(v - 1) < 0.01 ? ['Normal', ''] : [Number(v).toFixed(2).replace(/0$/, ''), '×']), help: 'How quickly the on-screen animations move. Higher is snappier.', windows: true },
+    { group: 'anim', key: 'notice_time', name: 'Notice time', min: 0.5, max: 3, step: 0.1, fmt: (v) => [(1.5 * v).toFixed(1), 's'], help: 'How long corner notices like “Copied” stay before they fade.', windows: true },
     { group: 'drag', key: 'drag_release_ms', name: 'Drag release delay', min: 0, max: 1000, step: 25, fmt: (v) => (Number(v) === 0 ? ['Instant', ''] : [v, 'ms']), help: 'Keeps the button held briefly after lifting, so you can reposition your fingers and continue the drag.' },
   ];
   const INT_KEYS = new Set(['tap_max_ms', 'multi_tap_ms', 'hold_ms', 'drag_release_ms']);
@@ -2158,6 +2161,7 @@
     hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true, show_copy_notice: true, check_updates: true,
     animations: true, anim_swipe_glow: true, anim_hints: false, anim_pinch: true, anim_notices: true, anim_touches: false,
     anim_previews: true, anim_mirror: true, anim_celebrate: true,
+    anim_glow: true, glow_strength: 1, anim_speed: 1, notice_time: 1,
   };
   /** Is this animation on (its own switch and the master switch)? */
   const animates = (key) => {
@@ -2299,7 +2303,14 @@
         sub('anim_touches', 'Show touches', 'Glowing dots follow your fingers on a small touchpad in the corner. Great for recording tutorials.', true),
         sub('anim_previews', 'Gesture previews', 'Gesture cards take turns playing a small loop of the fingers doing them.'),
         sub('anim_mirror', 'Live touchpad', 'The Pinch section shows your fingers on the touchpad as you move them.'),
-        sub('anim_celebrate', 'First-time celebrations', 'A little burst the first time each gesture works.'));
+        sub('anim_celebrate', 'First-time celebrations', 'A little burst the first time each gesture works.'),
+        sub('anim_glow', 'Glow', 'The soft purple glow around notices, the swipe glow and the highlights in this window. Off keeps everything flat.'),
+        ...SLIDERS.filter((d) => d.group === 'anim').map((d) => {
+          const row = sliderEl(d);
+          row.classList.add('row--sub');
+          if (d.windows) row.dataset.windows = '';
+          return row;
+        }));
       setUI.animPanel.classList.add('panel--anim');
       return setUI.animPanel;
     }
@@ -2311,6 +2322,10 @@
    */
   function syncAnimations() {
     document.body.classList.toggle('no-previews', !animates('anim_previews'));
+    // Every glow in this window scales with the Glow settings.
+    const s = (store.app && store.app.config.settings) || {};
+    const glow = animates('anim_glow') ? Number(s.glow_strength ?? SETTING_DEFAULTS.glow_strength) : 0;
+    document.documentElement.style.setProperty('--glow-k', String(glow));
     const mirror = animates('anim_mirror') && store.page === 'settings' && !!setUI.mirrorBox
       && !!(store.app.devices && store.app.devices.length);
     if (mirror) {
