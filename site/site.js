@@ -88,3 +88,9 @@
     })
     .catch(() => {});
 })();
+
+// The copy and paste clip plays on its own, muted, unless motion is reduced.
+(function () {
+  const v = document.getElementById('copy-paste-video');
+  if (v && matchMedia('(prefers-reduced-motion: reduce)').matches) { v.removeAttribute('autoplay'); v.pause(); }
+})();
