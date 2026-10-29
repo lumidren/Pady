@@ -31,6 +31,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
+use windows::Win32::Globalization::{GetLocaleInfoEx, LCIDToLocaleName, LOCALE_SLOCALIZEDLANGUAGENAME};
 use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{AC_SRC_ALPHA, AC_SRC_OVER, BLENDFUNCTION};
 use windows::Win32::Graphics::GdiPlus::{StringAlignmentCenter, StringAlignmentNear};
@@ -42,7 +43,7 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::HiDpi::{SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_CONTROL, VK_INSERT, VK_SHIFT, VK_V,
+    GetAsyncKeyState, GetKeyboardLayout, GetLastInputInfo, LASTINPUTINFO, VK_CONTROL, VK_INSERT, VK_SHIFT, VK_V,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -52,6 +53,10 @@ const WM_NOTICE: u32 = WM_APP;
 const WM_STOP: u32 = WM_APP + 1;
 const WM_COPIED: u32 = WM_APP + 2;
 const WM_WATCH: u32 = WM_APP + 3;
+const WM_WATCH_LANGUAGE: u32 = WM_APP + 4;
+/// The keyboard language is checked this often while its notice is on.
+const LANGUAGE_TIMER: usize = 1;
+const LANGUAGE_EVERY_MS: u32 = 200;
 const CLASS: PCWSTR = w!("PadyToast");
 
 const GLYPH_CHECK: u16 = 0xE73E;
@@ -82,6 +87,7 @@ impl Notice {
                 Icon::Music => 0xE8D6,
                 Icon::Lock => 0xE72E,
                 Icon::Done => GLYPH_CHECK,
+                Icon::Keyboard => 0xE765,
             },
         }
     }
@@ -135,6 +141,10 @@ impl Toasts {
 
     pub fn watch_clipboard(&self, on: bool) {
         self.post(WM_WATCH, usize::from(on));
+    }
+
+    pub fn watch_language(&self, on: bool) {
+        self.post(WM_WATCH_LANGUAGE, usize::from(on));
     }
 
     fn post(&self, msg: u32, wparam: usize) {
@@ -277,6 +287,8 @@ struct Toaster {
     /// copy announced twice (some apps write it in two goes) shows once.
     last_copy: u32,
     reported: bool,
+    /// The window in front and its keyboard layout, last time we looked.
+    language: Option<(isize, isize)>,
 }
 
 /// What Pady knows about a clipboard change; never its content.
@@ -340,6 +352,37 @@ impl ClipboardChange {
     }
 }
 
+/// The window in front and its keyboard layout (an HKL), if there is one.
+fn foreground_layout() -> Option<(isize, isize)> {
+    unsafe {
+        let front = GetForegroundWindow();
+        if front.is_invalid() {
+            return None;
+        }
+        let thread = GetWindowThreadProcessId(front, None);
+        let layout = GetKeyboardLayout(thread);
+        (thread != 0 && !layout.is_invalid()).then_some((front.0 as isize, layout.0 as isize))
+    }
+}
+
+/// A keyboard layout's language in the user's own words ("Arabic", "English").
+fn language_name(layout: isize) -> String {
+    let lcid = (layout as usize & 0xFFFF) as u32;
+    let mut locale = [0u16; 85];
+    let mut name = [0u16; 128];
+    unsafe {
+        let n = LCIDToLocaleName(lcid, Some(&mut locale), 0);
+        if n > 0 {
+            let len = GetLocaleInfoEx(PCWSTR(locale.as_ptr()), LOCALE_SLOCALIZEDLANGUAGENAME, Some(&mut name));
+            if len > 1 {
+                return String::from_utf16_lossy(&name[..len as usize - 1]);
+            }
+            return String::from_utf16_lossy(&locale[..n as usize - 1]);
+        }
+    }
+    "Keyboard language".to_string()
+}
+
 impl Toaster {
     fn new(hwnd: HWND) -> Toaster {
         Toaster {
@@ -353,6 +396,7 @@ impl Toaster {
             anchor: (0, 0),
             watching: false,
             last_copy: 0,
+            language: None,
             reported: false,
         }
     }
@@ -384,6 +428,14 @@ impl Toaster {
                     self.watch(msg.wParam.0 != 0);
                     return true;
                 }
+                WM_WATCH_LANGUAGE => {
+                    self.watch_language(msg.wParam.0 != 0);
+                    return true;
+                }
+                WM_TIMER if msg.wParam.0 == LANGUAGE_TIMER => {
+                    self.check_language();
+                    return true;
+                }
                 WM_STOP => return false,
                 _ => {}
             }
@@ -407,6 +459,30 @@ impl Toaster {
             Ok(()) => self.watching = on,
             Err(e) => log::warn!("could not {} copy notices: {e}", if on { "turn on" } else { "turn off" }),
         }
+    }
+
+    fn watch_language(&mut self, on: bool) {
+        unsafe {
+            if on {
+                SetTimer(self.hwnd, LANGUAGE_TIMER, LANGUAGE_EVERY_MS, None);
+            } else {
+                let _ = KillTimer(self.hwnd, LANGUAGE_TIMER);
+            }
+        }
+        self.language = None;
+    }
+
+    /// Names the keyboard language when it changes in the window you're in.
+    /// Moving to a window with another language (Windows can keep one per
+    /// app) is not a switch, so that only updates what we remember.
+    fn check_language(&mut self) {
+        let Some(now) = foreground_layout() else { return };
+        if let Some((window, layout)) = self.language {
+            if window == now.0 && layout != now.1 {
+                self.show(Notice::Text { text: language_name(now.1), icon: Icon::Keyboard });
+            }
+        }
+        self.language = Some(now);
     }
 
     fn prepare(&mut self, style: Style) -> Result<()> {
@@ -722,6 +798,14 @@ mod tests {
                 assert_eq!(px_at(&mut r, 0.0, 0.0) >> 24, 0, "nothing in the far corner");
             }
         }
+    }
+
+    #[test]
+    fn keyboard_layouts_are_named_by_language() {
+        // US English and Arabic (Egypt) layouts; the words depend on the display language.
+        let (english, arabic) = (language_name(0x0409_0409), language_name(0x0C01_0C01));
+        assert!(!english.is_empty() && english != "Keyboard language", "{english}");
+        assert!(!arabic.is_empty() && arabic != english, "{arabic}");
     }
 
     #[test]

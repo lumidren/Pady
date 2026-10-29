@@ -66,6 +66,8 @@ pub struct Settings {
     pub anim_mirror: bool,
     /// A little celebration the first time each gesture works.
     pub anim_celebrate: bool,
+    /// A corner notice names the keyboard language when you switch it (Windows).
+    pub anim_language: bool,
     /// Glow everywhere: the notices' aura, the swipe glow, the glowing
     /// fingertips and the app's own highlights.
     pub anim_glow: bool,
@@ -111,6 +113,7 @@ impl Default for Settings {
             anim_previews: true,
             anim_mirror: true,
             anim_celebrate: true,
+            anim_language: true,
             anim_glow: true,
             glow_strength: 1.0,
             anim_speed: 1.0,

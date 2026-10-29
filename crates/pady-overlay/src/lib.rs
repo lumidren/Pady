@@ -92,6 +92,7 @@ pub enum Icon {
     Music,
     Lock,
     Done,
+    Keyboard,
 }
 
 /// The corner notices: a layered window on a thread of its own, like the pill.
@@ -120,6 +121,14 @@ impl Toasts {
     pub fn watch_clipboard(&self, on: bool) {
         #[cfg(windows)]
         self.inner.watch_clipboard(on);
+        #[cfg(not(windows))]
+        let _ = on;
+    }
+
+    /// Name the keyboard language whenever it's switched (on) or never (off).
+    pub fn watch_language(&self, on: bool) {
+        #[cfg(windows)]
+        self.inner.watch_language(on);
         #[cfg(not(windows))]
         let _ = on;
     }

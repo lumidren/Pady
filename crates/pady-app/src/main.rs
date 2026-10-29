@@ -399,6 +399,11 @@ fn apply_look(s: &Settings) {
     pady_overlay::set_look(pady_overlay::Look { glow: s.glow(), speed: s.anim_speed, stay: s.notice_time });
 }
 
+/// The keyboard language notice shows when its own switch and the Animations switch are on.
+fn language_notice_wanted(s: &Settings) -> bool {
+    s.animates(s.anim_language)
+}
+
 /// "Copied" shows when its own switch and the Animations switch are on.
 fn copy_notice_wanted(s: &Settings) -> bool {
     s.animates(s.show_copy_notice)
@@ -547,6 +552,7 @@ fn spawn_watcher(app: AppHandle) {
             let mut last_wall = SystemTime::now();
             let mut last_stale_restart = Instant::now();
             let mut copy_notice = copy_notice_wanted(&app.state::<Pady>().config.get().settings);
+            let mut language_notice = language_notice_wanted(&app.state::<Pady>().config.get().settings);
             loop {
                 std::thread::sleep(Duration::from_secs(2));
                 let pady = app.state::<Pady>();
@@ -611,6 +617,13 @@ fn spawn_watcher(app: AppHandle) {
                     copy_notice = wanted;
                     if let Some(toasts) = &pady.toasts {
                         toasts.watch_clipboard(wanted);
+                    }
+                }
+                let wanted = language_notice_wanted(&pady.config.get().settings);
+                if wanted != language_notice {
+                    language_notice = wanted;
+                    if let Some(toasts) = &pady.toasts {
+                        toasts.watch_language(wanted);
                     }
                 }
 
@@ -801,6 +814,7 @@ fn main() {
             apply_look(&config.get().settings);
             if let Some(toasts) = &toasts {
                 toasts.watch_clipboard(copy_notice_wanted(&config.get().settings));
+                toasts.watch_language(language_notice_wanted(&config.get().settings));
             }
 
             let (frames_tx, frames_rx) = crossbeam_channel::unbounded();

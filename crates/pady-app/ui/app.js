@@ -2354,7 +2354,7 @@
     tap_max_ms: 220, tap_slop_mm: 4, multi_tap_ms: 300, swipe_threshold_mm: 10, swipe_step_mm: 7, pinch_threshold_mm: 8,
     hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true, show_copy_notice: true, check_updates: true,
     animations: true, anim_swipe_glow: true, anim_hints: false, anim_pinch: true, anim_notices: true, anim_touches: false,
-    anim_previews: true, anim_mirror: true, anim_celebrate: true,
+    anim_previews: true, anim_mirror: true, anim_celebrate: true, anim_language: true,
     anim_glow: true, glow_strength: 1, anim_speed: 1, notice_time: 1,
   };
   /** Is this animation on (its own switch and the master switch)? */
@@ -2492,6 +2492,7 @@
         sub('anim_swipe_glow', 'Swipe glow', 'A soft glow grows at the screen edge your swipe is heading for, and flashes when it fires.', true),
         sub('show_copy_notice', '“Copied” and “Pasted”', 'A small notice in the top-right corner when you copy, or paste with a gesture. Pady is told that you copied, never what.', true),
         sub('anim_pinch', 'Pinch steps', 'A corner notice while you pinch, counting each zoom step.', true),
+        sub('anim_language', 'Keyboard language', 'Switch your keyboard language and a corner notice names it, like “Arabic” or “English”.', true),
         sub('anim_notices', 'Action notices', 'Screenshots, play/pause and track changes get a small corner notice, since there’s nothing else to see.', true),
         sub('anim_hints', 'Gesture hints', 'Names each gesture and what it did, in the corner. Handy while you learn your gestures.', true),
         sub('anim_touches', 'Show touches', 'Glowing dots follow your fingers on a small touchpad in the corner. Great for recording tutorials.', true),
