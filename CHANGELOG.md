@@ -1,9 +1,12 @@
 # Changelog
 
-## 0.7.1 (2026-10-29)
+## 1.0.0 (2026-10-29)
+
+The first stable release.
 
 ### Added
 
+- **Keyboard language notice.** Switch your keyboard language (Win+Space or Alt+Shift) and a corner notice names it, like "Arabic" or "English". It has its own switch under Settings › Animations (Windows).
 - **More animation options.** A Glow switch for every glow (notices, the swipe glow and the app's own highlights), glow strength, animation speed and how long notices stay.
 
 ### Fixed
