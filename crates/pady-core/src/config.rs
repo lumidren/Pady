@@ -65,6 +65,15 @@ pub struct Settings {
     pub anim_mirror: bool,
     /// A little celebration the first time each gesture works.
     pub anim_celebrate: bool,
+    /// Glow everywhere: the notices' aura, the swipe glow, the glowing
+    /// fingertips and the app's own highlights.
+    pub anim_glow: bool,
+    /// How strong that glow is (1 = normal).
+    pub glow_strength: f32,
+    /// How fast the on-screen animations move (1 = normal, 2 = twice as fast).
+    pub anim_speed: f32,
+    /// How long corner notices stay before fading (1 = normal).
+    pub notice_time: f32,
     /// The first-run tutorial has been completed or skipped.
     pub onboarded: bool,
     /// Look for a new version on GitHub twice a day.
@@ -101,6 +110,10 @@ impl Default for Settings {
             anim_previews: true,
             anim_mirror: true,
             anim_celebrate: true,
+            anim_glow: true,
+            glow_strength: 1.0,
+            anim_speed: 1.0,
+            notice_time: 1.0,
             onboarded: false,
             check_updates: true,
             autostart_configured: false,
@@ -129,6 +142,18 @@ impl Settings {
         self.pinch_threshold_mm = fit(self.pinch_threshold_mm, 1.0, 100.0, d.pinch_threshold_mm);
         self.drag_speed = fit(self.drag_speed, 0.1, 100.0, d.drag_speed);
         self.drag_acceleration = fit(self.drag_acceleration, 0.0, 10.0, d.drag_acceleration);
+        self.glow_strength = fit(self.glow_strength, 0.0, 2.0, d.glow_strength);
+        self.anim_speed = fit(self.anim_speed, 0.25, 4.0, d.anim_speed);
+        self.notice_time = fit(self.notice_time, 0.25, 5.0, d.notice_time);
+    }
+
+    /// The glow multiplier for everything that glows (0 = no glow).
+    pub fn glow(&self) -> f32 {
+        if self.animates(self.anim_glow) {
+            self.glow_strength
+        } else {
+            0.0
+        }
     }
 }
 
