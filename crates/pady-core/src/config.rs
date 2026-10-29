@@ -873,4 +873,189 @@ action = { type = "brightness", step = -999 }
         }
         assert!(parsed > 0, "every mutation broke the file; the fuzzer is too blunt");
     }
+
+    /// Everything `normalize` promises, checked on a config that went through it.
+    fn assert_tame(cfg: &Config) {
+        let s = &cfg.settings;
+        let mut again = s.clone();
+        again.sanitize();
+        assert_eq!(&again, s, "settings out of range");
+        let floats = [
+            s.tap_slop_mm,
+            s.swipe_threshold_mm,
+            s.swipe_step_mm,
+            s.pinch_threshold_mm,
+            s.drag_speed,
+            s.drag_acceleration,
+            s.glow_strength,
+            s.anim_speed,
+            s.notice_time,
+        ];
+        assert!(floats.iter().all(|v| v.is_finite()), "{s:?}");
+        let r = cfg.recognizer_settings();
+        assert!(r.swipe_step_mm >= 1.0 && r.pinch_threshold_mm >= 1.0 && r.tap_slop_mm > 0.0, "{r:?}");
+
+        assert!(cfg.shapes.len() <= MAX_SHAPES as usize);
+        for (i, shape) in cfg.shapes.iter().enumerate() {
+            assert!((1..=MAX_SHAPES).contains(&shape.id) && !shape.name.is_empty());
+            assert!(cfg.shapes[..i].iter().all(|o| o.id != shape.id), "shape {} twice", shape.id);
+            assert_eq!(shape.points.len(), POINTS);
+            assert!(shape.points.iter().flatten().all(|v| v.is_finite()));
+        }
+        let check_bindings = |bindings: &[Binding], global: bool| {
+            for (i, b) in bindings.iter().enumerate() {
+                assert!(bindings[..i].iter().all(|o| o.trigger != b.trigger), "{} twice", b.trigger);
+                if global {
+                    assert!(!b.action.is_none());
+                    assert_eq!(matches!(b.trigger, Trigger::Drag(_)), b.action == Action::Drag, "{b:?}");
+                } else {
+                    assert!(!matches!(b.trigger, Trigger::Drag(_)) && b.action != Action::Drag, "{b:?}");
+                }
+                if let Trigger::Shape(id) = b.trigger {
+                    assert!(cfg.shapes.iter().any(|s| s.id == id), "binding for missing shape {id}");
+                }
+                if let Action::Volume { step } | Action::Brightness { step } = b.action {
+                    assert!((-100..=100).contains(&step));
+                }
+            }
+        };
+        check_bindings(&cfg.bindings, true);
+        for p in &cfg.profiles {
+            check_bindings(&p.bindings, false);
+            assert!(p.apps.iter().all(|a| !a.trim().is_empty()));
+        }
+    }
+
+    /// A config an attacker (or a very bad day) could write: thousands of
+    /// bindings, profiles and shapes, giant strings, absurd numbers and
+    /// broken shape points. It loads quickly and comes out usable.
+    #[test]
+    fn a_huge_hostile_config_is_tamed_quickly() {
+        let mut rng = crate::Rng::new(0x94D0_49BB_1331_11EB);
+        let floats = ["nan", "inf", "-inf", "1e39", "-1e39", "3.4e38", "0.0", "-0.0", "0.25", "-7.5", "1e-45"];
+        let trigger = |rng: &mut crate::Rng| match rng.below(4) {
+            0 => format!("shape:{}", 1 + rng.below(32)),
+            1 => format!("drag:{}", 3 + rng.below(3)),
+            _ => {
+                let all = Trigger::all_for(3 + rng.below(3) as u8);
+                all[rng.below(all.len() as u64) as usize].to_string()
+            }
+        };
+        let giant = "x".repeat(1024);
+        let action = |rng: &mut crate::Rng| match rng.below(9) {
+            0 => format!("{{ type = \"volume\", step = {} }}", rng.next() as i32),
+            1 => format!("{{ type = \"brightness\", step = {} }}", i32::MIN + rng.below(10) as i32),
+            2 => format!("{{ type = \"keys\", combo = \"ctrl+{}\" }}", "shift+".repeat(rng.below(500) as usize)),
+            3 => format!("{{ type = \"run\", command = \"{giant}\" }}"),
+            4 => format!("{{ type = \"open_url\", url = \"-{giant}\", browser = \"\" }}"),
+            5 => format!("{{ type = \"launch\", program = \"a\", args = [{}] }}", "\"--x\",".repeat(200)),
+            6 => "{ type = \"drag\" }".to_string(),
+            7 => "{ type = \"none\" }".to_string(),
+            _ => "{ type = \"mute\" }".to_string(),
+        };
+        let mut text = String::from("[settings]\n");
+        for key in ["tap_slop_mm", "swipe_threshold_mm", "swipe_step_mm", "pinch_threshold_mm", "drag_speed"] {
+            text += &format!("{key} = {}\n", floats[rng.below(floats.len() as u64) as usize]);
+        }
+        text += "glow_strength = nan\nanim_speed = inf\nnotice_time = -inf\ndrag_acceleration = 1e39\n";
+        text +=
+            "tap_max_ms = 9223372036854775807\nhold_ms = 0\nmulti_tap_ms = 0\ndrag_release_ms = 9223372036854775807\n";
+        let huge_command = "y".repeat(1 << 20);
+        text +=
+            &format!("[[binding]]\ntrigger = \"tap:3\"\naction = {{ type = \"run\", command = \"{huge_command}\" }}\n");
+        for _ in 0..3_000 {
+            text += &format!(
+                "[[binding]]\ntrigger = \"{}\"\naction = {}\nrepeat = true\n",
+                trigger(&mut rng),
+                action(&mut rng)
+            );
+        }
+        for p in 0..200 {
+            text += &format!(
+                "[[profile]]\nname = \"  {p} {}  \"\napps = [\"\", \"  \", \"a.exe\", \"{giant}\"]\n",
+                "é".repeat(100)
+            );
+            for _ in 0..20 {
+                text += &format!(
+                    "[[profile.binding]]\ntrigger = \"{}\"\naction = {}\n",
+                    trigger(&mut rng),
+                    action(&mut rng)
+                );
+            }
+        }
+        for _ in 0..1_000 {
+            let len = [0, 1, 31, 32, 32, 32, 33, 500][rng.below(8) as usize];
+            let points: Vec<String> = (0..len)
+                .map(|_| {
+                    let mut v = || {
+                        if rng.below(200) == 0 {
+                            floats[rng.below(4) as usize].to_string()
+                        } else {
+                            format!("{}", rng.below(2_000) as f32 / 1_000.0 - 1.0)
+                        }
+                    };
+                    format!("[{}, {}]", v(), v())
+                })
+                .collect();
+            text += &format!("[[shape]]\nid = {}\nname = \"\"\npoints = [{}]\n", rng.below(40), points.join(", "));
+        }
+        assert!(text.len() > 3_000_000, "{} bytes", text.len());
+
+        let start = std::time::Instant::now();
+        let cfg = Config::from_toml(&text).expect("valid TOML");
+        let took = start.elapsed();
+        assert_tame(&cfg);
+        assert!(!cfg.shapes.is_empty() && !cfg.bindings.is_empty() && cfg.profiles.len() == 200);
+        assert_eq!(cfg.profiles[0].name, format!("0 {}", "é".repeat(100)));
+        // Well under a second in release; generous for debug builds on shared CI runners.
+        let budget = std::time::Duration::from_secs(if cfg!(debug_assertions) { 30 } else { 3 });
+        assert!(took < budget, "loading took {took:?}");
+
+        let start = std::time::Instant::now();
+        let text = cfg.to_toml().unwrap();
+        assert_eq!(Config::from_toml(&text).unwrap(), cfg, "a tamed config saves and loads unchanged");
+        assert!(start.elapsed() < budget, "saving and reloading took {:?}", start.elapsed());
+    }
+
+    /// Every setting given random values of every TOML type.
+    #[test]
+    fn fuzzed_setting_values_never_panic_or_escape_their_range() {
+        let keys: Vec<String> =
+            toml::Value::try_from(Settings::default()).unwrap().as_table().unwrap().keys().cloned().collect();
+        let values = [
+            "true",
+            "0",
+            "-1",
+            "1",
+            "9223372036854775807",
+            "-9223372036854775808",
+            "nan",
+            "+inf",
+            "-inf",
+            "1e39",
+            "0.5",
+            "-0.0",
+            "\"\"",
+            "\"12\"",
+            "[]",
+            "[1, 2]",
+            "{}",
+            "1979-05-27",
+            "{ a = 1 }",
+        ];
+        let mut rng = crate::Rng::new(0xBF58_476D_1CE4_E5B9);
+        let mut parsed = 0;
+        for _ in 0..3_000 {
+            let mut text = String::from("[settings]\n");
+            for _ in 0..=rng.below(3) {
+                let key = &keys[rng.below(keys.len() as u64) as usize];
+                text += &format!("{key} = {}\n", values[rng.below(values.len() as u64) as usize]);
+            }
+            if let Ok(cfg) = Config::from_toml(&text) {
+                parsed += 1;
+                assert_tame(&cfg);
+            }
+        }
+        assert!(parsed > 100, "only {parsed} configs parsed");
+    }
 }

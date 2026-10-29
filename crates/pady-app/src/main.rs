@@ -911,4 +911,113 @@ mod tests {
             assert!(!overlay.contains(&permission), "the overlay must not get {permission}");
         }
     }
+
+    fn json(text: &str) -> serde_json::Value {
+        serde_json::from_str(text).expect("valid JSON")
+    }
+
+    /// The overlay only shows levels: it may listen for events and nothing else.
+    #[test]
+    fn the_overlay_window_can_only_listen() {
+        let overlay = json(include_str!("../capabilities/overlay.json"));
+        assert_eq!(overlay["windows"], serde_json::json!(["overlay"]));
+        assert_eq!(overlay["permissions"], serde_json::json!(["core:event:allow-listen", "core:event:allow-unlisten"]));
+        assert!(overlay.get("webviews").is_none() && overlay.get("remote").is_none());
+
+        let main_window = json(include_str!("../capabilities/default.json"));
+        assert_eq!(main_window["windows"], serde_json::json!(["main"]), "no wildcard windows");
+        assert!(main_window.get("remote").is_none(), "no remote page may call commands");
+        for permission in main_window["permissions"].as_array().unwrap() {
+            let p = permission.as_str().expect("plain permission names");
+            assert!(p == "core:default" || p.starts_with("allow-"), "unexpected permission {p}");
+        }
+    }
+
+    /// Scripts only from the app itself: no inline or eval'd script, nothing
+    /// fetched from the network.
+    #[test]
+    fn the_content_security_policy_keeps_scripts_local() {
+        let conf = json(include_str!("../tauri.conf.json"));
+        let security = &conf["app"]["security"];
+        let csp = security["csp"].as_str().expect("a CSP is set");
+        let directives: Vec<(&str, Vec<&str>)> = csp
+            .split(';')
+            .filter_map(|d| {
+                let mut words = d.split_whitespace();
+                Some((words.next()?, words.collect()))
+            })
+            .collect();
+        let sources = |name: &str| directives.iter().find(|(n, _)| *n == name).map(|(_, s)| s.clone());
+        let scripts = sources("script-src").or_else(|| sources("default-src")).expect("a script policy");
+        for source in scripts {
+            assert!(
+                matches!(source, "'self'" | "ipc:" | "http://ipc.localhost"),
+                "scripts may come from {source}: {csp}"
+            );
+        }
+        assert!(!csp.contains("unsafe-eval") && !csp.contains('*'), "{csp}");
+        assert!(security.get("dangerousDisableAssetCspModification").is_none());
+        for window in conf["app"]["windows"].as_array().unwrap() {
+            let url = window["url"].as_str().unwrap_or("index.html");
+            assert!(!url.contains("://"), "{} loads a remote page: {url}", window["label"]);
+        }
+    }
+
+    /// `save_config` takes whatever the page sends: hostile values come out
+    /// in range before anything is saved or used.
+    #[test]
+    fn a_hostile_save_config_payload_is_normalised() {
+        use pady_core::{Action, Config, Trigger};
+        let payload = serde_json::json!({
+            "settings": {
+                "tap_max_ms": u64::MAX, "hold_ms": 0, "multi_tap_ms": 0, "drag_release_ms": u64::MAX,
+                "tap_slop_mm": -1e30, "swipe_threshold_mm": 1e39, "swipe_step_mm": 0.0,
+                "pinch_threshold_mm": -0.0, "drag_speed": 1e300, "drag_acceleration": -5.0,
+                "glow_strength": 1e39, "anim_speed": 0.0, "notice_time": -1e39
+            },
+            "binding": [
+                { "trigger": "tap:3", "action": { "type": "volume", "step": i32::MAX } },
+                { "trigger": "tap:3", "action": { "type": "brightness", "step": i32::MIN } },
+                { "trigger": "tap:4", "action": { "type": "drag" } },
+                { "trigger": "shape:9", "action": { "type": "lock" } }
+            ],
+            "profile": [{ "name": "  x  ", "apps": ["", " "], "binding": [
+                { "trigger": "drag:3", "action": { "type": "drag" } },
+                { "trigger": "hold:5", "action": { "type": "volume", "step": -1000 } }
+            ]}],
+            "shape": [
+                { "id": 0, "name": "", "points": [] },
+                { "id": 9, "name": "", "points": vec![[1e39, 0.0]; 32] },
+                { "id": 7, "name": "  ", "points": vec![[0.1, -0.1]; 32] },
+                { "id": 7, "name": "again", "points": vec![[0.1, -0.1]; 32] }
+            ]
+        });
+        let mut config: Config = serde_json::from_value(payload).expect("well-formed, if hostile");
+        config.normalize();
+        let s = &config.settings;
+        assert_eq!((s.tap_max_ms, s.hold_ms, s.multi_tap_ms, s.drag_release_ms), (2_000, 100, 50, 5_000));
+        let floats =
+            [s.tap_slop_mm, s.swipe_threshold_mm, s.swipe_step_mm, s.drag_speed, s.glow_strength, s.notice_time];
+        assert!(floats.iter().all(|v| v.is_finite() && *v >= 0.0), "{s:?}");
+        assert_eq!(config.bindings.len(), 1, "duplicates, a drag on a tap and a missing shape are dropped");
+        assert_eq!(config.bindings[0].action, Action::Brightness { step: -100 });
+        assert_eq!(config.profiles[0].name, "x");
+        assert!(config.profiles[0].apps.is_empty());
+        assert_eq!(config.profiles[0].bindings.len(), 1, "profiles cannot drag");
+        assert_eq!(config.profiles[0].bindings[0].action, Action::Volume { step: -100 });
+        let ids: Vec<u8> = config.shapes.iter().map(|s| s.id).collect();
+        assert_eq!(ids, vec![7], "bad ids, infinite points and a second shape 7 are dropped");
+        assert_eq!(config.shapes[0].name, "Shape 7");
+        assert!(config.binding(Trigger::Shape(9)).is_none());
+
+        // Not even parseable: a trigger or action that doesn't exist is refused.
+        for bad in [
+            r#"{ "binding": [{ "trigger": "tap:99", "action": { "type": "mute" } }] }"#,
+            r#"{ "binding": [{ "trigger": "tap:3", "action": { "type": "format_disk" } }] }"#,
+            r#"{ "binding": [{ "trigger": "tap:3", "action": { "type": "volume", "step": 1e99 } }] }"#,
+            r#"{ "shape": [{ "id": 300, "name": "", "points": [] }] }"#,
+        ] {
+            assert!(serde_json::from_str::<Config>(bad).is_err(), "{bad}");
+        }
+    }
 }
