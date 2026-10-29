@@ -145,6 +145,38 @@ body.export .screen { width: 1280px; height: 720px; aspect-ratio: auto; }
 .maker-dots { display: flex; gap: 7px; }
 .maker-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: block; }
 .maker b { color: var(--text-2); }
+
+/* The grid's extra line */
+.more { position: absolute; top: 560px; left: 0; right: 0; display: flex; justify-content: center; align-items: center; gap: 12px; font-size: 20px; color: var(--text-2); }
+.more b { color: var(--text); }
+
+/* Copy and paste, and shapes */
+.cp-row { position: relative; display: flex; align-items: center; gap: 46px; }
+.cp-win { width: 330px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); overflow: hidden; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4); transition: none; }
+.cp-bar { height: 38px; display: flex; align-items: center; padding: 0 14px; font-size: 14px; color: var(--text-3); border-bottom: 1px solid var(--border); }
+.cp-doc { padding: 16px 18px; font-size: 17px; line-height: 1.7; color: #d9d8e6; min-height: 150px; }
+.cp-sel { border-radius: 4px; padding: 1px 0; }
+.cp-them { display: inline-block; padding: 8px 12px; border-radius: 12px; background: #1f2030; font-size: 16px; }
+.cp-input { margin-top: 22px; height: 44px; display: flex; align-items: center; gap: 4px; padding: 0 12px; border-radius: 12px; background: #1b1c29; border: 1px solid rgba(255, 255, 255, 0.1); font-size: 15px; white-space: nowrap; overflow: hidden; }
+.cp-input i { width: 2px; height: 20px; background: #c4b5fd; display: block; }
+.cp-orb { position: absolute; z-index: 4; width: 30px; height: 30px; margin: -15px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #fff, #c4b5fd 40%, #8b5cf6 75%); box-shadow: 0 0 30px 8px rgba(168, 85, 247, 0.65); opacity: 0; }
+.nt { position: absolute; top: 34px; right: 40px; display: flex; align-items: center; gap: 12px; height: 54px; padding: 0 22px 0 11px; border-radius: 27px; background: rgba(20, 19, 29, 0.97); color: #fff; font-size: 19px; font-weight: 600; opacity: 0; }
+.nt-dot { width: 32px; height: 32px; border-radius: 50%; background: var(--grad); display: grid; place-items: center; font-size: 16px; }
+.sh-svg { position: absolute; inset: 0; }
+.sh-trail { fill: none; stroke: url(#sg); stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 9px rgba(168, 85, 247, 0.8)); }
+.sh-player { width: 380px; }
+.sh-song { display: flex; gap: 18px; align-items: center; padding: 18px; }
+.sh-song b { display: block; font-size: 21px; }
+.sh-song span { color: var(--text-3); font-size: 15px; }
+.sh-art { width: 110px; height: 110px; border-radius: 14px; background: linear-gradient(135deg, #f59e0b, #ec4899 50%, #6366f1); flex: none; }
+.sh-bars { display: flex; align-items: flex-end; gap: 4px; height: 34px; margin-top: 12px; }
+.sh-bars i { width: 6px; border-radius: 3px; background: linear-gradient(#c4b5fd, #8b5cf6); display: block; }
+.sh-cards { position: absolute; top: 270px; left: 0; right: 0; display: flex; justify-content: center; gap: 20px; opacity: 0; }
+.sh-card { width: 200px; padding: 16px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); text-align: center; }
+.sh-card svg { display: block; margin: 0 auto 8px; border-radius: 12px; background: rgba(255, 255, 255, 0.03); }
+.sh-card path { fill: none; stroke: #c084fc; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 100; filter: drop-shadow(0 0 5px rgba(168, 85, 247, 0.7)); }
+.sh-card b { display: block; font-size: 20px; }
+.sh-card span { display: inline-block; margin-top: 8px; padding: 5px 12px; border-radius: 9px; background: rgba(139, 92, 246, 0.14); border: 1px solid rgba(139, 92, 246, 0.4); color: var(--accent-text); font-size: 15px; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -167,19 +199,49 @@ body.export .screen { width: 1280px; height: 720px; aspect-ratio: auto; }
   <p class="hint">Space plays and pauses, arrow keys skip 5 seconds, click a chapter to jump to it.</p>
 </div>
 <script>
+// Timeline shared by "Pady in 60 seconds.html" and main-music.mjs (seconds).
+// `from` maps a chapter onto the old 60-second cut's times, so its scene
+// plays the same moves, faster or slower, in its new slot.
+(function () {
+  const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+  const ramp = (t, a, b) => clamp((t - a) / (b - a));
+  const ease = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+  const TL = {
+    DUR: 60,
+    BEAT: 0.5,
+    CHAPTERS: [
+      { id: 'intro', title: 'Hello', start: 0, end: 4.5, from: [0, 5] },
+      { id: 'grid', title: '33 gestures', start: 4.5, end: 10.5, from: [5, 12] },
+      { id: 'pick', title: 'Pick any action', start: 10.5, end: 19.5, from: [12, 24] },
+      { id: 'copy', title: 'Copy and paste', start: 19.5, end: 26.5 },
+      { id: 'shapes', title: 'Glyphs', start: 26.5, end: 33.5 },
+      { id: 'apps', title: 'Per-app gestures', start: 33.5, end: 39.5, from: [30, 37] },
+      { id: 'tune', title: 'Look and feel', start: 39.5, end: 45.5, from: [37, 44] },
+      { id: 'drag', title: 'Three-finger drag', start: 45.5, end: 50.5, from: [44, 51] },
+      { id: 'presets', title: 'Presets', start: 50.5, end: 54.5, from: [51, 55] },
+      { id: 'outro', title: 'Get Pady', start: 54.5, end: 60, from: [55, 60] },
+    ],
+    // Copy and paste (absolute times).
+    copy: { select: [20.3, 20.9], land: 21.1, grab: [21.3, 21.8], copied: [21.7, 23.1], lift: 22.3,
+      land2: 23.1, drop: [23.3, 23.8], pasted: [23.7, 25.3], typed: [24.0, 24.5], lift2: 24.3 },
+    // Shapes.
+    shapes: { land: 27.1, draw: [27.25, 28.45], lift: 28.55, fired: 28.6, notice: [28.6, 30.0],
+      cardsIn: 29.7, lights: [30.3, 30.8, 31.3, 31.8] },
+  };
+  /** How open the copy-and-paste hand is (1 = spread, 0.15 = pinched). */
+  TL.open = (t) => (t < TL.copy.land2 - 0.2 ? 1 - 0.85 * ease(ramp(t, ...TL.copy.grab)) : 0.15 + 0.85 * ease(ramp(t, ...TL.copy.drop)));
+  /** How far round its circle the shape drawing is (0..1). */
+  TL.drawn = (t) => ease(ramp(t, ...TL.shapes.draw));
+  /** The chapter's time in the old cut's terms. */
+  TL.oldTime = (c, t) => c.from[0] + (t - c.start) * (c.from[1] - c.from[0]) / (c.end - c.start);
+  window.TL = TL;
+})();
+</script>
+<script>
 'use strict';
-const DURATION = 60;
-const CHAPTERS = [
-  { id: 'intro', title: 'Hello', start: 0, end: 5 },
-  { id: 'grid', title: '33 gestures', start: 5, end: 12 },
-  { id: 'pick', title: 'Pick any action', start: 12, end: 24 },
-  { id: 'combos', title: 'Endless combos', start: 24, end: 30 },
-  { id: 'apps', title: 'Per-app gestures', start: 30, end: 37 },
-  { id: 'tune', title: 'Tune the feel', start: 37, end: 44 },
-  { id: 'drag', title: 'Three-finger drag', start: 44, end: 51 },
-  { id: 'presets', title: 'Presets', start: 51, end: 55 },
-  { id: 'outro', title: 'Get Pady', start: 55, end: 60 },
-];
+const TLM = window.TL;
+const DURATION = TLM.DUR;
+const CHAPTERS = TLM.CHAPTERS;
 
 // ---- helpers -------------------------------------------------------------
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
@@ -254,6 +316,7 @@ const s2top = el('div', 'top', S2);
 const s2h = el('div', 'h2', s2top, '<span class="grad-text" id="g-num">0</span> gestures to choose from.');
 const s2num = s2h.querySelector('#g-num');
 const s2cap = el('p', 'cap', s2top, 'Taps, double and triple taps, holds, swipes, pinches and drag, with 3, 4 or 5 fingers.');
+const s2more = el('div', 'more', S2, '<span class="dots"><i></i><i></i></span><b>+ 2 fingers:</b> draw your own glyphs');
 const s2body = el('div', 'body', S2);
 s2body.style.top = '250px';
 const s2grid = el('div', 'grid', s2body);
@@ -328,7 +391,7 @@ s5b.card.querySelector('.app-icon').style.fontSize = '17px';
 
 // ---- 6. Tune the feel ------------------------------------------------------
 const S6 = scene('tune');
-header(S6, 'Tune how it <span class="grad-text">feels.</span>', '10 sliders, from tap speed to drag speed. Plus a switch for everything else.');
+header(S6, 'Tune how it <span class="grad-text">looks and feels.</span>', 'Every timing, plus the glow, the animation speed and how long notices stay.');
 const s6body = el('div', 'body', S6);
 s6body.style.top = '232px';
 const s6grid = el('div', 'sliders', s6body);
@@ -336,9 +399,9 @@ const SLIDERS = [
   ['Tap speed', 100, 400, 220, 170, (v) => Math.round(v / 10) * 10 + ' ms'],
   ['Swipe distance', 4, 30, 10, 6, (v) => Math.round(v) + ' mm'],
   ['Double-tap speed', 150, 600, 300, 380, (v) => Math.round(v / 10) * 10 + ' ms'],
-  ['Pinch distance', 3, 20, 8, 5.5, (v) => (Math.round(v * 2) / 2).toFixed(1) + ' mm'],
-  ['Hold time', 300, 1500, 600, 450, (v) => Math.round(v / 50) * 50 + ' ms'],
-  ['Drag speed', 2, 25, 9, 14, (v) => (Math.round(v * 2) / 2).toFixed(1) + ' px/mm'],
+  ['Glow strength', 30, 160, 100, 140, (v) => Math.round(v) + '%'],
+  ['Animation speed', 0.5, 2, 1, 1.4, (v) => v.toFixed(1) + '×'],
+  ['Notice time', 0.8, 4.5, 1.5, 2.4, (v) => v.toFixed(1) + ' s'],
 ].map(([name, min, max, from, to, fmt]) => {
   const card = el('div', 'sl', s6grid);
   const top = el('div', 'sl-top', card, `<span>${name}</span><span></span>`);
@@ -346,7 +409,7 @@ const SLIDERS = [
   return { card, value: top.lastChild, fill: el('div', 'sl-fill', track), knob: el('div', 'sl-knob', track), min, max, from, to, fmt };
 });
 const s6tg = el('div', 'toggles', s6body);
-const TOGGLES = ['Start with Windows', 'Pause in full-screen games', 'Volume overlay', 'Check for updates']
+const TOGGLES = ['Glow', 'Swipe glow', 'Pinch steps', 'Start with Windows']
   .map((name) => { const d = el('div', 'tg', s6tg, `<span class="sw"><i></i></span>${name}`); return d.querySelector('.sw'); });
 
 // ---- 7. Three-finger drag --------------------------------------------------
@@ -369,8 +432,8 @@ const s8body = el('div', 'body', S8);
 s8body.style.top = '290px';
 const s8row = el('div', 'presets', s8body);
 const PRESETS = [
-  ['Recommended', 'Drag, media, volume, brightness and zoom'],
-  ['Like a Mac', 'Drag, task view, desktops and pinch to zoom'],
+  ['Recommended', 'Drag, media, volume, zoom, copy and paste'],
+  ['Like a Mac', 'Drag, desktops, zoom, copy and paste'],
   ['Media', 'Taps to play, skip and go back'],
   ['Productivity', 'Desktops, screenshots and lock'],
   ['Minimal', 'Just three-finger drag'],
@@ -389,8 +452,52 @@ const s9maker = el('div', 'maker', S9);
 const s9dots = el('div', 'maker-dots', s9maker, '<i></i>'.repeat(10));
 el('div', null, s9maker, 'made by <b>lumidren</b> · <em>Because the Mac trackpad shouldn’t get to have all the fun.</em>');
 
+// ---- New: copy and paste with a pinch ------------------------------------
+const SC = scene('copy');
+header(SC, 'Copy and paste <span class="grad-text">with a pinch.</span>', 'Pinch three fingers in to copy. Pinch out to paste. In any app.');
+const scBody = el('div', 'body', SC);
+scBody.style.top = '250px';
+const scRow = el('div', 'cp-row', scBody);
+const scDoc = el('div', 'cp-win', scRow, '<div class="cp-bar">Trip ideas.txt</div><div class="cp-doc"><span class="cp-sel">Book the 8:10 train to Kyoto.</span><div>Try the ramen place near Nijo.</div><div>Fushimi Inari at sunrise.</div></div>');
+const scSel = scDoc.querySelector('.cp-sel');
+const scPad = makePad(scRow, 300, 200, 'three fingers');
+const scChat = el('div', 'cp-win', scRow, '<div class="cp-bar">Chat · Sara</div><div class="cp-doc"><div class="cp-them">Which train?</div><div class="cp-input"><span></span><i></i></div></div>');
+const scTyped = scChat.querySelector('.cp-input span'), scInput = scChat.querySelector('.cp-input');
+const scOrb = el('div', 'cp-orb', scBody);
+const nCopied = el('div', 'nt', SC, '<span class="nt-dot">✓</span>Copied');
+const nPasted = el('div', 'nt', SC, '<span class="nt-dot">⎘</span>Pasted');
+
+// ---- New: draw your own two-finger shapes ---------------------------------
+const SS = scene('shapes');
+header(SS, 'Glyphs: draw your <span class="grad-text">own gestures.</span>', 'Record a glyph with two fingers once. Draw it again to run it.');
+const ssBody = el('div', 'body', SS);
+ssBody.style.top = '230px';
+const ssRow = el('div', 'cp-row', ssBody);
+const ssPad = makePad(ssRow, 340, 220, 'two fingers draw a circle');
+ssPad.pad.insertAdjacentHTML('afterbegin', '<svg class="sh-svg" width="340" height="220"><defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#818cf8"/><stop offset=".55" stop-color="#c084fc"/><stop offset="1" stop-color="#f472b6"/></linearGradient></defs><path class="sh-trail"/></svg>');
+const ssTrail = ssPad.pad.querySelector('.sh-trail');
+const ssPlayer = el('div', 'cp-win sh-player', ssRow, '<div class="cp-bar">Music</div><div class="sh-song"><div class="sh-art"></div><div><b>Lo-fi Mornings</b><span>Slow Coffee</span><div class="sh-bars">' + '<i></i>'.repeat(8) + '</div></div></div>');
+const ssBars = [...ssPlayer.querySelectorAll('.sh-bars i')];
+const nPlay = el('div', 'nt', SS, '<span class="nt-dot">♪</span>Play / pause');
+const ssCards = el('div', 'sh-cards', SS);
+const shPath = (pts) => 'M' + pts.map(([x, y]) => x.toFixed(1) + ' ' + y.toFixed(1)).join(' L');
+const circ = (p, cx, cy, r, n = 80) => Array.from({ length: Math.max(2, Math.round(n * p) + 1) }, (_, i) => {
+  const a = -Math.PI / 2 + (i / Math.max(1, Math.round(n * p))) * p * Math.PI * 2;
+  return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+});
+const SHAPE_IDEAS = [
+  ['Circle', 'Play / Pause', circ(1, 60, 34, 24)],
+  ['Check', 'Save', [[38, 36], [52, 50], [84, 18]]],
+  ['Z', 'Undo', [[38, 16], [82, 16], [38, 52], [82, 52]]],
+  ['V', 'Volume down', [[38, 14], [60, 54], [82, 14]]],
+].map(([n, a, pts]) => el('div', 'sh-card', ssCards, `<svg width="120" height="68"><path d="${shPath(pts)}" pathLength="100"/></svg><b>${n}</b><span>${a}</span>`));
+
 // ---- render(t): everything on screen is a pure function of t ---------------
-function render(t) {
+function render(T) {
+  let t = T;
+  const C = Object.fromEntries(CHAPTERS.map((c) => [c.id, c]));
+  const live = (id) => T >= C[id].start && T < C[id].end;
+  const at = (id) => TLM.oldTime(C[id], T);
   glowA.style.left = 80 + 140 * Math.sin(t / 7) - 380 + 'px';
   glowA.style.top = 120 + 90 * Math.cos(t / 5) - 380 + 'px';
   glowB.style.left = 1180 + 120 * Math.cos(t / 6) - 380 + 'px';
@@ -407,7 +514,7 @@ function render(t) {
   }
 
   // 1. Intro
-  if (t < 5) {
+  if (live('intro')) { const t = at('intro');
     const p = out(ramp(t, 0.1, 0.9));
     s1logo.style.opacity = p;
     s1logo.style.transform = `scale(${0.6 + 0.4 * p})`;
@@ -421,7 +528,7 @@ function render(t) {
   }
 
   // 2. 33 gestures
-  if (t >= 5 && t < 12) {
+  if (live('grid')) { const t = at('grid');
     enter(s2grid, t, 5.2, 0.6, 20);
     let lit = 0;
     CELLS.forEach((c, k) => {
@@ -434,7 +541,7 @@ function render(t) {
   }
 
   // 3. Pick any action
-  if (t >= 12 && t < 24) {
+  if (live('pick')) { const t = at('pick');
     const l = t - 12;
     enter(ed, t, 12.3, 0.6, 30);
     // Cursor: to the action box, down the menu, back up to "Keyboard shortcut".
@@ -472,7 +579,7 @@ function render(t) {
   }
 
   // 4. Endless combos
-  if (t >= 24 && t < 30) {
+  if (false) {
     enter(T1, t, 24.3, 0.5);
     enter(X1, t, 24.9, 0.4, 0);
     enter(T2, t, 25.1, 0.5);
@@ -484,7 +591,7 @@ function render(t) {
   }
 
   // 5. Per-app gestures
-  if (t >= 30 && t < 37) {
+  if (live('apps')) { const t = at('apps');
     enter(s5apps, t, 30.4, 0.6, 30);
     const chromeFront = t < 33.6;
     s5a.front.style.opacity = chromeFront ? 1 : 0;
@@ -505,7 +612,7 @@ function render(t) {
   }
 
   // 6. Tune the feel
-  if (t >= 37 && t < 44) {
+  if (live('tune')) { const t = at('tune');
     SLIDERS.forEach((s, k) => {
       enter(s.card, t, 37.3 + k * 0.12, 0.5, 16);
       const a = 38.4 + k * 0.35;
@@ -525,7 +632,7 @@ function render(t) {
   }
 
   // 7. Three-finger drag
-  if (t >= 44 && t < 51) {
+  if (live('drag')) { const t = at('drag');
     enter(s7row, t, 44.3, 0.6, 30);
     const u = ease(ramp(t, 45.2, 50.0));
     const a = u * Math.PI * 2;
@@ -543,7 +650,7 @@ function render(t) {
   }
 
   // 8. Presets
-  if (t >= 51 && t < 55) {
+  if (live('presets')) { const t = at('presets');
     const hi = Math.floor((t - 52.6) / 0.42);
     PRESETS.forEach((p, k) => {
       enter(p, t, 51.3 + k * 0.15, 0.5, 20);
@@ -554,7 +661,7 @@ function render(t) {
   }
 
   // 9. Outro
-  if (t >= 55) {
+  if (live('outro')) { const t = at('outro');
     const p = out(ramp(t, 55.1, 55.8));
     s9logo.style.opacity = p;
     s9logo.style.transform = `scale(${0.7 + 0.3 * p})`;
@@ -567,6 +674,100 @@ function render(t) {
       const w = Math.max(0, Math.sin(Math.PI * ramp((t - 57.6) % 2.2, i * 0.08, i * 0.08 + 0.5)));
       d.style.transform = `translateY(${-6 * w}px)`;
       d.style.opacity = 0.45 + 0.55 * w;
+    });
+  }
+  renderNew(T);
+}
+
+// ---- the new scenes (on the real clock) -----------------------------------
+const flashAt = (t, at, d = 0.6) => (t >= at ? Math.exp(-(t - at) * (4 / d)) : 0);
+/** A corner notice: slides in with a bloom of glow, rests, slides out. */
+function notice(n, t, a, b) {
+  if (t < a || t > b + 0.45) { n.style.opacity = 0; return; }
+  const inP = out(ramp(t, a, a + 0.45)), outP = ease(ramp(t, b, b + 0.45));
+  const bloom = Math.exp(-Math.max(0, t - a - 0.12) * 2.6) * ramp(t, a, a + 0.12);
+  n.style.opacity = Math.min(inP, 1 - outP);
+  n.style.transform = `translateX(${(1 - inP) * 90 + outP * 110}px) scale(${1 + bloom * 0.06})`;
+  n.style.boxShadow = `0 0 ${34 + 50 * bloom}px rgba(168, 85, 247, ${0.45 + 0.4 * bloom}), 0 0 0 2px rgba(196, 181, 253, ${0.35 + 0.4 * bloom})`;
+}
+/** Three fingertips around (cx, cy) in pad pixels, `r` apart from the middle. */
+const hand3 = (cx, cy, r) => [-125, -55, 100].map((deg, i) => {
+  const a = (deg * Math.PI) / 180, k = i === 2 ? 1.05 : 1;
+  return [cx + Math.cos(a) * r * k * 1.15, cy + Math.sin(a) * r * k * 0.9];
+});
+function place(p, pts, alpha) {
+  p.fingers.forEach((f, i) => {
+    if (i >= pts.length || alpha <= 0.001) { f.style.display = 'none'; return; }
+    f.style.display = 'block';
+    f.style.left = pts[i][0] + 'px';
+    f.style.top = pts[i][1] + 'px';
+    f.style.opacity = alpha;
+    f.style.transform = `scale(${0.7 + 0.3 * alpha})`;
+  });
+}
+
+function renderNew(T) {
+  const C = Object.fromEntries(CHAPTERS.map((c) => [c.id, c]));
+  const live = (id) => T >= C[id].start && T < C[id].end;
+
+  // The grid gains a line for the two-finger shapes.
+  if (live('grid')) enter(s2more, T, 8.8, 0.6, 12);
+
+  // Copy and paste.
+  if (live('copy')) {
+    const K = TLM.copy;
+    enter(scRow, T, C.copy.start + 0.25, 0.6, 30);
+    const sel = ease(ramp(T, ...K.select));
+    scSel.style.background = sel > 0 ? `linear-gradient(90deg, rgba(139,92,246,.55) ${sel * 100}%, transparent ${sel * 100}%)` : 'none';
+    const pasteSide = T >= K.land2 - 0.2;
+    const [land, lift] = pasteSide ? [K.land2, K.lift2] : [K.land, K.lift];
+    const down = Math.min(out(ramp(T, land, land + 0.12)), 1 - ramp(T, lift, lift + 0.25));
+    place(scPad, hand3(150, 92, 20 + 58 * TLM.open(T)), down);
+    scDoc.style.opacity = pasteSide ? 0.45 : 1;
+    scChat.style.opacity = pasteSide ? 1 : 0.45;
+    scDoc.style.borderColor = pasteSide ? '' : 'rgba(124,108,255,.55)';
+    scChat.style.borderColor = pasteSide ? 'rgba(124,108,255,.55)' : '';
+    // The line rides the clipboard as an orb from the note to the chat.
+    const fromX = (scDoc.offsetLeft + 150), toX = (scChat.offsetLeft + 60), y = 120;
+    const orbT = ramp(T, K.copied[0], K.copied[0] + 0.5), pourT = ease(ramp(T, K.pasted[0], K.pasted[0] + 0.5));
+    const orbOn = orbT * (1 - pourT);
+    scOrb.style.opacity = orbOn;
+    scOrb.style.left = (scRow.offsetLeft + lerp(lerp(fromX, scPad.pad.offsetLeft + 150, ease(orbT)), toX, pourT)) + 'px';
+    scOrb.style.top = (scRow.offsetTop + y - 70 * Math.sin(Math.PI * orbT) * (1 - pourT)) + 'px';
+    scOrb.style.transform = `scale(${0.9 + 0.1 * Math.sin(T * 6) + 0.4 * flashAt(T, K.pasted[0], 0.4)})`;
+    const line = 'Book the 8:10 train to Kyoto.';
+    scTyped.textContent = line.slice(0, Math.round(line.length * ramp(T, ...K.typed)));
+    scInput.style.boxShadow = `0 0 ${36 * flashAt(T, K.typed[0], 1)}px rgba(168,85,247,${0.8 * flashAt(T, K.typed[0], 1)})`;
+    notice(nCopied, T, ...K.copied);
+    notice(nPasted, T, ...K.pasted);
+  }
+
+  // Two-finger shapes.
+  if (live('shapes')) {
+    const K = TLM.shapes;
+    enter(ssRow, T, C.shapes.start + 0.25, 0.6, 30);
+    const p = TLM.drawn(T);
+    const down = Math.min(out(ramp(T, K.land, K.land + 0.12)), 1 - ramp(T, K.lift, K.lift + 0.25));
+    const tip = circ(p, 170, 110, 66, 80).pop();
+    place(ssPad, [[tip[0] - 15, tip[1]], [tip[0] + 15, tip[1]]], down);
+    ssTrail.setAttribute('d', T > K.land ? shPath(circ(p, 170, 110, 66)) : '');
+    ssTrail.style.opacity = 1 - ramp(T, K.lift + 0.5, K.lift + 1.2);
+    const playing = T >= K.fired;
+    ssPlayer.style.borderColor = playing ? `rgba(168,85,247,${0.4 + 0.5 * flashAt(T, K.fired, 1)})` : '';
+    ssPlayer.style.boxShadow = `0 0 ${60 * flashAt(T, K.fired, 1.2)}px rgba(168,85,247,.6)`;
+    ssBars.forEach((b, i) => { b.style.height = (playing ? 6 + 26 * Math.abs(Math.sin(T * (5 + i * 0.7) + i)) * ramp(T, K.fired, K.fired + 0.3) : 5) + 'px'; });
+    notice(nPlay, T, ...K.notice);
+    // Then: ideas for more shapes.
+    const toCards = ease(ramp(T, K.cardsIn - 0.4, K.cardsIn));
+    ssRow.style.opacity = Math.min(Number(ssRow.style.opacity || 1), 1 - toCards);
+    ssCards.style.opacity = ramp(T, K.cardsIn, K.cardsIn + 0.4);
+    SHAPE_IDEAS.forEach((card, i) => {
+      enter(card, T, K.cardsIn + i * 0.1, 0.5, 24);
+      const f = flashAt(T, K.lights[i], 1.2);
+      const path = card.querySelector('path');
+      path.style.strokeDashoffset = 100 * (1 - ease(ramp(T, K.lights[i] - 0.35, K.lights[i] + 0.1)));
+      card.style.borderColor = `rgba(168,85,247,${0.15 + 0.7 * Math.max(f, T > K.lights[i] ? 0.35 : 0)})`;
+      card.style.boxShadow = `0 0 ${16 + 50 * f}px rgba(168,85,247,${0.15 + 0.45 * f})`;
     });
   }
 }
