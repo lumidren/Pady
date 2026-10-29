@@ -134,12 +134,13 @@
     config: {
       // The preview skips the tutorial unless ?onboarding asks for it.
       settings: Object.assign(clone(DEFAULT_SETTINGS), { onboarded: !q.has('onboarding') }),
-      // The preview starts with a few extras so the "shadowed" badge, an
-      // open_url chip and a per-app profile are visible out of the box.
-      binding: clone(DEFAULT_BINDINGS).concat([
-        { trigger: 'swipe:3:up', action: { type: 'keys', combo: 'win+tab' } },
-        { trigger: 'tap:5', action: { type: 'open_url', url: 'https://youtube.com', browser: 'chrome' } },
-      ]),
+      // The preview starts with a few extras so an open_url chip and a per-app
+      // profile are visible out of the box, plus a 3-finger swipe that drag
+      // shadows, for the "Inactive" badge (left out of the clean ?noconflicts demo).
+      binding: clone(DEFAULT_BINDINGS).concat(
+        q.has('noconflicts') ? [] : [{ trigger: 'swipe:3:up', action: { type: 'keys', combo: 'win+tab' } }],
+        [{ trigger: 'tap:5', action: { type: 'open_url', url: 'https://youtube.com', browser: 'chrome' } }],
+      ),
       profile: q.has('noprofiles') ? [] : [clone(SAMPLE_PROFILE)],
     },
     devices: noDevice || noPermission ? [] : [{ name: 'Precision Touchpad', width_mm: 105.0, height_mm: 68.0, max_contacts: 5 }],
@@ -167,7 +168,7 @@
     autostart: false,
     config_path: linux ? '/home/me/.config/pady/config.toml' : 'C:\\Users\\me\\AppData\\Roaming\\Pady\\config.toml',
     platform,
-    version: '0.2.0',
+    version: '0.6.1', // the website build fills in the real version
     presets: PRESETS.map(({ id, name, description }) => ({ id, name, description })),
   };
 

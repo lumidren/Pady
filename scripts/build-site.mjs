@@ -21,15 +21,24 @@ cpSync(join(ROOT, "site"), OUT, { recursive: true });
 cpSync(join(ROOT, "crates", "pady-app", "ui"), join(OUT, "demo"), { recursive: true });
 cpSync(join(ROOT, "docs"), join(OUT, "docs"), { recursive: true });
 
+// The demo's About page shows the version being released.
+const version = readFileSync(join(ROOT, "Cargo.toml"), "utf8").match(/^version = "([^"]+)"/m)[1];
+const mock = join(OUT, "demo", "mock.js");
+writeFileSync(mock, readFileSync(mock, "utf8").replace(/version: '[^']*'/, `version: '${version}'`));
+
 // Cache busting: Pages lets browsers keep files for 10 minutes, so a new page
-// could meet an old stylesheet. Link each file with a hash of its contents.
-const page = join(OUT, "index.html");
-let html = readFileSync(page, "utf8");
-for (const file of ["style.css", "site.js"]) {
-  const hash = createHash("sha256").update(readFileSync(join(OUT, file))).digest("hex").slice(0, 10);
-  html = html.replaceAll(`"${file}"`, `"${file}?v=${hash}"`);
-}
-writeFileSync(page, html);
+// could meet an old stylesheet or script. Link each file with a hash of its contents.
+const bust = (pageFile, files) => {
+  const dir = dirname(pageFile);
+  let html = readFileSync(pageFile, "utf8");
+  for (const file of files) {
+    const hash = createHash("sha256").update(readFileSync(join(dir, file))).digest("hex").slice(0, 10);
+    html = html.replaceAll(`"${file}"`, `"${file}?v=${hash}"`);
+  }
+  writeFileSync(pageFile, html);
+};
+bust(join(OUT, "index.html"), ["style.css", "site.js"]);
+bust(join(OUT, "demo", "index.html"), ["styles.css", "mock.js", "icons.js", "model.js", "app.js"]);
 console.log("built " + OUT);
 
 if (process.argv.includes("--serve")) {
