@@ -955,7 +955,8 @@ mod tests {
             scheduling,
         );
         // Fingers resting: a hold timer is pending, so precise timers are on.
-        tx.send(frame(0, 3, 0.0, 0.0)).unwrap();
+        // Stamped now, so the timer is still ahead however long the test run is.
+        tx.send(frame(now_ms(), 3, 0.0, 0.0)).unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
         while REQUESTS.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(2));
@@ -1125,14 +1126,16 @@ mod tests {
     #[test]
     fn resting_fingers_do_not_hold_once_gestures_are_paused() {
         let mut cfg = Config { bindings: Vec::new(), ..Config::default() };
-        cfg.settings.hold_ms = 1_000;
+        // Long enough that a busy CI runner (the soak tests run alongside)
+        // still pauses well before the hold would fire.
+        cfg.settings.hold_ms = 3_000;
         cfg.set_binding(Trigger::Hold(3), Action::Lock, false);
         let Watched { engine, frames: tx, config: shared, events, jobs } = watched_engine(cfg);
         tx.send(frame(now_ms(), 3, 0.0, 0.0)).unwrap();
         wait_for_frame(&events);
         // The hold timer is running; pausing must stop it.
         shared.update(|c| c.settings.enabled = false);
-        std::thread::sleep(Duration::from_millis(1_300));
+        std::thread::sleep(Duration::from_millis(3_400));
         drop(tx);
         engine.join();
         assert!(jobs.lock().unwrap().is_empty(), "{:?}", jobs.lock().unwrap());
