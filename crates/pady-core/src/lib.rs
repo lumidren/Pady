@@ -15,10 +15,10 @@ pub mod config;
 pub mod engine;
 pub mod frame;
 pub mod gesture;
+pub mod glyphs;
 pub mod keys;
 pub mod presets;
 pub mod recognizer;
-pub mod shapes;
 pub mod trigger;
 
 pub use action::{Action, MediaKey};
@@ -26,10 +26,10 @@ pub use config::{Binding, Config, ConfigError, Profile, Resolution, Settings, Sh
 pub use engine::{Ack, ActionError, Engine, EngineEvent, Executor, Job, Level, LevelKind, Scheduling};
 pub use frame::{now_ms, Contact, TouchFrame};
 pub use gesture::{Direction, Gesture, PinchDirection};
+pub use glyphs::{Glyph, NotAGlyph};
 pub use keys::{Key, KeyCombo, Modifiers};
 pub use presets::{Preset, PRESETS};
 pub use recognizer::{Recognizer, RecognizerSettings, SwipeProgress};
-pub use shapes::{NotAShape, Shape};
 pub use trigger::Trigger;
 
 /// Deterministic random input for the fuzz tests (xorshift64*): the same

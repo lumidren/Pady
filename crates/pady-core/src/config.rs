@@ -1,6 +1,6 @@
 use crate::action::Action;
+use crate::glyphs::{Glyph, MAX_GLYPHS, POINTS};
 use crate::recognizer::RecognizerSettings;
-use crate::shapes::{Shape, MAX_SHAPES, POINTS};
 use crate::trigger::Trigger;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -220,9 +220,9 @@ pub struct Config {
     pub bindings: Vec<Binding>,
     #[serde(default, rename = "profile", skip_serializing_if = "Vec::is_empty")]
     pub profiles: Vec<Profile>,
-    /// Recorded two-finger shapes, bound like any gesture as `shape:<id>`.
-    #[serde(default, rename = "shape", skip_serializing_if = "Vec::is_empty")]
-    pub shapes: Vec<Shape>,
+    /// Recorded two-finger glyphs, bound like any gesture as `glyph:<id>`.
+    #[serde(default, rename = "glyph", skip_serializing_if = "Vec::is_empty")]
+    pub glyphs: Vec<Glyph>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -241,7 +241,7 @@ const HEADER: &str = r#"# Pady configuration.
 #
 # Triggers:  tap:N  doubletap:N  tripletap:N  hold:N  swipe:N:up|down|left|right
 #            pinch:N:in|out  drag:N                       (N = 3..5 fingers)
-#            shape:ID   a two-finger shape recorded in the app ([[shape]] below)
+#            glyph:ID   a two-finger glyph recorded in the app ([[glyph]] below)
 # Actions:   none | keys{combo} | volume{step} | mute | brightness{step}
 #            media{key = play_pause|next|previous|stop|volume_up|volume_down|mute}
 #            open_url{url, browser?} | launch{program, args?} | focus_or_launch{program, args?}
@@ -265,7 +265,7 @@ impl Default for Config {
             settings: Settings::default(),
             bindings: crate::presets::bindings("recommended").unwrap_or_default(),
             profiles: Vec::new(),
-            shapes: Vec::new(),
+            glyphs: Vec::new(),
         }
     }
 }
@@ -387,24 +387,24 @@ impl Config {
                 !matches!(b.trigger, Trigger::Drag(_)) && !matches!(b.action, Action::Drag)
             });
         }
-        // Shapes: valid ids, one per id, the right number of finite points, a name.
-        let mut seen = [false; MAX_SHAPES as usize + 1];
-        self.shapes.retain(|s| {
-            let ok = (1..=MAX_SHAPES).contains(&s.id)
+        // Glyphs: valid ids, one per id, the right number of finite points, a name.
+        let mut seen = [false; MAX_GLYPHS as usize + 1];
+        self.glyphs.retain(|s| {
+            let ok = (1..=MAX_GLYPHS).contains(&s.id)
                 && !std::mem::replace(&mut seen[s.id as usize], true)
                 && s.points.len() == POINTS
                 && s.points.iter().flatten().all(|v| v.is_finite());
             ok
         });
-        for s in &mut self.shapes {
+        for s in &mut self.glyphs {
             s.name = s.name.trim().to_string();
             if s.name.is_empty() {
-                s.name = format!("Shape {}", s.id);
+                s.name = format!("Glyph {}", s.id);
             }
         }
-        // A binding for a shape that's gone would never fire.
-        let shapes = &self.shapes;
-        let known = |t: Trigger| !matches!(t, Trigger::Shape(id) if !shapes.iter().any(|s| s.id == id));
+        // A binding for a glyph that's gone would never fire.
+        let glyphs = &self.glyphs;
+        let known = |t: Trigger| !matches!(t, Trigger::Glyph(id) if !glyphs.iter().any(|s| s.id == id));
         self.bindings.retain(|b| known(b.trigger));
         for p in &mut self.profiles {
             p.bindings.retain(|b| known(b.trigger));
@@ -729,23 +729,23 @@ mod tests {
     }
 
     #[test]
-    fn shapes_round_trip_and_bindings_to_missing_shapes_are_dropped() {
+    fn glyphs_round_trip_and_bindings_to_missing_glyphs_are_dropped() {
         let points: Vec<[f32; 2]> = (0..POINTS).map(|i| [i as f32 / 31.0 - 0.5, 0.0]).collect();
         let mut cfg = Config::default();
-        cfg.shapes.push(Shape { id: 2, name: "  Zig ".into(), points: points.clone() });
-        cfg.shapes.push(Shape { id: 2, name: "dupe".into(), points: points.clone() });
-        cfg.shapes.push(Shape { id: 40, name: "bad id".into(), points: points.clone() });
-        cfg.shapes.push(Shape { id: 3, name: "".into(), points: points[..5].to_vec() });
-        cfg.set_binding(Trigger::Shape(2), Action::Lock, false);
-        cfg.set_binding(Trigger::Shape(3), Action::Mute, false);
+        cfg.glyphs.push(Glyph { id: 2, name: "  Zig ".into(), points: points.clone() });
+        cfg.glyphs.push(Glyph { id: 2, name: "dupe".into(), points: points.clone() });
+        cfg.glyphs.push(Glyph { id: 40, name: "bad id".into(), points: points.clone() });
+        cfg.glyphs.push(Glyph { id: 3, name: "".into(), points: points[..5].to_vec() });
+        cfg.set_binding(Trigger::Glyph(2), Action::Lock, false);
+        cfg.set_binding(Trigger::Glyph(3), Action::Mute, false);
         cfg.normalize();
-        assert_eq!(cfg.shapes.len(), 1);
-        assert_eq!(cfg.shapes[0].name, "Zig");
-        assert!(cfg.binding(Trigger::Shape(3)).is_none(), "shape 3 had too few points, so it was dropped");
+        assert_eq!(cfg.glyphs.len(), 1);
+        assert_eq!(cfg.glyphs[0].name, "Zig");
+        assert!(cfg.binding(Trigger::Glyph(3)).is_none(), "glyph 3 had too few points, so it was dropped");
 
         let back = Config::from_toml(&cfg.to_toml().unwrap()).unwrap();
-        assert_eq!(back.shapes, cfg.shapes);
-        assert_eq!(back.binding(Trigger::Shape(2)).map(|b| &b.action), Some(&Action::Lock));
+        assert_eq!(back.glyphs, cfg.glyphs);
+        assert_eq!(back.binding(Trigger::Glyph(2)).map(|b| &b.action), Some(&Action::Lock));
     }
 
     #[test]
@@ -895,12 +895,12 @@ action = { type = "brightness", step = -999 }
         let r = cfg.recognizer_settings();
         assert!(r.swipe_step_mm >= 1.0 && r.pinch_threshold_mm >= 1.0 && r.tap_slop_mm > 0.0, "{r:?}");
 
-        assert!(cfg.shapes.len() <= MAX_SHAPES as usize);
-        for (i, shape) in cfg.shapes.iter().enumerate() {
-            assert!((1..=MAX_SHAPES).contains(&shape.id) && !shape.name.is_empty());
-            assert!(cfg.shapes[..i].iter().all(|o| o.id != shape.id), "shape {} twice", shape.id);
-            assert_eq!(shape.points.len(), POINTS);
-            assert!(shape.points.iter().flatten().all(|v| v.is_finite()));
+        assert!(cfg.glyphs.len() <= MAX_GLYPHS as usize);
+        for (i, glyph) in cfg.glyphs.iter().enumerate() {
+            assert!((1..=MAX_GLYPHS).contains(&glyph.id) && !glyph.name.is_empty());
+            assert!(cfg.glyphs[..i].iter().all(|o| o.id != glyph.id), "glyph {} twice", glyph.id);
+            assert_eq!(glyph.points.len(), POINTS);
+            assert!(glyph.points.iter().flatten().all(|v| v.is_finite()));
         }
         let check_bindings = |bindings: &[Binding], global: bool| {
             for (i, b) in bindings.iter().enumerate() {
@@ -911,8 +911,8 @@ action = { type = "brightness", step = -999 }
                 } else {
                     assert!(!matches!(b.trigger, Trigger::Drag(_)) && b.action != Action::Drag, "{b:?}");
                 }
-                if let Trigger::Shape(id) = b.trigger {
-                    assert!(cfg.shapes.iter().any(|s| s.id == id), "binding for missing shape {id}");
+                if let Trigger::Glyph(id) = b.trigger {
+                    assert!(cfg.glyphs.iter().any(|s| s.id == id), "binding for missing glyph {id}");
                 }
                 if let Action::Volume { step } | Action::Brightness { step } = b.action {
                     assert!((-100..=100).contains(&step));
@@ -927,14 +927,14 @@ action = { type = "brightness", step = -999 }
     }
 
     /// A config an attacker (or a very bad day) could write: thousands of
-    /// bindings, profiles and shapes, giant strings, absurd numbers and
-    /// broken shape points. It loads quickly and comes out usable.
+    /// bindings, profiles and glyphs, giant strings, absurd numbers and
+    /// broken glyph points. It loads quickly and comes out usable.
     #[test]
     fn a_huge_hostile_config_is_tamed_quickly() {
         let mut rng = crate::Rng::new(0x94D0_49BB_1331_11EB);
         let floats = ["nan", "inf", "-inf", "1e39", "-1e39", "3.4e38", "0.0", "-0.0", "0.25", "-7.5", "1e-45"];
         let trigger = |rng: &mut crate::Rng| match rng.below(4) {
-            0 => format!("shape:{}", 1 + rng.below(32)),
+            0 => format!("glyph:{}", 1 + rng.below(32)),
             1 => format!("drag:{}", 3 + rng.below(3)),
             _ => {
                 let all = Trigger::all_for(3 + rng.below(3) as u8);
@@ -997,7 +997,7 @@ action = { type = "brightness", step = -999 }
                     format!("[{}, {}]", v(), v())
                 })
                 .collect();
-            text += &format!("[[shape]]\nid = {}\nname = \"\"\npoints = [{}]\n", rng.below(40), points.join(", "));
+            text += &format!("[[glyph]]\nid = {}\nname = \"\"\npoints = [{}]\n", rng.below(40), points.join(", "));
         }
         assert!(text.len() > 3_000_000, "{} bytes", text.len());
 
@@ -1005,7 +1005,7 @@ action = { type = "brightness", step = -999 }
         let cfg = Config::from_toml(&text).expect("valid TOML");
         let took = start.elapsed();
         assert_tame(&cfg);
-        assert!(!cfg.shapes.is_empty() && !cfg.bindings.is_empty() && cfg.profiles.len() == 200);
+        assert!(!cfg.glyphs.is_empty() && !cfg.bindings.is_empty() && cfg.profiles.len() == 200);
         assert_eq!(cfg.profiles[0].name, format!("0 {}", "é".repeat(100)));
         // Well under a second in release; generous for debug builds on shared CI runners.
         let budget = std::time::Duration::from_secs(if cfg!(debug_assertions) { 30 } else { 3 });

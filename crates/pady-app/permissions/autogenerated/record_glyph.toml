@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-record-glyph"
+description = "Enables the record_glyph command without any pre-configured scope."
+commands.allow = ["record_glyph"]
+
+[[permission]]
+identifier = "deny-record-glyph"
+description = "Denies the record_glyph command without any pre-configured scope."
+commands.deny = ["record_glyph"]

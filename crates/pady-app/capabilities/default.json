@@ -13,7 +13,7 @@
     "allow-reset-config",
     "allow-set-autostart",
     "allow-test-action",
-    "allow-record-shape",
+    "allow-record-glyph",
     "allow-set-live",
     "allow-open-config-folder",
     "allow-open-touchpad-settings",

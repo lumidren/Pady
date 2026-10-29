@@ -1,50 +1,50 @@
-//! Two-finger shapes: a circle, a V, a Z, a check mark drawn with two
+//! Two-finger glyphs: a circle, a V, a Z, a check mark drawn with two
 //! fingers, recorded by the user and matched when they draw it again.
 //!
 //! Two fingers belong to the OS (scrolling), so only strokes that are
 //! clearly not a scroll count: long enough and far from a straight line.
 //! Matching is a $1-style template match without rotation, because a V and
-//! an upside-down V are different shapes: both paths are resampled to the
+//! an upside-down V are different glyphs: both paths are resampled to the
 //! same number of points, scaled to a unit box and centred, then compared
 //! point by point.
 
 use crate::frame::TouchFrame;
 use serde::{Deserialize, Serialize};
 
-/// Shape ids run from 1 to this.
-pub const MAX_SHAPES: u8 = 32;
-/// Points in a normalised shape.
+/// Glyph ids run from 1 to this.
+pub const MAX_GLYPHS: u8 = 32;
+/// Points in a normalised glyph.
 pub const POINTS: usize = 32;
-/// The shortest stroke that can be a shape, in millimetres of travel.
+/// The shortest stroke that can be a glyph, in millimetres of travel.
 pub const MIN_LENGTH_MM: f32 = 15.0;
 /// Below this score a stroke matches nothing.
 pub const MIN_SCORE: f32 = 0.8;
 
-/// A recorded shape: a name for people, an id for triggers (`shape:3`) and
+/// A recorded glyph: a name for people, an id for triggers (`glyph:3`) and
 /// the normalised path it was drawn with.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Shape {
+pub struct Glyph {
     pub id: u8,
     pub name: String,
     pub points: Vec<[f32; 2]>,
 }
 
-/// Why a stroke can't be a shape.
+/// Why a stroke can't be a glyph.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum NotAShape {
+pub enum NotAGlyph {
     /// Too small to tell apart from a nudge.
     TooShort,
     /// A straight line, which is a scroll.
     Straight,
 }
 
-impl NotAShape {
+impl NotAGlyph {
     pub fn message(self) -> &'static str {
         match self {
-            NotAShape::TooShort => "That was too small. Draw the shape a little bigger.",
-            NotAShape::Straight => {
-                "That was a straight line, which is how you scroll. Draw a shape: a circle, a V, a Z or a check mark."
+            NotAGlyph::TooShort => "That was too small. Draw the glyph a little bigger.",
+            NotAGlyph::Straight => {
+                "That was a straight line, which is how you scroll. Draw a glyph: a circle, a V, a Z or a check mark."
             }
         }
     }
@@ -54,14 +54,14 @@ fn length(path: &[(f32, f32)]) -> f32 {
     path.windows(2).map(|w| (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1)).sum()
 }
 
-/// Can this stroke be a shape (rather than a scroll or a nudge)?
-pub fn check(path: &[(f32, f32)]) -> Result<(), NotAShape> {
+/// Can this stroke be a glyph (rather than a scroll or a nudge)?
+pub fn check(path: &[(f32, f32)]) -> Result<(), NotAGlyph> {
     let len = length(path);
     if path.len() < 4 || len.is_nan() || len < MIN_LENGTH_MM {
-        return Err(NotAShape::TooShort);
+        return Err(NotAGlyph::TooShort);
     }
     // How far the stroke strays from the line through its ends, against its
-    // length: a scroll hugs the line, a shape doesn't.
+    // length: a scroll hugs the line, a glyph doesn't.
     let (a, b) = (path[0], path[path.len() - 1]);
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let chord = dx.hypot(dy);
@@ -76,7 +76,7 @@ pub fn check(path: &[(f32, f32)]) -> Result<(), NotAShape> {
         })
         .fold(0.0f32, f32::max);
     if stray < len * 0.12 {
-        return Err(NotAShape::Straight);
+        return Err(NotAGlyph::Straight);
     }
     Ok(())
 }
@@ -116,7 +116,7 @@ pub fn normalize(path: &[(f32, f32)]) -> Option<Vec<[f32; 2]>> {
     points.iter().flatten().all(|v| v.is_finite()).then_some(points)
 }
 
-/// How alike two normalised shapes are: 1 for the same, 0 for nothing alike.
+/// How alike two normalised glyphs are: 1 for the same, 0 for nothing alike.
 pub fn similarity(a: &[[f32; 2]], b: &[[f32; 2]]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
@@ -125,11 +125,11 @@ pub fn similarity(a: &[[f32; 2]], b: &[[f32; 2]]) -> f32 {
     (1.0 - d / 0.5).max(0.0)
 }
 
-/// The recorded shape this stroke matches best, if one matches well enough.
-pub fn best_match(shapes: &[Shape], path: &[(f32, f32)]) -> Option<(u8, f32)> {
+/// The recorded glyph this stroke matches best, if one matches well enough.
+pub fn best_match(glyphs: &[Glyph], path: &[(f32, f32)]) -> Option<(u8, f32)> {
     check(path).ok()?;
     let drawn = normalize(path)?;
-    shapes
+    glyphs
         .iter()
         .map(|s| (s.id, similarity(&drawn, &s.points)))
         .filter(|&(_, score)| score >= MIN_SCORE)
@@ -146,7 +146,7 @@ pub struct StrokeTracker {
     two_only: bool,
 }
 
-/// Paths longer than this are not shapes anyone draws; stop collecting.
+/// Paths longer than this are not glyphs anyone draws; stop collecting.
 const MAX_PATH: usize = 4_000;
 
 impl StrokeTracker {
@@ -166,7 +166,7 @@ impl StrokeTracker {
         if n > 2 {
             self.two_only = false;
         }
-        // One finger lifting first is the end of the shape, not part of it.
+        // One finger lifting first is the end of the glyph, not part of it.
         if n == 2 && self.two_only && self.path.len() < MAX_PATH {
             let c = &frame.contacts;
             let mid = ((c[0].x + c[1].x) / 2.0, (c[0].y + c[1].y) / 2.0);
@@ -216,51 +216,51 @@ mod tests {
         polyline(&[(10.0, 10.0), (10.0 + size, 10.0), (10.0, 10.0 + size), (10.0 + size, 10.0 + size)])
     }
 
-    fn shape(id: u8, path: &[(f32, f32)]) -> Shape {
-        Shape { id, name: format!("shape {id}"), points: normalize(path).unwrap() }
+    fn glyph(id: u8, path: &[(f32, f32)]) -> Glyph {
+        Glyph { id, name: format!("glyph {id}"), points: normalize(path).unwrap() }
     }
 
     #[test]
-    fn scrolls_and_nudges_are_not_shapes() {
-        assert_eq!(check(&polyline(&[(10.0, 10.0), (10.0, 50.0)])), Err(NotAShape::Straight));
+    fn scrolls_and_nudges_are_not_glyphs() {
+        assert_eq!(check(&polyline(&[(10.0, 10.0), (10.0, 50.0)])), Err(NotAGlyph::Straight));
         // A scroll that drifts a little sideways is still a scroll.
-        assert_eq!(check(&polyline(&[(10.0, 10.0), (12.0, 30.0), (13.0, 50.0)])), Err(NotAShape::Straight));
-        assert_eq!(check(&circle(1.5, 1.0)), Err(NotAShape::TooShort));
+        assert_eq!(check(&polyline(&[(10.0, 10.0), (12.0, 30.0), (13.0, 50.0)])), Err(NotAGlyph::Straight));
+        assert_eq!(check(&circle(1.5, 1.0)), Err(NotAGlyph::TooShort));
         assert_eq!(check(&circle(10.0, 1.0)), Ok(()));
         assert_eq!(check(&vee(20.0)), Ok(()));
     }
 
     #[test]
-    fn a_shape_matches_itself_at_any_size_and_place() {
-        let shapes = [shape(1, &circle(10.0, 1.0)), shape(2, &vee(20.0)), shape(3, &zed(20.0))];
+    fn a_glyph_matches_itself_at_any_size_and_place() {
+        let glyphs = [glyph(1, &circle(10.0, 1.0)), glyph(2, &vee(20.0)), glyph(3, &zed(20.0))];
         let moved: Vec<_> = circle(16.0, 1.0).iter().map(|p| (p.0 + 7.0, p.1 - 3.0)).collect();
-        assert_eq!(best_match(&shapes, &moved).map(|m| m.0), Some(1));
-        assert_eq!(best_match(&shapes, &vee(35.0)).map(|m| m.0), Some(2));
-        assert_eq!(best_match(&shapes, &zed(28.0)).map(|m| m.0), Some(3));
+        assert_eq!(best_match(&glyphs, &moved).map(|m| m.0), Some(1));
+        assert_eq!(best_match(&glyphs, &vee(35.0)).map(|m| m.0), Some(2));
+        assert_eq!(best_match(&glyphs, &zed(28.0)).map(|m| m.0), Some(3));
     }
 
     #[test]
     fn a_sloppy_drawing_still_matches() {
-        let shapes = [shape(1, &circle(10.0, 1.0)), shape(2, &vee(20.0)), shape(3, &zed(20.0))];
+        let glyphs = [glyph(1, &circle(10.0, 1.0)), glyph(2, &vee(20.0)), glyph(3, &zed(20.0))];
         let wobbly: Vec<_> =
             vee(24.0).iter().enumerate().map(|(i, p)| (p.0 + (i as f32 * 1.3).sin() * 0.8, p.1)).collect();
-        assert_eq!(best_match(&shapes, &wobbly).map(|m| m.0), Some(2));
+        assert_eq!(best_match(&glyphs, &wobbly).map(|m| m.0), Some(2));
     }
 
     #[test]
     fn direction_and_orientation_matter() {
-        let shapes = [shape(1, &vee(20.0))];
+        let glyphs = [glyph(1, &vee(20.0))];
         let upside_down = polyline(&[(10.0, 30.0), (20.0, 10.0), (30.0, 30.0)]);
-        assert_eq!(best_match(&shapes, &upside_down), None);
+        assert_eq!(best_match(&glyphs, &upside_down), None);
         let mut backwards = zed(20.0);
         backwards.reverse();
-        assert_eq!(best_match(&[shape(3, &zed(20.0))], &backwards), None);
+        assert_eq!(best_match(&[glyph(3, &zed(20.0))], &backwards), None);
     }
 
     #[test]
     fn nothing_recorded_matches_nothing() {
         assert_eq!(best_match(&[], &circle(10.0, 1.0)), None);
-        assert_eq!(best_match(&[shape(1, &circle(10.0, 1.0))], &zed(20.0)), None);
+        assert_eq!(best_match(&[glyph(1, &circle(10.0, 1.0))], &zed(20.0)), None);
     }
 
     fn frame(points: &[(f32, f32)]) -> TouchFrame {
@@ -280,7 +280,7 @@ mod tests {
         }
         assert_eq!(t.update(&frame(&[(1.0, 1.0)])), None, "one finger lifting first ends nothing yet");
         let path = t.update(&frame(&[])).expect("a stroke");
-        assert_eq!(best_match(&[shape(2, &vee(20.0))], &path).map(|m| m.0), Some(2));
+        assert_eq!(best_match(&[glyph(2, &vee(20.0))], &path).map(|m| m.0), Some(2));
     }
 
     #[test]
@@ -300,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn degenerate_strokes_never_make_nan_shapes() {
+    fn degenerate_strokes_never_make_nan_glyphs() {
         let (nan, inf, big) = (f32::NAN, f32::INFINITY, 3e38);
         let mut paths: Vec<Vec<(f32, f32)>> = vec![
             vec![],
@@ -318,23 +318,23 @@ mod tests {
         let mut with_inf = vee(20.0);
         with_inf[7] = (inf, -inf);
         paths.push(with_inf);
-        let shapes = [shape(1, &circle(10.0, 1.0)), shape(2, &vee(20.0))];
+        let glyphs = [glyph(1, &circle(10.0, 1.0)), glyph(2, &vee(20.0))];
         for path in &paths {
             let _ = check(path);
             if let Some(points) = normalize(path) {
                 assert!(finite(&points) && points.len() == POINTS, "{path:?} gave {points:?}");
             }
-            if let Some((_, score)) = best_match(&shapes, path) {
+            if let Some((_, score)) = best_match(&glyphs, path) {
                 assert!(score.is_finite(), "{path:?}");
             }
         }
-        assert_eq!(normalize(&[(5.0, 5.0); 500]), None, "a stroke that never moved has no shape");
-        assert_eq!(check(&[(nan, nan); 10]), Err(NotAShape::TooShort));
+        assert_eq!(normalize(&[(5.0, 5.0); 500]), None, "a stroke that never moved has no glyph");
+        assert_eq!(check(&[(nan, nan); 10]), Err(NotAGlyph::TooShort));
     }
 
     #[test]
     fn similarity_is_never_nan() {
-        let good = shape(1, &circle(10.0, 1.0)).points;
+        let good = glyph(1, &circle(10.0, 1.0)).points;
         let huge = vec![[3e38f32, -3e38]; POINTS];
         for other in [&good, &huge, &vec![[0.0, 0.0]; POINTS], &vec![[0.0, 0.0]; 3]] {
             let s = similarity(&good, other);
@@ -353,7 +353,7 @@ mod tests {
         }
         let path = t.update(&frame(&[])).expect("a stroke");
         assert!(path.iter().all(|p| p.0.is_finite() && p.1.is_finite()), "{path:?}");
-        assert_eq!(best_match(&[shape(2, &vee(20.0))], &path).map(|m| m.0), Some(2));
+        assert_eq!(best_match(&[glyph(2, &vee(20.0))], &path).map(|m| m.0), Some(2));
     }
 
     #[test]
@@ -365,15 +365,15 @@ mod tests {
         }
         let path = t.update(&frame(&[])).expect("a stroke");
         assert_eq!(path.len(), MAX_PATH);
-        let _ = best_match(&[shape(1, &circle(10.0, 1.0))], &path);
+        let _ = best_match(&[glyph(1, &circle(10.0, 1.0))], &path);
     }
 
     /// Random strokes with random finger counts, broken positions and lifts.
     #[test]
-    fn fuzzed_strokes_never_panic_or_make_nan_shapes() {
+    fn fuzzed_strokes_never_panic_or_make_nan_glyphs() {
         let mut rng = crate::Rng::new(0x2545_F491_4F6C_DD1D);
-        let shapes: Vec<Shape> =
-            (1..=MAX_SHAPES).map(|id| shape(id, &circle(5.0 + id as f32, 0.5 + id as f32 / 20.0))).collect();
+        let glyphs: Vec<Glyph> =
+            (1..=MAX_GLYPHS).map(|id| glyph(id, &circle(5.0 + id as f32, 0.5 + id as f32 / 20.0))).collect();
         let mut t = StrokeTracker::default();
         let mut strokes = 0;
         for _ in 0..50_000 {
@@ -384,8 +384,8 @@ mod tests {
                 if let Some(points) = normalize(&path) {
                     assert!(finite(&points));
                 }
-                if let Some((id, score)) = best_match(&shapes, &path) {
-                    assert!((1..=MAX_SHAPES).contains(&id) && score.is_finite());
+                if let Some((id, score)) = best_match(&glyphs, &path) {
+                    assert!((1..=MAX_GLYPHS).contains(&id) && score.is_finite());
                 }
             }
             if rng.below(1_000) == 0 {
@@ -396,9 +396,9 @@ mod tests {
     }
 
     #[test]
-    fn matching_against_every_shape_is_quick() {
-        let shapes: Vec<Shape> =
-            (1..=MAX_SHAPES).map(|id| shape(id, &circle(5.0 + id as f32, 0.5 + id as f32 / 20.0))).collect();
+    fn matching_against_every_glyph_is_quick() {
+        let glyphs: Vec<Glyph> =
+            (1..=MAX_GLYPHS).map(|id| glyph(id, &circle(5.0 + id as f32, 0.5 + id as f32 / 20.0))).collect();
         // A long stroke: about two seconds of drawing at 125 Hz.
         let path: Vec<(f32, f32)> = circle(14.0, 1.0)
             .windows(2)
@@ -408,7 +408,7 @@ mod tests {
         let start = std::time::Instant::now();
         let mut matched = 0;
         for _ in 0..runs {
-            matched += best_match(&shapes, std::hint::black_box(&path)).is_some() as u32;
+            matched += best_match(&glyphs, std::hint::black_box(&path)).is_some() as u32;
         }
         let each = start.elapsed() / runs;
         // A few microseconds in release; the budget leaves room for slow CI runners.

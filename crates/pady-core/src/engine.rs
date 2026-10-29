@@ -12,8 +12,8 @@ use crate::action::Action;
 use crate::config::{Config, Resolution, SharedConfig};
 use crate::frame::{now_ms, TouchFrame};
 use crate::gesture::Gesture;
+use crate::glyphs::{self, NotAGlyph, StrokeTracker};
 use crate::recognizer::{Recognizer, SwipeProgress};
-use crate::shapes::{self, NotAShape, StrokeTracker};
 use crate::trigger::Trigger;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use serde::Serialize;
@@ -146,11 +146,11 @@ pub enum EngineEvent {
     SwipeEnded {
         fired: bool,
     },
-    /// While recording a shape: the two-finger stroke just drawn, normalised
-    /// (see [`crate::shapes::normalize`]), or why it can't be a shape.
-    ShapeRecorded {
+    /// While recording a glyph: the two-finger stroke just drawn, normalised
+    /// (see [`crate::glyphs::normalize`]), or why it can't be a glyph.
+    GlyphRecorded {
         points: Option<Vec<[f32; 2]>>,
-        problem: Option<NotAShape>,
+        problem: Option<NotAGlyph>,
     },
 }
 
@@ -233,9 +233,9 @@ impl Engine {
         Engine { jobs: jobs_tx, recording, engine_thread, action_thread }
     }
 
-    /// Record the next two-finger stroke as a shape (reported as
-    /// [`EngineEvent::ShapeRecorded`]) instead of matching it, or stop waiting.
-    pub fn record_shape(&self, on: bool) {
+    /// Record the next two-finger stroke as a glyph (reported as
+    /// [`EngineEvent::GlyphRecorded`]) instead of matching it, or stop waiting.
+    pub fn record_glyph(&self, on: bool) {
         self.recording.store(on, Ordering::Relaxed);
     }
 
@@ -454,7 +454,7 @@ struct EngineLoop {
     precise: bool,
     /// The last swipe progress reported, to send only changes.
     progress: Option<SwipeProgress>,
-    /// Two-finger strokes, for shapes.
+    /// Two-finger strokes, for glyphs.
     strokes: StrokeTracker,
     /// The next stroke is being recorded rather than matched.
     recording: Arc<AtomicBool>,
@@ -549,24 +549,24 @@ impl EngineLoop {
         }
     }
 
-    /// A two-finger stroke ended: record it, or fire the shape it matches.
+    /// A two-finger stroke ended: record it, or fire the glyph it matches.
     fn on_stroke(&mut self, path: &[(f32, f32)], t: u64) {
         if self.recording.swap(false, Ordering::Relaxed) {
             // A stroke too broken to measure is reported as too short, so the
-            // UI always hears either a shape or what was wrong with it.
-            let event = match shapes::check(path).and_then(|()| shapes::normalize(path).ok_or(NotAShape::TooShort)) {
-                Ok(points) => EngineEvent::ShapeRecorded { points: Some(points), problem: None },
-                Err(problem) => EngineEvent::ShapeRecorded { points: None, problem: Some(problem) },
+            // UI always hears either a glyph or what was wrong with it.
+            let event = match glyphs::check(path).and_then(|()| glyphs::normalize(path).ok_or(NotAGlyph::TooShort)) {
+                Ok(points) => EngineEvent::GlyphRecorded { points: Some(points), problem: None },
+                Err(problem) => EngineEvent::GlyphRecorded { points: None, problem: Some(problem) },
             };
             (self.observer)(event);
             return;
         }
-        if !self.config.settings.enabled || self.config.shapes.is_empty() {
+        if !self.config.settings.enabled || self.config.glyphs.is_empty() {
             return;
         }
-        if let Some((id, score)) = shapes::best_match(&self.config.shapes, path) {
-            log::debug!("two-finger shape {id} ({score:.2})");
-            self.handle(Gesture::Shape { id }, t);
+        if let Some((id, score)) = glyphs::best_match(&self.config.glyphs, path) {
+            log::debug!("two-finger glyph {id} ({score:.2})");
+            self.handle(Gesture::Glyph { id }, t);
         }
     }
 
@@ -806,8 +806,8 @@ mod tests {
     }
 
     #[test]
-    fn a_recorded_two_finger_shape_fires_its_binding() {
-        // Record: the stroke comes back as a shape instead of being matched.
+    fn a_recorded_two_finger_glyph_fires_its_binding() {
+        // Record: the stroke comes back as a glyph instead of being matched.
         let events = Arc::new(Mutex::new(Vec::new()));
         let ev = events.clone();
         let (tx, rx) = unbounded();
@@ -817,7 +817,7 @@ mod tests {
             || Box::new(LogExecutor) as Box<dyn Executor>,
             Arc::new(move |e| ev.lock().unwrap().push(e)),
         );
-        engine.record_shape(true);
+        engine.record_glyph(true);
         vee_frames(0).into_iter().for_each(|f| tx.send(f).unwrap());
         drop(tx);
         engine.join();
@@ -826,19 +826,19 @@ mod tests {
             .unwrap()
             .iter()
             .find_map(|e| match e {
-                EngineEvent::ShapeRecorded { points, problem: None } => points.clone(),
+                EngineEvent::GlyphRecorded { points, problem: None } => points.clone(),
                 _ => None,
             })
             .expect("the V was recorded");
 
-        // Draw it again: the shape's binding runs.
+        // Draw it again: the glyph's binding runs.
         let mut cfg = Config::default();
         cfg.bindings.clear();
-        cfg.shapes.push(crate::Shape { id: 4, name: "V".into(), points });
-        cfg.set_binding(Trigger::Shape(4), Action::Lock, false);
+        cfg.glyphs.push(crate::Glyph { id: 4, name: "V".into(), points });
+        cfg.set_binding(Trigger::Glyph(4), Action::Lock, false);
         let (jobs, events) = run_engine(cfg.clone(), vee_frames(1_000));
         assert_eq!(jobs, vec![Job::Run(Action::Lock)]);
-        assert!(events.iter().any(|e| matches!(e, EngineEvent::Gesture { trigger: Some(t), .. } if t == "shape:4")));
+        assert!(events.iter().any(|e| matches!(e, EngineEvent::Gesture { trigger: Some(t), .. } if t == "glyph:4")));
 
         // A plain two-finger scroll is left to the OS.
         let scroll: Vec<_> =
@@ -847,7 +847,7 @@ mod tests {
     }
 
     #[test]
-    fn recording_a_scroll_says_why_it_is_not_a_shape() {
+    fn recording_a_scroll_says_why_it_is_not_a_glyph() {
         let events = Arc::new(Mutex::new(Vec::new()));
         let ev = events.clone();
         let (tx, rx) = unbounded();
@@ -857,7 +857,7 @@ mod tests {
             || Box::new(LogExecutor) as Box<dyn Executor>,
             Arc::new(move |e| ev.lock().unwrap().push(e)),
         );
-        engine.record_shape(true);
+        engine.record_glyph(true);
         (0..=10)
             .map(|i| frame(i * 10, 2, 0.0, i as f32 * 4.0))
             .chain([frame(120, 0, 0.0, 0.0)])
@@ -865,10 +865,10 @@ mod tests {
         drop(tx);
         engine.join();
         let got = events.lock().unwrap().iter().find_map(|e| match e {
-            EngineEvent::ShapeRecorded { points, problem } => Some((points.is_some(), *problem)),
+            EngineEvent::GlyphRecorded { points, problem } => Some((points.is_some(), *problem)),
             _ => None,
         });
-        assert_eq!(got, Some((false, Some(NotAShape::Straight))));
+        assert_eq!(got, Some((false, Some(NotAGlyph::Straight))));
     }
 
     #[test]
@@ -1155,7 +1155,7 @@ mod tests {
         engine.on_stroke(&[(0.0, 0.0), (big, 0.0), (big, big), (0.0, big)], 0);
         let events = events.lock().unwrap();
         assert!(
-            matches!(events[..], [EngineEvent::ShapeRecorded { points: None, problem: Some(NotAShape::TooShort) }]),
+            matches!(events[..], [EngineEvent::GlyphRecorded { points: None, problem: Some(NotAGlyph::TooShort) }]),
             "{events:?}"
         );
     }
@@ -1201,7 +1201,7 @@ mod tests {
     }
 
     /// Random, often broken, frames and two-finger strokes, while the test
-    /// thread swaps the config, toggles shape recording and full-screen
+    /// thread swaps the config, toggles glyph recording and full-screen
     /// games at random, unsynchronised with the engine.
     fn soak(seed: u64, frames: usize, change: impl Fn(&mut crate::Rng, &mut Config)) -> SoakRun {
         let mut rng = crate::Rng::new(seed);
@@ -1233,7 +1233,7 @@ mod tests {
                 0 => {
                     shared.update(|c| change(&mut rng, c));
                 }
-                1 => engine.record_shape(rng.below(2) == 0),
+                1 => engine.record_glyph(rng.below(2) == 0),
                 2 => fullscreen.store(rng.below(4) == 0, Ordering::SeqCst),
                 _ => {}
             }
@@ -1265,7 +1265,7 @@ mod tests {
             batch.into_iter().for_each(|f| tx.send(f).unwrap());
         }
         // However far behind the engine is, at least one stroke is recorded.
-        engine.record_shape(true);
+        engine.record_glyph(true);
         sent += vee_frames(now_ms()).into_iter().map(|f| tx.send(f).unwrap()).count();
         drop(tx);
         engine.join();
@@ -1284,9 +1284,9 @@ mod tests {
         assert!(buttons.len() % 2 == 0, "the button was left held: {buttons:?}");
     }
 
-    fn assert_shapes_finite(events: &[EngineEvent]) {
+    fn assert_glyphs_finite(events: &[EngineEvent]) {
         for e in events {
-            if let EngineEvent::ShapeRecorded { points, problem } = e {
+            if let EngineEvent::GlyphRecorded { points, problem } = e {
                 assert!(points.is_some() != problem.is_some(), "{e:?}");
                 assert!(points.iter().flatten().flatten().all(|v| v.is_finite()), "{e:?}");
             }
@@ -1305,7 +1305,7 @@ mod tests {
                 c.set_binding(Trigger::Tap(4), Action::Mute, false);
             });
             assert_button_balanced(&run.buttons);
-            assert_shapes_finite(&run.events);
+            assert_glyphs_finite(&run.events);
             assert!(!run.buttons.is_empty(), "seed {seed}: the soak should drag now and then");
         }
     }
@@ -1318,10 +1318,10 @@ mod tests {
             c.set_binding(Trigger::Tap(3), Action::Mute, false);
         });
         assert!(run.buttons.is_empty() && run.runs == 0, "{:?}, {} actions", run.buttons, run.runs);
-        assert_shapes_finite(&run.events);
+        assert_glyphs_finite(&run.events);
         let gestures: Vec<_> = run.events.iter().filter(|e| matches!(e, EngineEvent::Gesture { .. })).collect();
         assert!(gestures.is_empty(), "{gestures:?}");
-        assert!(run.events.iter().any(|e| matches!(e, EngineEvent::ShapeRecorded { .. })), "recording still works");
+        assert!(run.events.iter().any(|e| matches!(e, EngineEvent::GlyphRecorded { .. })), "recording still works");
     }
 
     #[test]
@@ -1363,32 +1363,32 @@ mod tests {
         assert!(took < budget, "{count} frames took {took:?}");
     }
 
-    /// The stroke [`vee_frames`] draws, normalised: a shape to bind.
-    fn vee_shape(id: u8) -> crate::Shape {
+    /// The stroke [`vee_frames`] draws, normalised: a glyph to bind.
+    fn vee_glyph(id: u8) -> crate::Glyph {
         let mut strokes = StrokeTracker::default();
         let path = vee_frames(0).iter().find_map(|f| strokes.update(f)).expect("a stroke");
-        crate::Shape { id, name: "V".into(), points: shapes::normalize(&path).expect("a shape") }
+        crate::Glyph { id, name: "V".into(), points: glyphs::normalize(&path).expect("a glyph") }
     }
 
     #[test]
     fn switching_recording_mid_stroke_decides_how_the_stroke_ends() {
         for record_at_the_end in [false, true] {
             let mut cfg = Config { bindings: Vec::new(), ..Config::default() };
-            cfg.shapes.push(vee_shape(4));
-            cfg.set_binding(Trigger::Shape(4), Action::Lock, false);
+            cfg.glyphs.push(vee_glyph(4));
+            cfg.set_binding(Trigger::Glyph(4), Action::Lock, false);
             let Watched { engine, frames, events, jobs, .. } = watched_engine(cfg);
-            engine.record_shape(!record_at_the_end);
+            engine.record_glyph(!record_at_the_end);
             let mut stroke = vee_frames(now_ms());
             let lift = stroke.pop().unwrap();
             for f in stroke {
                 frames.send(f).unwrap();
                 wait_for_frame(&events);
             }
-            engine.record_shape(record_at_the_end);
+            engine.record_glyph(record_at_the_end);
             frames.send(lift).unwrap();
             drop(frames);
             engine.join();
-            let recorded = events.try_iter().any(|e| matches!(e, EngineEvent::ShapeRecorded { points: Some(_), .. }));
+            let recorded = events.try_iter().any(|e| matches!(e, EngineEvent::GlyphRecorded { points: Some(_), .. }));
             assert_eq!(recorded, record_at_the_end);
             let fired = *jobs.lock().unwrap() == vec![Job::Run(Action::Lock)];
             assert_eq!(fired, !record_at_the_end, "a recorded stroke doesn't also fire");

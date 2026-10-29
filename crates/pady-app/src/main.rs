@@ -14,7 +14,7 @@ use crossbeam_channel::Sender;
 use pady_actions::Conflict;
 use pady_core::engine::Observer;
 use pady_core::{
-    Action, Config, Engine, EngineEvent, Level, NotAShape, Preset, Settings, SharedConfig, TouchFrame, PRESETS,
+    Action, Config, Engine, EngineEvent, Level, NotAGlyph, Preset, Settings, SharedConfig, TouchFrame, PRESETS,
 };
 use pady_input::{DeviceInfo, InputHandle};
 use serde::Serialize;
@@ -205,10 +205,10 @@ fn test_action(pady: State<Pady>, action: Action) {
     pady.engine.run_action(action);
 }
 
-/// Record the next two-finger stroke as a shape (`pady://shape-recorded`), or stop.
+/// Record the next two-finger stroke as a glyph (`pady://glyph-recorded`), or stop.
 #[tauri::command]
-fn record_shape(pady: State<Pady>, on: bool) {
-    pady.engine.record_shape(on);
+fn record_glyph(pady: State<Pady>, on: bool) {
+    pady.engine.record_glyph(on);
 }
 
 #[tauri::command]
@@ -492,9 +492,9 @@ fn observer(
         EngineEvent::ActionFailed { action, error } => {
             let _ = app.emit("pady://action-failed", json!({ "action": action, "error": error }));
         }
-        EngineEvent::ShapeRecorded { points, problem } => {
-            let message = problem.map(NotAShape::message);
-            let _ = app.emit("pady://shape-recorded", json!({ "points": points, "problem": message }));
+        EngineEvent::GlyphRecorded { points, problem } => {
+            let message = problem.map(NotAGlyph::message);
+            let _ = app.emit("pady://glyph-recorded", json!({ "points": points, "problem": message }));
         }
         // Never ignore a gesture silently; once in a while is enough to explain why.
         EngineEvent::Paused { .. } => {
@@ -786,7 +786,7 @@ fn main() {
             check_update,
             install_update,
             pick_program,
-            record_shape,
+            record_glyph,
         ])
         .setup(move |app| {
             let config_path = Config::default_path()?;
@@ -979,13 +979,13 @@ mod tests {
                 { "trigger": "tap:3", "action": { "type": "volume", "step": i32::MAX } },
                 { "trigger": "tap:3", "action": { "type": "brightness", "step": i32::MIN } },
                 { "trigger": "tap:4", "action": { "type": "drag" } },
-                { "trigger": "shape:9", "action": { "type": "lock" } }
+                { "trigger": "glyph:9", "action": { "type": "lock" } }
             ],
             "profile": [{ "name": "  x  ", "apps": ["", " "], "binding": [
                 { "trigger": "drag:3", "action": { "type": "drag" } },
                 { "trigger": "hold:5", "action": { "type": "volume", "step": -1000 } }
             ]}],
-            "shape": [
+            "glyph": [
                 { "id": 0, "name": "", "points": [] },
                 { "id": 9, "name": "", "points": vec![[1e39, 0.0]; 32] },
                 { "id": 7, "name": "  ", "points": vec![[0.1, -0.1]; 32] },
@@ -999,23 +999,23 @@ mod tests {
         let floats =
             [s.tap_slop_mm, s.swipe_threshold_mm, s.swipe_step_mm, s.drag_speed, s.glow_strength, s.notice_time];
         assert!(floats.iter().all(|v| v.is_finite() && *v >= 0.0), "{s:?}");
-        assert_eq!(config.bindings.len(), 1, "duplicates, a drag on a tap and a missing shape are dropped");
+        assert_eq!(config.bindings.len(), 1, "duplicates, a drag on a tap and a missing glyph are dropped");
         assert_eq!(config.bindings[0].action, Action::Brightness { step: -100 });
         assert_eq!(config.profiles[0].name, "x");
         assert!(config.profiles[0].apps.is_empty());
         assert_eq!(config.profiles[0].bindings.len(), 1, "profiles cannot drag");
         assert_eq!(config.profiles[0].bindings[0].action, Action::Volume { step: -100 });
-        let ids: Vec<u8> = config.shapes.iter().map(|s| s.id).collect();
-        assert_eq!(ids, vec![7], "bad ids, infinite points and a second shape 7 are dropped");
-        assert_eq!(config.shapes[0].name, "Shape 7");
-        assert!(config.binding(Trigger::Shape(9)).is_none());
+        let ids: Vec<u8> = config.glyphs.iter().map(|s| s.id).collect();
+        assert_eq!(ids, vec![7], "bad ids, infinite points and a second glyph 7 are dropped");
+        assert_eq!(config.glyphs[0].name, "Glyph 7");
+        assert!(config.binding(Trigger::Glyph(9)).is_none());
 
         // Not even parseable: a trigger or action that doesn't exist is refused.
         for bad in [
             r#"{ "binding": [{ "trigger": "tap:99", "action": { "type": "mute" } }] }"#,
             r#"{ "binding": [{ "trigger": "tap:3", "action": { "type": "format_disk" } }] }"#,
             r#"{ "binding": [{ "trigger": "tap:3", "action": { "type": "volume", "step": 1e99 } }] }"#,
-            r#"{ "shape": [{ "id": 300, "name": "", "points": [] }] }"#,
+            r#"{ "glyph": [{ "id": 300, "name": "", "points": [] }] }"#,
         ] {
             assert!(serde_json::from_str::<Config>(bad).is_err(), "{bad}");
         }

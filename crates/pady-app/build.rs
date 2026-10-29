@@ -17,7 +17,7 @@ const COMMANDS: &[&str] = &[
     "check_update",
     "install_update",
     "pick_program",
-    "record_shape",
+    "record_glyph",
 ];
 
 fn main() {

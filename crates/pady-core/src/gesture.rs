@@ -136,8 +136,8 @@ pub enum Gesture {
         dy: f32,
     },
     DragEnd,
-    /// A recorded two-finger shape was drawn (`id` as in `shape:<id>`).
-    Shape {
+    /// A recorded two-finger glyph was drawn (`id` as in `glyph:<id>`).
+    Glyph {
         id: u8,
     },
 }
