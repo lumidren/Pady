@@ -20,12 +20,12 @@ pub const PRESETS: &[Preset] = &[
     Preset {
         id: "recommended",
         name: "Recommended",
-        description: "Three-finger drag, taps for play/pause and next track, four-finger swipes for volume and brightness, pinch to zoom, five-finger pinch to copy and paste.",
+        description: "Three-finger drag, taps for play/pause and next track, four-finger swipes for volume and brightness, pinch to zoom, three-finger pinch to copy and paste.",
     },
     Preset {
         id: "macos",
         name: "Like a Mac",
-        description: "Feels like a MacBook trackpad: three-finger drag, four-finger swipes between desktops and to task view, pinch to zoom, five-finger pinch to copy and paste.",
+        description: "Feels like a MacBook trackpad: three-finger drag, four-finger swipes between desktops and to task view, pinch to zoom, three-finger pinch to copy and paste.",
     },
     Preset {
         id: "media",
@@ -35,7 +35,7 @@ pub const PRESETS: &[Preset] = &[
     Preset {
         id: "productivity",
         name: "Productivity",
-        description: "Window and desktop management: task view, show desktop, switching desktops, quick screenshots, lock, and five-finger pinch to copy and paste.",
+        description: "Window and desktop management: task view, show desktop, switching desktops, quick screenshots, lock, and three-finger pinch to copy and paste.",
     },
     Preset {
         id: "minimal",
@@ -87,9 +87,9 @@ pub fn bindings(id: &str) -> Option<Vec<Binding>> {
     let drag = b(Trigger::Drag(3), Action::Drag, false);
     let zoom =
         [b(Trigger::Pinch(4, Out), keys("ctrl+equal"), true), b(Trigger::Pinch(4, In), keys("ctrl+minus"), true)];
-    // Grab with the whole hand to copy, open it to paste.
+    // Pinch three fingers together to copy, spread them to paste.
     let copy_paste =
-        [b(Trigger::Pinch(5, In), keys("ctrl+c"), false), b(Trigger::Pinch(5, Out), keys("ctrl+v"), false)];
+        [b(Trigger::Pinch(3, In), keys("ctrl+c"), false), b(Trigger::Pinch(3, Out), keys("ctrl+v"), false)];
     let s = &SHORTCUTS;
     let list = match id {
         "recommended" => {

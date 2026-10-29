@@ -3235,29 +3235,53 @@
   // Theme switches change canvas colours.
   window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => liveView.readColors());
 
+  const isKeys = (b, combo) => b && b.action && b.action.type === 'keys' && b.action.combo === combo;
+
+  /**
+   * 0.6.0 put copy and paste on five fingers; it's on three now. Move it
+   * once for setups that still have it as it came, if three is free.
+   */
+  async function moveCopyPaste() {
+    try { if (localStorage.getItem('pady-copy-paste-3')) return false; } catch (_) { return false; }
+    try { localStorage.setItem('pady-copy-paste-3', '1'); } catch (_) { /* private mode */ }
+    const cfg = store.app.config;
+    if (!isKeys(M.bindingFor(cfg, 'pinch:5:in'), 'ctrl+c') || !isKeys(M.bindingFor(cfg, 'pinch:5:out'), 'ctrl+v')) return false;
+    if (M.bindingFor(cfg, 'pinch:3:in') || M.bindingFor(cfg, 'pinch:3:out')) return false;
+    let config = M.withBinding(cfg, 'pinch:5:in', { type: 'none' });
+    config = M.withBinding(config, 'pinch:5:out', { type: 'none' });
+    config = M.withBinding(config, 'pinch:3:in', { type: 'keys', combo: 'ctrl+c' });
+    config = M.withBinding(config, 'pinch:3:out', { type: 'keys', combo: 'ctrl+v' });
+    try {
+      applyState(await call('save_config', { config }, { errorTitle: 'Couldn’t move copy and paste' }));
+      toast({ title: 'Copy and paste is on three fingers now', text: 'Pinch three fingers together to copy, spread them to paste.' });
+    } catch (_) { /* toast shown */ }
+    return true;
+  }
+
   /**
    * Updating keeps your gestures, so people who set Pady up before 0.6
-   * don't have the five-finger pinch for copy and paste. Offer it once,
-   * if both pinches are still free.
+   * don't have the pinch for copy and paste. Offer it once, if both
+   * pinches are still free.
    */
-  function offerCopyPaste() {
+  async function offerCopyPaste() {
+    if (await moveCopyPaste()) return;
     try { if (localStorage.getItem('pady-copy-paste-offered')) return; } catch (_) { return; }
     const cfg = store.app.config;
-    if (M.bindingFor(cfg, 'pinch:5:in') || M.bindingFor(cfg, 'pinch:5:out')) return;
+    if (M.bindingFor(cfg, 'pinch:3:in') || M.bindingFor(cfg, 'pinch:3:out')) return;
     try { localStorage.setItem('pady-copy-paste-offered', '1'); } catch (_) { /* private mode */ }
     toast({
       kind: 'info',
       title: 'New: copy and paste with one hand',
-      text: 'Close your hand (five-finger pinch in) to copy, open it to paste.',
+      text: 'Pinch three fingers together to copy, spread them to paste.',
       timeout: 15000,
       action: {
         label: 'Add it',
         onClick: async () => {
-          let config = M.withBinding(store.app.config, 'pinch:5:in', { type: 'keys', combo: 'ctrl+c' });
-          config = M.withBinding(config, 'pinch:5:out', { type: 'keys', combo: 'ctrl+v' });
+          let config = M.withBinding(store.app.config, 'pinch:3:in', { type: 'keys', combo: 'ctrl+c' });
+          config = M.withBinding(config, 'pinch:3:out', { type: 'keys', combo: 'ctrl+v' });
           try {
             applyState(await call('save_config', { config }, { errorTitle: 'Couldn’t add copy and paste' }));
-            toast({ title: 'Copy and paste added', text: 'Try it: select something, close your hand, then open it where it should go.' });
+            toast({ title: 'Copy and paste added', text: 'Try it: select something, pinch three fingers, then spread them where it should go.' });
           } catch (_) { /* toast shown */ }
         },
       },

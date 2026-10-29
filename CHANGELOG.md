@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Copy and paste moved to three fingers.** Pinch three fingers together to copy, spread them to paste. If you have the five-finger version from 0.6.0 and three fingers are free, Pady moves it for you once.
+
 ## 0.6.0 (2026-10-29)
 
 ### Added

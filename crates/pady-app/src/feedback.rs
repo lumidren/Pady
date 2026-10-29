@@ -80,11 +80,11 @@ mod tests {
     fn copy_and_paste() {
         let s = Settings::default();
         let grab = pinch(PinchDirection::In, 0);
-        assert_eq!(notice_for(&s, &grab, Some("pinch:5:in"), Some("Press ctrl+c")), None, "the clipboard says Copied");
+        assert_eq!(notice_for(&s, &grab, Some("pinch:3:in"), Some("Press ctrl+c")), None, "the clipboard says Copied");
         let drop = pinch(PinchDirection::Out, 0);
-        assert_eq!(notice_for(&s, &drop, Some("pinch:5:out"), Some("Press ctrl+v")), Some(Notice::Pasted));
+        assert_eq!(notice_for(&s, &drop, Some("pinch:3:out"), Some("Press ctrl+v")), Some(Notice::Pasted));
         let off = Settings { show_copy_notice: false, ..Settings::default() };
-        assert_eq!(notice_for(&off, &drop, Some("pinch:5:out"), Some("Press ctrl+v")), None);
+        assert_eq!(notice_for(&off, &drop, Some("pinch:3:out"), Some("Press ctrl+v")), None);
     }
 
     #[test]

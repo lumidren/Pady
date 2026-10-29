@@ -56,8 +56,8 @@
     { trigger: 'hold:4', action: { type: 'lock' } },
     { trigger: 'pinch:4:out', action: { type: 'keys', combo: 'ctrl+equal' }, repeat: true },
     { trigger: 'pinch:4:in', action: { type: 'keys', combo: 'ctrl+minus' }, repeat: true },
-    { trigger: 'pinch:5:in', action: { type: 'keys', combo: 'ctrl+c' } },
-    { trigger: 'pinch:5:out', action: { type: 'keys', combo: 'ctrl+v' } },
+    { trigger: 'pinch:3:in', action: { type: 'keys', combo: 'ctrl+c' } },
+    { trigger: 'pinch:3:out', action: { type: 'keys', combo: 'ctrl+v' } },
   ];
   const SAMPLE_PROFILE = {
     name: 'Browser',
