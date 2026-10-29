@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-10-29)
 
 ### Added
 
@@ -9,6 +9,13 @@
 
 ### Fixed
 
+- A touchpad that reports a broken finger position for a moment no longer fires a swipe, pinch or drag, and a swipe keeps working after one.
+- Pausing Pady now stops the very next tap or hold too.
+- On Windows, apps launched with arguments containing backslashes or quotes get exactly the arguments you wrote.
+- A link starting with `-` is refused instead of being handed to the browser as an option.
+- On Linux with `pactl`, volume steps stop at 100% instead of over-amplifying.
+- The Test button keeps volume and brightness steps in range, like saved gestures.
+- Smaller fixes for touches at absurd positions, very long sessions, and strokes too broken to become a glyph.
 - The website's live demo no longer shows a warning on load or an old version number, and always loads matching files after an update.
 
 ## 0.6.1 (2026-10-29)
