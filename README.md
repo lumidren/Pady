@@ -38,7 +38,6 @@
 
 - **More gestures than your OS gives you.** Tap, double tap, triple tap, hold, swipe in four directions, pinch in or out, and drag, each with 3, 4 or 5 fingers. That's 33 gestures you can bind.
 - **Copy and paste with one hand.** Pinch three fingers together on the touchpad to copy, spread them to paste. A glowing "Copied" or "Pasted" notice confirms it.
-- **Glyphs: draw your own gestures.** Record a circle, a V, a Z or a check mark with two fingers on the Glyphs page and give it any action. Two-finger scrolling stays as it is: a straight slide is never a glyph.
 - **Three-finger drag on Windows.** Move windows and select text without pressing the touchpad, like on a Mac.
 - **Scrub, don't spam.** Keep sliding and volume, brightness or zoom keeps stepping. An on-screen pill shows the level without ever stealing focus.
 - **Per-app profiles.** Swipes switch browser tabs in Chrome and desktops everywhere else. Pady can detect the app for you.
