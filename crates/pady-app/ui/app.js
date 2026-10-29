@@ -315,9 +315,13 @@
      5. Shell
      ===================================================================== */
 
-  const PAGES = ['gestures', 'glyphs', 'live', 'settings', 'about'];
+  // Glyphs (recorded two-finger gestures) are saved for a later release:
+  // switch this on to show their page again.
+  const GLYPHS_READY = false;
+  const PAGES = ['gestures', 'glyphs', 'live', 'settings', 'about'].filter((p) => GLYPHS_READY || p !== 'glyphs');
 
   function initShell() {
+    if (!GLYPHS_READY) { $('.nav-item[data-page="glyphs"]').remove(); $('#page-glyphs').remove(); }
     $$('.nav-item').forEach((btn) => {
       btn.prepend(ico(btn.dataset.icon, 18));
       // The text label is hidden in the narrow icon rail, so name the button explicitly.
@@ -334,9 +338,9 @@
         e.target.checked = !want;
       }
     });
-    // Ctrl+1..5 jumps between pages.
+    // Ctrl+1..N jumps between pages.
     document.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && /^[1-5]$/.test(e.key) && !$('#app').inert) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && /^[1-9]$/.test(e.key) && Number(e.key) <= PAGES.length && !$('#app').inert) {
         e.preventDefault();
         route(PAGES[Number(e.key) - 1]);
       }
