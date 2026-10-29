@@ -19,6 +19,7 @@ use crate::color::{Color, Palette};
 use crate::gdiplus::{self, Brush, Path, Pen, StringFormat};
 use crate::glow::GlowField;
 use crate::layout::{px, Rect};
+use crate::look::look;
 use crate::notice::Motion;
 use crate::windows::{animations_enabled, apps_use_light_theme, monitor_under_cursor, Surface, TextFont};
 use crate::windows::{ICON_FONTS, NUMBER_FONTS};
@@ -264,6 +265,9 @@ struct Toaster {
     hwnd: HWND,
     epoch: Instant,
     motion: Motion,
+    /// Animation time: real time scaled by the look's speed.
+    clock: Duration,
+    last_real: Duration,
     renderer: Option<Renderer>,
     /// The window's top-left while resting, and the work area's right/top edge it hangs from.
     origin: (i32, i32),
@@ -342,6 +346,8 @@ impl Toaster {
             hwnd,
             epoch: Instant::now(),
             motion: Motion::default(),
+            clock: Duration::ZERO,
+            last_real: Duration::ZERO,
             renderer: None,
             origin: (0, 0),
             anchor: (0, 0),
@@ -412,8 +418,16 @@ impl Toaster {
         Ok(())
     }
 
+    /// Animation time now: it runs faster or slower with the look's speed.
+    fn now(&mut self) -> Duration {
+        let real = self.epoch.elapsed();
+        self.clock += (real - self.last_real).mul_f32(look().speed);
+        self.last_real = real;
+        self.clock
+    }
+
     fn show(&mut self, notice: Notice) {
-        let now = self.epoch.elapsed();
+        let now = self.now();
         let appearing = !self.motion.visible();
         if appearing {
             let (work, dpi) = monitor_under_cursor();
@@ -441,7 +455,9 @@ impl Toaster {
                 self.anchor.1 + (inset - pill.y).round() as i32,
             );
         }
-        if self.motion.show(now, notice.rest()) {
+        // The rest is in animation time; `stay` sets it in real time.
+        let look = look();
+        if self.motion.show(now, notice.rest().mul_f32(look.stay * look.speed)) {
             // The first frame (fully transparent) is in place before the window shows.
             self.step();
             unsafe {
@@ -454,7 +470,7 @@ impl Toaster {
 
     /// Draws the frame for now, or hides the window once the notice is gone.
     fn step(&mut self) {
-        let now = self.epoch.elapsed();
+        let now = self.now();
         self.motion.tick(now);
         if !self.motion.visible() {
             unsafe {
@@ -463,7 +479,7 @@ impl Toaster {
             return;
         }
         let pose = self.motion.pose(now);
-        let glow = self.motion.glow(now);
+        let glow = self.motion.glow(now) * look().glow;
         let turn = (now.as_secs_f32() / TURN).fract();
         log::trace!(
             "notice frame at {:.1} ms: opacity {:.2}, glow {glow:.2}",

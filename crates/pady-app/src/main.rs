@@ -102,6 +102,7 @@ impl Pady {
         config.normalize();
         config.save(&self.config_path).map_err(|e| e.to_string())?;
         *lock(&self.config_mtime) = modified(&self.config_path);
+        apply_look(&config.settings);
         self.config.set(config);
         self.sync_tray();
         let state = self.snapshot();
@@ -385,6 +386,11 @@ mod overlay_window {
     }
 }
 
+/// Glow, speed and notice time for the on-screen animations.
+fn apply_look(s: &Settings) {
+    pady_overlay::set_look(pady_overlay::Look { glow: s.glow(), speed: s.anim_speed, stay: s.notice_time });
+}
+
 /// "Copied" shows when its own switch and the Animations switch are on.
 fn copy_notice_wanted(s: &Settings) -> bool {
     s.animates(s.show_copy_notice)
@@ -573,6 +579,7 @@ fn spawn_watcher(app: AppHandle) {
                     match Config::load(&pady.config_path) {
                         Ok(cfg) if cfg != pady.config.get() => {
                             log::info!("config file changed on disk; reloading");
+                            apply_look(&cfg.settings);
                             pady.config.set(cfg);
                             pady.sync_tray();
                             changed = true;
@@ -778,6 +785,7 @@ fn main() {
             let web_overlay_needed = native_overlay.is_none();
             let toasts = pady_overlay::Toasts::spawn().map(Arc::new);
             let effects = pady_overlay::Effects::spawn();
+            apply_look(&config.get().settings);
             if let Some(toasts) = &toasts {
                 toasts.watch_clipboard(copy_notice_wanted(&config.get().settings));
             }

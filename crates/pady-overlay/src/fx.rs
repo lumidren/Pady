@@ -10,6 +10,7 @@
 
 use crate::fx_draw::{compose_touches, edge_glow, fingertip, orient, pad_background, Edge, EdgeMotion};
 use crate::layout::{px, scale_for};
+use crate::look::look;
 use crate::windows::{monitor_under_cursor, Dib};
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -409,7 +410,7 @@ impl Fx {
         let now = Instant::now();
         let dt = now.duration_since(self.last).as_secs_f32().min(0.05);
         self.last = now;
-        self.draw(dt);
+        self.draw(dt * look().speed);
         log::trace!(
             "fx frame: {:.2} ms since the last, drawn in {:.2} ms (glow {:.2}, touches {:.2})",
             dt * 1000.0,
@@ -423,7 +424,8 @@ impl Fx {
         // The glow: same bitmap every frame, only opacity and position change.
         self.motion.step(dt);
         let layer = self.glow_key.and_then(|key| self.glows.get(&key).map(|l| (key.0, l)));
-        let intensity = self.motion.intensity();
+        // The swipe glow is all glow: its strength scales it, and 0 hides it.
+        let intensity = (self.motion.intensity() * look().glow).min(1.0 / 0.92);
         match layer {
             Some((edge, layer)) if self.motion.active() && intensity > 0.0 => {
                 let m = self.monitor;

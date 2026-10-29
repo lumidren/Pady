@@ -21,6 +21,7 @@ mod fx_draw;
 mod glow;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod layout;
+mod look;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod notice;
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -65,6 +66,8 @@ impl Overlay {
 }
 
 // Dropping an `Overlay` drops `inner`, which stops the thread and destroys the window.
+
+pub use look::{set_look, Look};
 
 /// A small notice in the top-right corner of the screen.
 #[derive(Clone, Debug, PartialEq, Eq)]
