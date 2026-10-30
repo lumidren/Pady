@@ -14,7 +14,7 @@ use crossbeam_channel::Sender;
 use pady_actions::Conflict;
 use pady_core::engine::Observer;
 use pady_core::{
-    Action, Config, Engine, EngineEvent, Level, NotAGlyph, Preset, Settings, SharedConfig, TouchFrame, PRESETS,
+    backups, Action, Config, Engine, EngineEvent, Level, NotAGlyph, Preset, Settings, SharedConfig, TouchFrame, PRESETS,
 };
 use pady_input::{DeviceInfo, InputHandle};
 use serde::Serialize;
@@ -102,6 +102,7 @@ impl Pady {
     /// Persist and activate a config, then tell every listener.
     fn apply(&self, app: &AppHandle, mut config: Config) -> Result<AppState, String> {
         config.normalize();
+        self.backup(false);
         config.save(&self.config_path).map_err(|e| e.to_string())?;
         *lock(&self.config_mtime) = modified(&self.config_path);
         apply_look(&config.settings);
@@ -110,6 +111,15 @@ impl Pady {
         let state = self.snapshot();
         let _ = app.emit("pady://state", &state);
         Ok(state)
+    }
+
+    /// Copy the config on disk before it's replaced (see `backups`).
+    fn backup(&self, force: bool) {
+        match backups::snapshot(&self.config_path, force) {
+            Ok(Some(path)) => log::info!("backed up the config to {}", path.display()),
+            Ok(None) => {}
+            Err(e) => log::warn!("couldn't back up the config: {e}"),
+        }
     }
 
     fn sync_tray(&self) {
@@ -150,6 +160,41 @@ fn reset_config(app: AppHandle, pady: State<Pady>) -> Result<AppState, String> {
     // Resetting gestures shouldn't replay the first-run tutorial.
     let mut config = Config::default();
     config.settings.onboarded = pady.config.get().settings.onboarded;
+    pady.backup(true);
+    pady.apply(&app, config)
+}
+
+/// One saved copy of the config, as the Settings page lists it.
+#[derive(Serialize)]
+struct BackupInfo {
+    id: u64,
+    gestures: usize,
+    glyphs: usize,
+    profiles: usize,
+}
+
+/// The saved copies of the config, newest first. Unreadable ones are left out.
+#[tauri::command]
+fn list_backups(pady: State<Pady>) -> Vec<BackupInfo> {
+    backups::list(&pady.config_path)
+        .into_iter()
+        .filter_map(|b| {
+            let cfg = Config::load(&b.path).ok()?;
+            let gestures = cfg.bindings.iter().filter(|x| !x.action.is_none()).count();
+            Some(BackupInfo { id: b.id, gestures, glyphs: cfg.glyphs.len(), profiles: cfg.profiles.len() })
+        })
+        .collect()
+}
+
+/// Bring back a saved copy. The current config is copied first, so a restore
+/// can itself be undone.
+#[tauri::command]
+fn restore_backup(app: AppHandle, pady: State<Pady>, id: u64) -> Result<AppState, String> {
+    let backup = backups::find(&pady.config_path, id).ok_or("that backup no longer exists")?;
+    let mut config = Config::load(&backup.path).map_err(|e| e.to_string())?;
+    // A copy from before the tutorial shouldn't replay it.
+    config.settings.onboarded = pady.config.get().settings.onboarded;
+    pady.backup(true);
     pady.apply(&app, config)
 }
 
@@ -160,6 +205,7 @@ fn apply_preset(app: AppHandle, pady: State<Pady>, id: String) -> Result<AppStat
     if !config.apply_preset(&id) {
         return Err(format!("unknown preset `{id}`"));
     }
+    pady.backup(true);
     pady.apply(&app, config)
 }
 
@@ -280,6 +326,11 @@ async fn detect_app(timeout_ms: u64) -> Option<String> {
 // Setup
 
 fn load_config(path: &Path) -> Config {
+    // One copy per launch (identical ones are skipped), so there's always a
+    // known-good state from before this run.
+    if let Err(e) = backups::snapshot(path, true) {
+        log::warn!("couldn't back up the config: {e}");
+    }
     match Config::load_or_create(path) {
         Ok(cfg) => cfg,
         Err(e) => {
@@ -788,6 +839,8 @@ fn main() {
             save_config,
             set_enabled,
             reset_config,
+            list_backups,
+            restore_backup,
             set_autostart,
             test_action,
             set_live,

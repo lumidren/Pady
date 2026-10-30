@@ -778,6 +778,10 @@ a { color: var(--accent-text); }
 @keyframes modal-in { from { opacity: 0; transform: translate(-50%, -46%) scale(.97); } }
 .modal h3 { font-size: 16px; font-weight: 650; margin-bottom: 6px; }
 .modal p { color: var(--text-2); font-size: 13px; }
+.modal--wide { width: min(480px, calc(100vw - 32px)); }
+.backup-list { list-style: none; margin: 14px 0 0; padding: 0; max-height: min(360px, 55vh); overflow-y: auto; border-top: 1px solid var(--border); }
+.backup-row { display: flex; align-items: center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--border); }
+.backup-row .row-text { flex: 1; min-width: 0; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
 /* ---------- Toasts ---------- */

@@ -11,6 +11,8 @@
     "allow-save-config",
     "allow-set-enabled",
     "allow-reset-config",
+    "allow-list-backups",
+    "allow-restore-backup",
     "allow-set-autostart",
     "allow-test-action",
     "allow-record-glyph",

@@ -6,6 +6,8 @@ const COMMANDS: &[&str] = &[
     "save_config",
     "set_enabled",
     "reset_config",
+    "list_backups",
+    "restore_backup",
     "set_autostart",
     "test_action",
     "set_live",

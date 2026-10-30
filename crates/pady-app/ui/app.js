@@ -2550,7 +2550,10 @@
               h('button', { class: 'btn btn--sm', type: 'button', onClick: openConfigFolder }, ico('folder', 14), 'Open folder'),
               h('button', { class: 'btn btn--sm', type: 'button', onClick: copyPath }, ico('copy', 14), 'Copy path'),
               h('span', { style: { flex: '1' } }),
-              h('button', { class: 'btn btn--sm btn--danger', type: 'button', onClick: resetConfig }, ico('reset', 14), 'Reset to defaults'))),
+              h('button', { class: 'btn btn--sm btn--danger', type: 'button', onClick: resetConfig }, ico('reset', 14), 'Reset to defaults')),
+            h('div', { class: 'row' },
+              h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Backups'), h('div', { class: 'row-sub' }, 'Pady keeps a copy of your gestures before every change, so you can go back.')),
+              h('button', { class: 'btn btn--sm', type: 'button', onClick: openBackups }, ico('reset', 14), 'Restore a backup'))),
           noticesPanel(),
           animationsPanel(),
           panel('touchpad', 'Touchpad', 'Detected input devices', setUI.devices))));
@@ -2815,10 +2818,57 @@
     }
   }
 
+  /** "13 gestures · 2 glyphs" for a backup. */
+  function backupSummary(b) {
+    const n = (count, one) => `${count} ${one}${count === 1 ? '' : 's'}`;
+    return [n(b.gestures, 'gesture'), b.glyphs ? n(b.glyphs, 'glyph') : null, b.profiles ? n(b.profiles, 'app profile') : null].filter(Boolean).join(' · ');
+  }
+
+  /** The saved copies of the config, newest first, each with a Restore button. */
+  async function openBackups() {
+    let list;
+    try { list = await call('list_backups', null, { errorTitle: 'Couldn’t read the backups' }); } catch (_) { return; }
+    const root = $('#overlay-root');
+    const prev = document.activeElement;
+    const when = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    const backdrop = h('div', { class: 'backdrop modal-backdrop', onClick: () => close() });
+    const closeBtn = h('button', { class: 'btn', type: 'button', onClick: () => close() }, 'Close');
+    const rows = list.length
+      ? h('ul', { class: 'backup-list' }, list.map((b) => h('li', { class: 'backup-row' },
+          h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, when.format(new Date(b.id))), h('div', { class: 'row-sub' }, backupSummary(b))),
+          h('button', { class: 'btn btn--sm', type: 'button', onClick: () => restore(b) }, 'Restore'))))
+      : h('p', null, 'No backups yet. Pady makes one the next time your gestures change.');
+    const modal = h('div', { class: 'modal modal--wide', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modal-title' },
+      h('h3', { id: 'modal-title' }, 'Restore a backup'),
+      h('p', null, 'Your current gestures are backed up first, so you can undo a restore.'),
+      rows,
+      h('div', { class: 'modal-actions' }, closeBtn));
+    modal.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); close(); }
+      if (e.key === 'Tab') trapTab(e, modal);
+    });
+    root.append(backdrop, modal);
+    setInert(true);
+    closeBtn.focus();
+    function close() {
+      backdrop.remove(); modal.remove();
+      if (!$('.drawer', root) && !tour.open) setInert(false);
+      if (prev && prev.focus) prev.focus();
+    }
+    async function restore(b) {
+      try {
+        setUI.pending = {};
+        applyState(await call('restore_backup', { id: b.id }, { errorTitle: 'Couldn’t restore' }));
+        close();
+        toast({ title: 'Backup restored', text: `Back to ${when.format(new Date(b.id))}: ${backupSummary(b)}.` });
+      } catch (_) { /* toast shown */ }
+    }
+  }
+
   async function resetConfig() {
     const ok = await confirmDialog({
       title: 'Reset Pady to defaults?',
-      text: 'All your gesture bindings and tuning will be replaced with the defaults. This can’t be undone.',
+      text: 'All your gesture bindings and tuning will be replaced with the defaults. You can bring them back from Backups.',
       confirm: 'Reset everything',
       danger: true,
     });

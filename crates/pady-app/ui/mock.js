@@ -440,6 +440,15 @@
     },
     set_enabled: ({ enabled }) => { state.config.settings.enabled = !!enabled; return snapshot(); },
     set_autostart: ({ enabled }) => { state.autostart = !!enabled; return snapshot(); },
+    list_backups: () => {
+      const hour = 3600e3, now = Date.now();
+      return [
+        { id: now - 2 * hour, gestures: 13, glyphs: 2, profiles: 1 },
+        { id: now - 26 * hour, gestures: 11, glyphs: 0, profiles: 1 },
+        { id: now - 5 * 24 * hour, gestures: 8, glyphs: 0, profiles: 0 },
+      ];
+    },
+    restore_backup: () => snapshot(),
     reset_config: () => {
       // Like the backend: fresh gestures and settings, but the tutorial stays done.
       const onboarded = state.config.settings.onboarded;
