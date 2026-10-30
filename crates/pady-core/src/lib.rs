@@ -11,6 +11,7 @@
 //! Executors (in `pady-actions`) carry out [`Action`]s on the host OS.
 
 pub mod action;
+pub mod backups;
 pub mod config;
 pub mod engine;
 pub mod frame;
