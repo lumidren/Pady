@@ -12,7 +12,7 @@ use crate::action::Action;
 use crate::config::{Config, Resolution, SharedConfig};
 use crate::frame::{now_ms, TouchFrame};
 use crate::gesture::Gesture;
-use crate::glyphs::{self, NotAGlyph, StrokeTracker};
+use crate::glyphs::{self, Matcher, NotAGlyph, StrokeTracker};
 use crate::recognizer::{Recognizer, SwipeProgress};
 use crate::trigger::Trigger;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
@@ -456,6 +456,8 @@ struct EngineLoop {
     progress: Option<SwipeProgress>,
     /// Two-finger strokes, for glyphs.
     strokes: StrokeTracker,
+    /// The recorded glyphs, ready to match (rebuilt when the config changes).
+    matcher: Matcher,
     /// The next stroke is being recorded rather than matched.
     recording: Arc<AtomicBool>,
 }
@@ -469,6 +471,7 @@ impl EngineLoop {
         recording: Arc<AtomicBool>,
     ) -> Self {
         let config = shared.get();
+        let matcher = Matcher::new(&config.glyphs);
         EngineLoop {
             generation: shared.generation(),
             recognizer: Recognizer::new(config.recognizer_settings()),
@@ -481,6 +484,7 @@ impl EngineLoop {
             precise: false,
             progress: None,
             strokes: StrokeTracker::default(),
+            matcher,
             recording,
         }
     }
@@ -530,6 +534,7 @@ impl EngineLoop {
         }
         self.generation = generation;
         self.config = self.shared.get();
+        self.matcher = Matcher::new(&self.config.glyphs);
         self.recognizer.set_settings(self.config.recognizer_settings());
         if !self.config.settings.enabled {
             let gestures = self.recognizer.reset();
@@ -561,10 +566,10 @@ impl EngineLoop {
             (self.observer)(event);
             return;
         }
-        if !self.config.settings.enabled || self.config.glyphs.is_empty() {
+        if !self.config.settings.enabled || self.matcher.is_empty() {
             return;
         }
-        if let Some((id, score)) = glyphs::best_match(&self.config.glyphs, path) {
+        if let Some((id, score)) = self.matcher.best(path) {
             log::debug!("two-finger glyph {id} ({score:.2})");
             self.handle(Gesture::Glyph { id }, t);
         }
