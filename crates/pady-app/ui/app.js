@@ -318,10 +318,22 @@
   // Glyphs (recorded two-finger gestures) are saved for a later release:
   // switch this on to show their page again.
   const GLYPHS_READY = false;
-  const PAGES = ['gestures', 'glyphs', 'live', 'settings', 'about'].filter((p) => GLYPHS_READY || p !== 'glyphs');
+  let PAGES = ['gestures', 'glyphs', 'live', 'settings', 'about'];
+
+  /** A pre-release version (`1.0.0-beta`): a beta build, installed by hand. */
+  const isBeta = () => /-/.test((store.app && store.app.version) || '');
+  /** "v1.0.0", or "Beta 1.0.0" for a beta. */
+  const versionLabel = (v) => (/-beta/i.test(v) ? 'Beta ' + v.split('-')[0] : 'v' + v);
+
+  /** Glyphs show in betas; in releases once they're ready. */
+  function syncGlyphsPage() {
+    if (GLYPHS_READY || isBeta() || !PAGES.includes('glyphs')) return;
+    $('.nav-item[data-page="glyphs"]').remove();
+    $('#page-glyphs').remove();
+    PAGES = PAGES.filter((p) => p !== 'glyphs');
+  }
 
   function initShell() {
-    if (!GLYPHS_READY) { $('.nav-item[data-page="glyphs"]').remove(); $('#page-glyphs').remove(); }
     $$('.nav-item').forEach((btn) => {
       btn.prepend(ico(btn.dataset.icon, 18));
       // The text label is hidden in the narrow icon rail, so name the button explicitly.
@@ -372,6 +384,7 @@
     const s = store.app;
     const enabled = !!s.config.settings.enabled;
     $('#app').classList.toggle('is-paused', !enabled);
+    $('#beta-badge').hidden = !isBeta();
     $('#master-switch').checked = enabled;
     $('#master-state').textContent = enabled ? 'On' : 'Paused';
     $('#master-hint').textContent = enabled ? 'Gestures active' : 'No actions run';
@@ -2846,7 +2859,7 @@
       h('div', { class: 'about-hero' },
         h('span', { class: 'logo-lg' }, logo),
         h('div', null,
-          h('h2', null, 'Pady', h('span', { class: 'badge badge--accent' }, 'v' + s.version)),
+          h('h2', null, 'Pady', h('span', { class: 'badge badge--accent' + (isBeta() ? ' badge--beta' : '') }, versionLabel(s.version))),
           h('p', null, 'Pady turns multi-finger touchpad gestures into actions: scrub the volume with a four-finger slide, play or pause with a three-finger tap, pinch to zoom, drag windows without pressing, or jump to an app or website with a single touch — and per-app profiles let the same gesture do something different in, say, your browser. It runs quietly in the tray and reads your touchpad directly, so it works in every app.'),
           h('div', { class: 'about-links' },
             h('button', { class: 'btn btn--sm btn--primary', type: 'button', onClick: () => openTutorial({ firstRun: false }) }, ico('graduation', 14), 'Show the tutorial'),
@@ -3477,6 +3490,12 @@
   }
 
   function updatesPanel() {
+    if (isBeta()) {
+      return h('section', { class: 'panel', style: { 'margin-bottom': '16px' } },
+        h('div', { class: 'panel-head' },
+          h('div', null, h('div', { class: 'panel-title' }, 'Updates'),
+            h('div', { class: 'panel-sub' }, `You have ${versionLabel(store.app.version)}. Betas don’t update themselves, so the stable release can’t replace this one by surprise. Install the next beta, or the stable release from lumidren.github.io/Pady, by hand.`))));
+    }
     const u = updates.available;
     const status = u ? `Pady ${u.version} is available.` : updates.checking ? 'Checking…' : updates.note || `You have Pady ${store.app.version}.`;
     const button = u && u.can_install
@@ -3583,13 +3602,14 @@
       // Everything comes from get_state: the window is rebuilt from scratch each time it opens.
       const state = await call('get_state', null, { errorTitle: 'Couldn’t load Pady’s state' });
       store.app = state;
+      syncGlyphsPage();
       renderShell();
       $('#boot').remove();
       syncLive(); // tells the backend "no frames" unless a page below asks for them
       route(PAGES.includes(initial) ? initial : 'gestures');
       // `=== false`: a backend without the field never shows the tutorial.
       if (state.config.settings.onboarded === false) openTutorial({ firstRun: true });
-      if (state.config.settings.check_updates !== false) checkUpdate(false);
+      if (state.config.settings.check_updates !== false && !isBeta()) checkUpdate(false);
       if (state.config.settings.onboarded !== false) offerCopyPaste();
     } catch (e) {
       $('#boot').replaceChildren(h('div', { class: 'empty' },

@@ -214,6 +214,11 @@ a { color: var(--accent-text); }
 .brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 6px; }
 .brand-mark { display: grid; filter: drop-shadow(0 4px 14px var(--accent-glow)); transition: filter .3s, opacity .3s; }
 .brand-word { font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: -0.02em; }
+.beta-badge {
+  padding: 2px 7px; border-radius: 6px; font-size: 10.5px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase;
+  color: #fff; background: linear-gradient(135deg, #f59e0b, #ec4899); box-shadow: 0 4px 14px -4px rgba(236, 72, 153, .6);
+}
+.badge--beta { background: linear-gradient(135deg, #f59e0b, #ec4899) !important; color: #fff !important; }
 .app.is-paused .brand-mark { filter: grayscale(1) opacity(.55); }
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
@@ -1519,7 +1524,7 @@ a { color: var(--accent-text); }
   :root { --sidebar-w: 64px; }
   .sidebar { padding: 16px 10px; align-items: center; }
   .brand { padding: 2px 0 6px; }
-  .brand-word, .nav-label, .device-pill .pill-text { display: none; }
+  .brand-word, .beta-badge, .nav-label, .device-pill .pill-text { display: none; }
   .nav { width: 100%; }
   .nav-item { justify-content: center; padding: 0; }
   .nav-item[aria-current="page"]::before { left: -10px; }
