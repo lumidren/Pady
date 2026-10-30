@@ -98,6 +98,7 @@
   }
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   for (const v of document.querySelectorAll('video.autoclip')) {
+    if ((v.closest('[data-youtube]')?.dataset.youtube || '').trim()) continue; // played from YouTube instead
     new IntersectionObserver(([e], io) => {
       if (!e.isIntersecting) return;
       v.preload = still ? 'metadata' : 'auto';
@@ -114,26 +115,30 @@
   }
 })();
 
-// With a YouTube link set (data-youtube on #main-video), the main video plays
-// from YouTube, which adapts to the connection. Until it's pressed, only the
+// A video with a YouTube link set (data-youtube on its frame) plays from
+// YouTube, which adapts to the connection. Until it's pressed, only the
 // poster shows: nothing is loaded from YouTube before then.
 (function () {
-  const frame = document.getElementById('main-video');
-  const id = frame && (frame.dataset.youtube || '').trim();
-  if (!id || !/^[\w-]{6,20}$/.test(id)) return;
-  const poster = frame.querySelector('video').getAttribute('poster');
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'yt-facade';
-  button.setAttribute('aria-label', 'Play Pady in 60 seconds (from YouTube)');
-  button.innerHTML = `<img src="${poster}" alt="" loading="lazy"><span class="yt-play"><svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg></span>`;
-  button.addEventListener('click', () => {
-    const iframe = document.createElement('iframe');
-    iframe.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
-    iframe.title = 'Pady in 60 seconds';
-    iframe.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
-    iframe.allowFullscreen = true;
-    frame.replaceChildren(iframe);
-  });
-  frame.replaceChildren(button);
+  for (const frame of document.querySelectorAll('.video-frame[data-youtube]')) {
+    const id = (frame.dataset.youtube || '').trim();
+    if (!/^[\w-]{6,20}$/.test(id)) continue;
+    const video = frame.querySelector('video');
+    const title = frame.dataset.title || 'Video';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'yt-facade';
+    button.setAttribute('aria-label', `Play ${title} (from YouTube)`);
+    button.innerHTML = `<img src="${video.getAttribute('poster')}" alt="" loading="lazy"><span class="yt-play"><svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg></span>`;
+    button.addEventListener('click', () => {
+      const iframe = document.createElement('iframe');
+      iframe.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
+      iframe.title = title;
+      iframe.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+      iframe.allowFullscreen = true;
+      video.replaceWith(iframe);
+      button.remove();
+    });
+    video.hidden = true;
+    frame.append(button);
+  }
 })();
