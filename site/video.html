@@ -171,6 +171,7 @@ body.export .screen { width: 1280px; height: 720px; aspect-ratio: auto; }
 .sh-art { width: 110px; height: 110px; border-radius: 14px; background: linear-gradient(135deg, #f59e0b, #ec4899 50%, #6366f1); flex: none; }
 .sh-bars { display: flex; align-items: flex-end; gap: 4px; height: 34px; margin-top: 12px; }
 .sh-bars i { width: 6px; border-radius: 3px; background: linear-gradient(#c4b5fd, #8b5cf6); display: block; }
+.soon-pill { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); padding: 6px 16px; border-radius: 999px; font-size: 15px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #fff; background: var(--grad); box-shadow: 0 8px 30px rgba(168, 85, 247, .45); }
 .sh-cards { position: absolute; top: 270px; left: 0; right: 0; display: flex; justify-content: center; gap: 20px; opacity: 0; }
 .sh-card { width: 200px; padding: 16px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); text-align: center; }
 .sh-card svg { display: block; margin: 0 auto 8px; border-radius: 12px; background: rgba(255, 255, 255, 0.03); }
@@ -214,7 +215,7 @@ body.export .screen { width: 1280px; height: 720px; aspect-ratio: auto; }
       { id: 'grid', title: '33 gestures', start: 4.5, end: 10.5, from: [5, 12] },
       { id: 'pick', title: 'Pick any action', start: 10.5, end: 19.5, from: [12, 24] },
       { id: 'copy', title: 'Copy and paste', start: 19.5, end: 26.5 },
-      { id: 'shapes', title: 'Glyphs', start: 26.5, end: 33.5 },
+      { id: 'shapes', title: 'Glyphs (soon)', start: 26.5, end: 33.5 },
       { id: 'apps', title: 'Per-app gestures', start: 33.5, end: 39.5, from: [30, 37] },
       { id: 'tune', title: 'Look and feel', start: 39.5, end: 45.5, from: [37, 44] },
       { id: 'drag', title: 'Three-finger drag', start: 45.5, end: 50.5, from: [44, 51] },
@@ -470,6 +471,7 @@ const nPasted = el('div', 'nt', SC, '<span class="nt-dot">⎘</span>Pasted');
 // ---- New: draw your own two-finger shapes ---------------------------------
 const SS = scene('shapes');
 header(SS, 'Glyphs: draw your <span class="grad-text">own gestures.</span>', 'Record a glyph with two fingers once. Draw it again to run it.');
+const ssSoon = el('div', 'soon-pill', SS, 'Coming soon');
 const ssBody = el('div', 'body', SS);
 ssBody.style.top = '230px';
 const ssRow = el('div', 'cp-row', ssBody);
