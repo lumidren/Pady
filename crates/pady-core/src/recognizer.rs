@@ -1349,4 +1349,31 @@ mod tests {
         assert!(took < budget, "{} frames took {took:?}", frames.len());
         assert!(gestures > 1_000, "the frames should make gestures, made {gestures}");
     }
+
+    /// Every frame on its own, not just the total: a rare slow frame is a
+    /// stutter. Along with the recognizer, each frame also feeds the
+    /// two-finger stroke tracker, as in the engine.
+    #[test]
+    fn no_frame_takes_long() {
+        let frames = mixed_frames(50_000);
+        let mut cfg = crate::Config::default();
+        cfg.set_binding(crate::Trigger::Pinch(4, PinchDirection::Out), crate::Action::Mute, false);
+        let mut rec = Recognizer::new(cfg.recognizer_settings());
+        let mut strokes = crate::glyphs::StrokeTracker::default();
+        let mut times: Vec<std::time::Duration> = Vec::with_capacity(frames.len());
+        for f in &frames {
+            let start = std::time::Instant::now();
+            std::hint::black_box(rec.update(f));
+            std::hint::black_box(rec.tick(f.time_ms));
+            std::hint::black_box(strokes.update(f));
+            times.push(start.elapsed());
+        }
+        times.sort();
+        let at = |q: f64| times[((times.len() - 1) as f64 * q) as usize];
+        let mean = times.iter().sum::<std::time::Duration>() / times.len() as u32;
+        eprintln!("per frame: mean {mean:?}, median {:?}, p99 {:?}, max {:?}", at(0.5), at(0.99), at(1.0));
+        // Touchpads send a frame every 7-8 ms; one frame's work is microseconds.
+        let p99 = std::time::Duration::from_micros(if cfg!(debug_assertions) { 2_000 } else { 100 });
+        assert!(at(0.99) < p99, "p99 {:?}", at(0.99));
+    }
 }
