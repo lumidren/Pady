@@ -73,6 +73,32 @@ h1 { font-size: clamp(44px, 8vw, 84px); font-weight: 800; }
   background: #000; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
 }
 .video-frame video { display: block; width: 100%; height: auto; }
+.video-frame { position: relative; }
+.frame-badge {
+  position: absolute; top: 14px; left: 14px; z-index: 1; padding: 6px 14px; border-radius: 999px;
+  font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #fff;
+  background: var(--grad); box-shadow: 0 8px 26px rgba(124, 108, 255, 0.45); pointer-events: none;
+}
+.soon-link {
+  display: inline-flex; align-items: center; gap: 10px; margin-top: 18px; padding: 7px 16px 7px 7px; border-radius: 999px;
+  color: var(--text-2); font-size: 14px; background: var(--surface); border: 1px solid var(--border);
+}
+.soon-link:hover { color: var(--text); text-decoration: none; border-color: rgba(124, 108, 255, 0.5); }
+.soon-tag {
+  padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: #fff; background: var(--grad);
+}
+/* The main video from YouTube: a poster and a play button until it's pressed. */
+.yt-facade { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; cursor: pointer; background: #000; }
+.yt-facade img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.yt-play {
+  position: absolute; left: 50%; top: 50%; width: 78px; height: 78px; margin: -39px; border-radius: 50%;
+  background: var(--grad); display: grid; place-items: center; box-shadow: 0 12px 40px rgba(124, 108, 255, 0.55);
+  transition: transform .2s;
+}
+.yt-facade:hover .yt-play { transform: scale(1.07); }
+.yt-play svg { width: 30px; height: 30px; margin-left: 4px; fill: #fff; }
+.video-frame iframe { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }
 .section > .eyebrow { text-align: center; margin-bottom: 12px; }
 .demo-frame {
   margin: 40px auto 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border);

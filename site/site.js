@@ -89,11 +89,21 @@
     .catch(() => {});
 })();
 
-// The feature clips play on their own, muted, while they're on screen,
-// unless motion is reduced.
+// The feature clips download only once you scroll near them, then play on
+// their own, muted, while they're on screen (unless motion is reduced).
 (function () {
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) return;
+  if (!('IntersectionObserver' in window)) {
+    document.querySelectorAll('video.autoclip').forEach((v) => { v.preload = 'metadata'; });
+    return;
+  }
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   for (const v of document.querySelectorAll('video.autoclip')) {
+    new IntersectionObserver(([e], io) => {
+      if (!e.isIntersecting) return;
+      v.preload = still ? 'metadata' : 'auto';
+      io.disconnect();
+    }, { rootMargin: '700px 0px' }).observe(v);
+    if (still) continue;
     let userPaused = false;
     v.addEventListener('pause', () => { if (v.dataset.auto !== 'pause') userPaused = true; delete v.dataset.auto; });
     v.addEventListener('play', () => { userPaused = false; });
@@ -102,4 +112,28 @@
       else if (!e.isIntersecting && !v.paused) { v.dataset.auto = 'pause'; v.pause(); }
     }, { threshold: 0.35 }).observe(v);
   }
+})();
+
+// With a YouTube link set (data-youtube on #main-video), the main video plays
+// from YouTube, which adapts to the connection. Until it's pressed, only the
+// poster shows: nothing is loaded from YouTube before then.
+(function () {
+  const frame = document.getElementById('main-video');
+  const id = frame && (frame.dataset.youtube || '').trim();
+  if (!id || !/^[\w-]{6,20}$/.test(id)) return;
+  const poster = frame.querySelector('video').getAttribute('poster');
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'yt-facade';
+  button.setAttribute('aria-label', 'Play Pady in 60 seconds (from YouTube)');
+  button.innerHTML = `<img src="${poster}" alt="" loading="lazy"><span class="yt-play"><svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg></span>`;
+  button.addEventListener('click', () => {
+    const iframe = document.createElement('iframe');
+    iframe.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
+    iframe.title = 'Pady in 60 seconds';
+    iframe.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+    iframe.allowFullscreen = true;
+    frame.replaceChildren(iframe);
+  });
+  frame.replaceChildren(button);
 })();
