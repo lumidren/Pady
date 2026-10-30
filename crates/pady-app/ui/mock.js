@@ -41,8 +41,8 @@
     enabled: true, tap_max_ms: 220, tap_slop_mm: 4.0, multi_tap_ms: 300, swipe_threshold_mm: 10.0, swipe_step_mm: 7.0,
     pinch_threshold_mm: 8.0, hold_ms: 600, drag_speed: 9.0, drag_acceleration: 1.0, drag_release_ms: 350,
     show_overlay: linux, pause_in_fullscreen: true, show_copy_notice: true, onboarded: false, check_updates: true, autostart_configured: true,
-    animations: true, anim_swipe_glow: true, anim_hints: false, anim_pinch: true, anim_notices: true, anim_touches: false,
-    anim_previews: true, anim_mirror: true, anim_celebrate: true, anim_language: true,
+    animations: true, anim_swipe_glow: false, anim_hints: false, anim_pinch: true, anim_notices: true, anim_touches: false,
+    anim_previews: false, anim_mirror: false, anim_celebrate: false, anim_language: true,
     anim_glow: true, glow_strength: 1.0, anim_speed: 1.0, notice_time: 1.0,
   };
   const DEFAULT_BINDINGS = [
