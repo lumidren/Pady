@@ -59,6 +59,9 @@ pub struct Settings {
     /// "Pasted", "Screenshot", track changes and other actions you can't
     /// otherwise see, as corner notices (Windows).
     pub anim_notices: bool,
+    /// A "Screenshot" corner notice when a gesture takes one (Windows). Off
+    /// by default: the screenshot tool shows itself.
+    pub anim_screenshot: bool,
     /// Glowing dots that follow your fingers in a small touchpad in the
     /// corner, for recording tutorials (Windows).
     pub anim_touches: bool,
@@ -112,6 +115,7 @@ impl Default for Settings {
             anim_hints: false,
             anim_pinch: true,
             anim_notices: true,
+            anim_screenshot: false,
             anim_touches: false,
             anim_previews: false,
             anim_mirror: false,
@@ -772,6 +776,7 @@ mod tests {
         let s = Settings::default();
         assert!(s.show_copy_notice && s.anim_language && s.anim_notices && s.anim_pinch, "the corner notices");
         assert!(!s.anim_hints, "hints are for learning");
+        assert!(!s.anim_screenshot, "the screenshot tool shows itself");
         for (name, on) in [
             ("swipe glow", s.anim_swipe_glow),
             ("touches", s.anim_touches),

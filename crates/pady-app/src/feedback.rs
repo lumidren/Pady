@@ -56,13 +56,11 @@ pub fn notice_for(s: &Settings, gesture: &Gesture, trigger: Option<&str>, action
         let gesture = trigger.and_then(|t| t.parse::<Trigger>().ok()).map(Trigger::label)?;
         return Some(Notice::Text { text: format!("{gesture} · {action}"), icon: Icon::Touch });
     }
-    if s.anim_notices {
-        if matches!(action, "Play / pause" | "Next track" | "Previous track" | "Stop") {
-            return Some(Notice::Text { text: action.to_string(), icon: Icon::Music });
-        }
-        if is_combo(action, &["win+shift+s", "printscreen", "win+printscreen"]) {
-            return Some(Notice::Text { text: "Screenshot".into(), icon: Icon::Camera });
-        }
+    if s.anim_notices && matches!(action, "Play / pause" | "Next track" | "Previous track" | "Stop") {
+        return Some(Notice::Text { text: action.to_string(), icon: Icon::Music });
+    }
+    if s.anim_screenshot && is_combo(action, &["win+shift+s", "printscreen", "win+printscreen"]) {
+        return Some(Notice::Text { text: "Screenshot".into(), icon: Icon::Camera });
     }
     None
 }
@@ -134,6 +132,9 @@ mod tests {
         let media = notice_for(&s, &tap, Some("tap:3"), Some("Next track"));
         assert_eq!(media, Some(Notice::Text { text: "Next track".into(), icon: Icon::Music }));
         let shot = notice_for(&s, &tap, Some("tap:3"), Some("Press win+shift+s"));
+        assert_eq!(shot, None, "the screenshot notice is off by default");
+        let on = Settings { anim_screenshot: true, ..Settings::default() };
+        let shot = notice_for(&on, &tap, Some("tap:3"), Some("Press win+shift+s"));
         assert_eq!(shot, Some(Notice::Text { text: "Screenshot".into(), icon: Icon::Camera }));
         assert_eq!(notice_for(&s, &tap, Some("tap:3"), Some("Press win+d")), None);
         assert_eq!(notice_for(&s, &tap, Some("tap:3"), None), None, "nothing ran");

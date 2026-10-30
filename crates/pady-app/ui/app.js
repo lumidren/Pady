@@ -2430,7 +2430,7 @@
   const SETTING_DEFAULTS = {
     tap_max_ms: 220, tap_slop_mm: 4, multi_tap_ms: 300, swipe_threshold_mm: 10, swipe_step_mm: 7, pinch_threshold_mm: 8,
     hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true, show_copy_notice: true, check_updates: true,
-    animations: true, anim_swipe_glow: false, anim_hints: false, anim_pinch: true, anim_notices: true, anim_touches: false,
+    animations: true, anim_swipe_glow: false, anim_hints: false, anim_pinch: true, anim_notices: true, anim_screenshot: false, anim_touches: false,
     anim_previews: false, anim_mirror: false, anim_celebrate: false, anim_language: true,
     anim_glow: true, glow_strength: 1, anim_speed: 1, notice_time: 1,
   };
@@ -2581,7 +2581,8 @@
       setUI.noticePanel = panel('info', 'Notices', 'The small pill in the top-right corner that tells you what happened',
         subRow('show_copy_notice', '“Copied” and “Pasted”', 'When you copy, or paste with a gesture. Pady is told that you copied, never what.', true),
         subRow('anim_language', 'Keyboard language', 'Switch your keyboard language and the pill names it, like “Arabic” or “English”.', true),
-        subRow('anim_notices', 'Action notices', 'Screenshots, play/pause and track changes, since there’s nothing else to see.', true),
+        subRow('anim_notices', 'Media notices', 'Play/pause and track changes, since there’s nothing else to see.', true),
+        subRow('anim_screenshot', 'Screenshot', 'Says “Screenshot” when a gesture takes one.', true),
         subRow('anim_pinch', 'Pinch steps', 'Counts each zoom step while you pinch.', true),
         subRow('anim_hints', 'Gesture hints', 'Names each gesture and what it did. Handy while you learn your gestures.', true),
         subRow('anim_glow', 'Glow', 'The soft purple glow around the pill and the highlights in this window. Off keeps everything flat.'),
