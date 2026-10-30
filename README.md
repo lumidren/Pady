@@ -41,7 +41,7 @@
 - **Three-finger drag on Windows.** Move windows and select text without pressing the touchpad, like on a Mac.
 - **Scrub, don't spam.** Keep sliding and volume, brightness or zoom keeps stepping. An on-screen pill shows the level without ever stealing focus.
 - **Per-app profiles.** Swipes switch browser tabs in Chrome and desktops everywhere else. Pady can detect the app for you.
-- **Feedback you can see.** A soft glow grows at the screen edge your swipe is heading for, pinches count their zoom steps, and actions with nothing to see get a small notice. Every animation has its own switch, one switch turns them all off, and you can set the glow's strength, the speed and how long notices stay.
+- **Feedback you can see.** A small pill in the corner says what happened: "Copied", "Pasted", the keyboard language you switched to, a screenshot taken, a track skipped. If you like motion, turn on the swipe glow, live touches and more under Animations; they start off, and one switch turns them all on or off.
 - **Beginner friendly.** A first-run tutorial checks your touchpad, turns off clashing OS gestures, offers starter presets and lets you practise.
 - **Keeps itself up to date.** A new version is one click away, from the tray or the app.
 - **Light and private.** Written in Rust. In the tray it's one ~20 MB process that uses no CPU while idle, and it has no telemetry and no accounts.

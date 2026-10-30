@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Switch keyboard language** is a new action for any gesture. The corner pill names the language you switched to.
+
+### Changed
+
+- **Calmer by default.** New installs show the corner notices (Copied, Pasted, keyboard language, actions, pinch steps) and keep everything else off: swipe glow, touches, card previews, the live touchpad and celebrations. Settings now has a Notices section for the pill, separate from Animations; the Animations switch no longer turns the notices off. Settings you've already saved stay as they are.
+
 ## 1.0.0 (2026-10-29)
 
 The first stable release.
