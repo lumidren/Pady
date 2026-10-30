@@ -44,9 +44,18 @@ fn set_tray_text(app: &AppHandle, text: &str) {
     }
 }
 
+/// A beta (a version like `1.0.0-beta`) is installed by hand and never
+/// updated: the stable release of the same number would replace it.
+pub fn is_beta(app: &AppHandle) -> bool {
+    !app.package_info().version.pre.is_empty()
+}
+
 /// Ask GitHub for a newer release. A new one is announced in the tray and to
 /// the window (`pady://update`).
 pub async fn check(app: &AppHandle) -> Result<Option<Available>, String> {
+    if is_beta(app) {
+        return Ok(None);
+    }
     let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
     let found =
         update.map(|u| Available { version: u.version.clone(), notes: u.body.clone(), can_install: can_install() });
@@ -130,6 +139,10 @@ pub fn tray_clicked(app: &AppHandle) {
 
 /// Background checks: once shortly after start-up, then twice a day.
 pub fn spawn_checks(app: AppHandle) {
+    if is_beta(&app) {
+        log::info!("a beta: no update checks");
+        return;
+    }
     std::thread::Builder::new()
         .name("pady-updates".into())
         .spawn(move || {
