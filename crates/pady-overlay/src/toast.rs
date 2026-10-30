@@ -287,8 +287,8 @@ struct Toaster {
     /// copy announced twice (some apps write it in two goes) shows once.
     last_copy: u32,
     reported: bool,
-    /// The window in front and its keyboard layout, last time we looked.
-    language: Option<(isize, isize)>,
+    /// What the keyboard language has been in each window, to notice a switch.
+    language: LanguageWatch,
 }
 
 /// What Pady knows about a clipboard change; never its content.
@@ -353,15 +353,54 @@ impl ClipboardChange {
 }
 
 /// The window in front and its keyboard layout (an HKL), if there is one.
+/// The window in front and the keyboard layout of whatever has the keyboard
+/// in it. That's often not the window's own thread: in a window that hosts a
+/// browser view (Pady's own, many apps), typing goes to the view's process,
+/// and only its layout changes when the language is switched.
 fn foreground_layout() -> Option<(isize, isize)> {
     unsafe {
         let front = GetForegroundWindow();
         if front.is_invalid() {
             return None;
         }
-        let thread = GetWindowThreadProcessId(front, None);
+        let mut thread = GetWindowThreadProcessId(front, None);
+        let mut info = GUITHREADINFO { cbSize: size_of::<GUITHREADINFO>() as u32, ..Default::default() };
+        if GetGUIThreadInfo(thread, &mut info).is_ok() && !info.hwndFocus.is_invalid() {
+            let focus = GetWindowThreadProcessId(info.hwndFocus, None);
+            if focus != 0 {
+                thread = focus;
+            }
+        }
         let layout = GetKeyboardLayout(thread);
         (thread != 0 && !layout.is_invalid()).then_some((front.0 as isize, layout.0 as isize))
+    }
+}
+
+/// Decides when a keyboard layout seen in front is a switch worth naming.
+/// It remembers each window's layout: a window whose layout differs from last
+/// time was switched (even if something else was briefly in front). It also
+/// remembers the layout last in front, so with one language for all apps
+/// (Windows' default) moving to an app that just caught up says nothing.
+#[derive(Debug, Default)]
+struct LanguageWatch {
+    windows: Vec<(isize, isize)>,
+    in_front: Option<isize>,
+}
+
+impl LanguageWatch {
+    /// Windows remembered at most; the oldest are forgotten.
+    const REMEMBER: usize = 64;
+
+    /// `layout` is now in front, in `window`: the layout to name, if it's a switch.
+    fn see(&mut self, window: isize, layout: isize) -> Option<isize> {
+        let before = self.windows.iter().position(|w| w.0 == window).map(|i| self.windows.remove(i).1);
+        self.windows.push((window, layout));
+        if self.windows.len() > Self::REMEMBER {
+            self.windows.remove(0);
+        }
+        let switched = before.is_some_and(|b| b != layout) && self.in_front != Some(layout);
+        self.in_front = Some(layout);
+        switched.then_some(layout)
     }
 }
 
@@ -396,7 +435,7 @@ impl Toaster {
             anchor: (0, 0),
             watching: false,
             last_copy: 0,
-            language: None,
+            language: LanguageWatch::default(),
             reported: false,
         }
     }
@@ -469,20 +508,15 @@ impl Toaster {
                 let _ = KillTimer(self.hwnd, LANGUAGE_TIMER);
             }
         }
-        self.language = None;
+        self.language = LanguageWatch::default();
     }
 
-    /// Names the keyboard language when it changes in the window you're in.
-    /// Moving to a window with another language (Windows can keep one per
-    /// app) is not a switch, so that only updates what we remember.
+    /// Names the keyboard language when you switch it.
     fn check_language(&mut self) {
-        let Some(now) = foreground_layout() else { return };
-        if let Some((window, layout)) = self.language {
-            if window == now.0 && layout != now.1 {
-                self.show(Notice::Text { text: language_name(now.1), icon: Icon::Keyboard });
-            }
+        let Some((window, layout)) = foreground_layout() else { return };
+        if let Some(layout) = self.language.see(window, layout) {
+            self.show(Notice::Text { text: language_name(layout), icon: Icon::Keyboard });
         }
-        self.language = Some(now);
     }
 
     fn prepare(&mut self, style: Style) -> Result<()> {
@@ -798,6 +832,56 @@ mod tests {
                 assert_eq!(px_at(&mut r, 0.0, 0.0) >> 24, 0, "nothing in the far corner");
             }
         }
+    }
+
+    #[test]
+    fn a_language_switch_is_named_once() {
+        const EN: isize = 0x0409_0409;
+        const AR: isize = 0x0C01_0C01;
+        let mut w = LanguageWatch::default();
+        assert_eq!(w.see(1, EN), None, "first look: nothing to compare with");
+        assert_eq!(w.see(1, EN), None);
+        assert_eq!(w.see(1, AR), Some(AR), "switched in the same window");
+        assert_eq!(w.see(1, AR), None, "said once");
+        // One language for all apps: another app catches up when it comes to the front.
+        assert_eq!(w.see(2, AR), None, "a new window");
+        assert_eq!(w.see(1, EN), Some(EN), "switched back");
+        assert_eq!(w.see(2, EN), None, "window 2 caught up: not a switch of its own");
+    }
+
+    #[test]
+    fn a_switch_made_while_something_else_was_in_front_is_named() {
+        const EN: isize = 0x0409_0409;
+        const AR: isize = 0x0C01_0C01;
+        let mut w = LanguageWatch::default();
+        w.see(1, EN);
+        // The taskbar's language menu, say, is in front for a moment.
+        assert_eq!(w.see(99, EN), None);
+        assert_eq!(w.see(1, AR), Some(AR));
+    }
+
+    #[test]
+    fn apps_keeping_their_own_language_are_not_switches() {
+        const EN: isize = 0x0409_0409;
+        const AR: isize = 0x0C01_0C01;
+        let mut w = LanguageWatch::default();
+        // Windows set to keep a language per app: one app in Arabic, one in English.
+        w.see(1, AR);
+        w.see(2, EN);
+        for _ in 0..3 {
+            assert_eq!(w.see(1, AR), None);
+            assert_eq!(w.see(2, EN), None);
+        }
+        assert_eq!(w.see(2, AR), Some(AR), "a real switch in app 2");
+    }
+
+    #[test]
+    fn the_language_watch_forgets_old_windows() {
+        let mut w = LanguageWatch::default();
+        for window in 0..1_000 {
+            w.see(window, 0x0409_0409);
+        }
+        assert_eq!(w.windows.len(), LanguageWatch::REMEMBER);
     }
 
     #[test]
