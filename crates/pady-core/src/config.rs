@@ -41,10 +41,12 @@ pub struct Settings {
     /// Ignore gestures while a game runs in exclusive full screen (Windows).
     pub pause_in_fullscreen: bool,
     /// A small "Copied" notice in the top-right corner after every copy
-    /// (Windows). Pady is told that something was copied, never what.
+    /// (Windows). Pady is told that something was copied, never what. Like
+    /// the other corner notices, it has only its own switch.
     pub show_copy_notice: bool,
-    /// Master switch for Pady's animations and visual feedback. Each one
-    /// below also has its own switch.
+    /// Master switch for the moving animations (swipe glow, touches,
+    /// previews, the live touchpad, celebrations). Each also has its own
+    /// switch. Corner notices and the glow don't depend on it.
     pub animations: bool,
     /// A soft glow grows at the screen edge a swipe is heading for, and
     /// flashes when it fires (Windows).
@@ -105,14 +107,15 @@ impl Default for Settings {
             pause_in_fullscreen: true,
             show_copy_notice: true,
             animations: true,
-            anim_swipe_glow: true,
+            // The corner notices are on; the moving animations start off.
+            anim_swipe_glow: false,
             anim_hints: false,
             anim_pinch: true,
             anim_notices: true,
             anim_touches: false,
-            anim_previews: true,
-            anim_mirror: true,
-            anim_celebrate: true,
+            anim_previews: false,
+            anim_mirror: false,
+            anim_celebrate: false,
             anim_language: true,
             anim_glow: true,
             glow_strength: 1.0,
@@ -126,7 +129,8 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Is this animation on? (Its own switch and the master switch.)
+    /// Is this moving animation on? (Its own switch and the master switch.)
+    /// Corner notices go by their own switch alone.
     pub fn animates(&self, which: bool) -> bool {
         self.animations && which
     }
@@ -151,9 +155,10 @@ impl Settings {
         self.notice_time = fit(self.notice_time, 0.25, 5.0, d.notice_time);
     }
 
-    /// The glow multiplier for everything that glows (0 = no glow).
+    /// The glow multiplier for everything that glows (0 = no glow). The
+    /// notices keep their glow when the moving animations are off.
     pub fn glow(&self) -> f32 {
-        if self.animates(self.anim_glow) {
+        if self.anim_glow {
             self.glow_strength
         } else {
             0.0
@@ -760,6 +765,24 @@ mod tests {
         assert_eq!(cfg.settings.hold_ms, 900, "settings kept");
         assert_eq!(cfg.profiles.len(), 1, "profiles kept");
         assert!(!cfg.apply_preset("does-not-exist"));
+    }
+
+    #[test]
+    fn notices_start_on_and_moving_animations_start_off() {
+        let s = Settings::default();
+        assert!(s.show_copy_notice && s.anim_language && s.anim_notices && s.anim_pinch, "the corner notices");
+        assert!(!s.anim_hints, "hints are for learning");
+        for (name, on) in [
+            ("swipe glow", s.anim_swipe_glow),
+            ("touches", s.anim_touches),
+            ("previews", s.anim_previews),
+            ("live touchpad", s.anim_mirror),
+            ("celebrations", s.anim_celebrate),
+        ] {
+            assert!(!on, "{name} starts off");
+        }
+        // The notices keep their glow even with the moving animations off.
+        assert_eq!(Settings { animations: false, ..s }.glow(), 1.0);
     }
 
     #[test]

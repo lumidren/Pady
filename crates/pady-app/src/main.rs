@@ -399,14 +399,14 @@ fn apply_look(s: &Settings) {
     pady_overlay::set_look(pady_overlay::Look { glow: s.glow(), speed: s.anim_speed, stay: s.notice_time });
 }
 
-/// The keyboard language notice shows when its own switch and the Animations switch are on.
+/// The keyboard language notice shows when its own switch is on.
 fn language_notice_wanted(s: &Settings) -> bool {
-    s.animates(s.anim_language)
+    s.anim_language
 }
 
-/// "Copied" shows when its own switch and the Animations switch are on.
+/// "Copied" shows when its own switch is on.
 fn copy_notice_wanted(s: &Settings) -> bool {
-    s.animates(s.show_copy_notice)
+    s.show_copy_notice
 }
 
 /// The settings, re-read only when the config changes: the observer looks

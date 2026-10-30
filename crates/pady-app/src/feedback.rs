@@ -30,10 +30,10 @@ pub fn notice_for(s: &Settings, gesture: &Gesture, trigger: Option<&str>, action
         return None;
     }
     if is_combo(action, &["ctrl+v", "shift+insert"]) {
-        return (s.animates(s.show_copy_notice) && step(gesture) == 0).then_some(Notice::Pasted);
+        return (s.show_copy_notice && step(gesture) == 0).then_some(Notice::Pasted);
     }
     if let Gesture::Pinch { direction, step, .. } = gesture {
-        if !s.animates(s.anim_pinch) {
+        if !s.anim_pinch {
             return None;
         }
         let what = if is_combo(action, &["ctrl+equal", "ctrl+plus", "ctrl+="]) {
@@ -52,11 +52,11 @@ pub fn notice_for(s: &Settings, gesture: &Gesture, trigger: Option<&str>, action
     {
         return None;
     }
-    if s.animates(s.anim_hints) {
+    if s.anim_hints {
         let gesture = trigger.and_then(|t| t.parse::<Trigger>().ok()).map(Trigger::label)?;
         return Some(Notice::Text { text: format!("{gesture} · {action}"), icon: Icon::Touch });
     }
-    if s.animates(s.anim_notices) {
+    if s.anim_notices {
         if matches!(action, "Play / pause" | "Next track" | "Previous track" | "Stop") {
             return Some(Notice::Text { text: action.to_string(), icon: Icon::Music });
         }
@@ -122,8 +122,9 @@ mod tests {
         assert_eq!(hint, Some(Notice::Text { text: "4-finger swipe up · Press win+tab".into(), icon: Icon::Touch }));
         assert_eq!(notice_for(&on, &swipe(3), Some("swipe:4:up"), Some("Press win+tab")), None, "not on repeats");
         assert_eq!(notice_for(&on, &swipe(0), Some("swipe:4:up"), Some("Volume +4%")), None, "the pill shows levels");
+        // Corner notices go by their own switch, not the moving-animations one.
         let master_off = Settings { animations: false, ..on };
-        assert_eq!(notice_for(&master_off, &swipe(0), Some("swipe:4:up"), Some("Press win+tab")), None);
+        assert_eq!(notice_for(&master_off, &swipe(0), Some("swipe:4:up"), Some("Press win+tab")), hint);
     }
 
     #[test]
