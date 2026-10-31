@@ -106,7 +106,7 @@ impl Default for Settings {
             drag_release_ms: 350,
             // Windows shows its own volume slider; Linux desktops vary, so Pady's pill helps there.
             show_overlay: !cfg!(windows),
-            multi_tap_ms: 300,
+            multi_tap_ms: 250,
             pause_in_fullscreen: true,
             show_copy_notice: true,
             animations: true,
