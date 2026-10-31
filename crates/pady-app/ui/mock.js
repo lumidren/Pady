@@ -455,6 +455,12 @@
       ];
     },
     restore_backup: () => snapshot(),
+    translate_text: async ({ text }) => {
+      await new Promise((r) => setTimeout(r, 600));
+      if (!String(text || '').trim()) throw 'Type something to translate.';
+      const to = (state.languages || []).find((l) => l.code === state.config.settings.translate_to) || { code: 'en', name: 'English' };
+      return { text: '[' + to.name + '] ' + text, from: 'es', from_name: 'Spanish', to: to.code, to_name: to.name, engine: 'Preview', unchanged: false };
+    },
     reset_config: () => {
       // Like the backend: fresh gestures and settings, but the tutorial stays done.
       const onboarded = state.config.settings.onboarded;
