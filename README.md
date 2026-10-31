@@ -85,21 +85,26 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
-Download from the [latest release](https://github.com/lumidren/Pady/releases/latest):
+Download from the [latest release](https://github.com/lumidren/Pady/releases/latest). Sizes are for v1.0.0.
 
-| System | File | What happens |
-|---|---|---|
-| **Windows 10 / 11** | `Pady_<version>_x64-setup.exe` | Installs for you only, with no admin prompt, and adds Pady to the Start menu. If Microsoft WebView2 is missing, the installer downloads it. Nothing else is needed. |
-| Windows (managed PCs) | `Pady_<version>_x64_en-US.msi` | Per-machine install for Intune or Group Policy. |
-| **Ubuntu, Debian, Mint** | `Pady_<version>_amd64.deb` | `sudo apt install ./Pady_*_amd64.deb` pulls in every dependency and sets up touchpad access. |
-| **Fedora, openSUSE** | `Pady-<version>-1.x86_64.rpm` | `sudo dnf install ./Pady-*.x86_64.rpm`, same as the .deb. |
-| Any Linux | `Pady_<version>_amd64.AppImage` | `chmod +x` it and run. The tutorial's **Fix permissions** button sets up access and installs missing helper tools after one password prompt. |
+| System | File | Size | What happens |
+|---|---|---|---|
+| **Windows 10 / 11** | `Pady_<version>_x64-setup.exe` | 5.6 MB | Installs for you only, with no admin prompt, and adds Pady to the Start menu. If Microsoft WebView2 is missing, the installer downloads it. Nothing else is needed. |
+| Windows (managed PCs) | `Pady_<version>_x64_en-US.msi` | 7.3 MB | Per-machine install for Intune or Group Policy. |
+| **Ubuntu, Debian, Mint** | `Pady_<version>_amd64.deb` | 5.4 MB | `sudo apt install ./Pady_*_amd64.deb` pulls in every dependency and sets up touchpad access. |
+| **Fedora, openSUSE** | `Pady-<version>-1.x86_64.rpm` | 5.4 MB | `sudo dnf install ./Pady-*.x86_64.rpm`, same as the .deb. |
+| Any Linux | `Pady_<version>_amd64.AppImage` | 84 MB | `chmod +x` it and run. The tutorial's **Fix permissions** button sets up access and installs missing helper tools after one password prompt. |
+| Terminal tool only | `pady-cli-<version>-windows-x64.zip` or `-linux-x64.tar.gz` | about 1 MB | The optional [`pady-cli`](#command-line). |
+
+Every release also lists SHA-256 checksums for every file (`SHA256SUMS-windows.txt`, `SHA256SUMS-linux.txt`).
 
 > [!WARNING]
 > **Windows: turn off Windows' own touchpad gestures first**, or Windows and Pady will both react to the same swipe. Open **Settings › Bluetooth & devices › Touchpad**, then under **Three-finger gestures** and **Four-finger gestures** set **Swipes** and **Taps** to **Nothing**. Pady's first-run setup walks you through it.
 
 > [!NOTE]
-> Windows may show *"Windows protected your PC"* for new apps. Click **More info → Run anyway**. Each release lists SHA-256 checksums for every file.
+> The Windows installer is not code-signed yet (see the [code signing policy](#code-signing-policy)), so Windows may show *"Windows protected your PC"*. Click **More info › Run anyway**. You can compare the file with the published SHA-256 checksum first.
+
+**Uninstalling** works like any other app (Settings › Apps on Windows, your package manager on Linux). It also removes Pady from start-up, and can remove your settings.
 
 ## Quick start
 
@@ -108,52 +113,78 @@ Download from the [latest release](https://github.com/lumidren/Pady/releases/lat
 3. **Pick a starter preset**: Recommended, Like a Mac, Media, Productivity or Minimal.
 4. **Practise.** The tutorial ticks off each gesture as you do it.
 
-Then change anything: click a card on the **Gestures** page and choose what it does. Pady lives in the tray and starts with Windows (or Linux) by itself, so your gestures are always there. You can turn that off in Settings.
+Then change anything: click a card on the **Gestures** page and choose what it does, or press **Test** to try an action without the gesture. Pady lives in the tray and starts with your computer, so your gestures are always there. You can turn that off in Settings. To pause every gesture for a while, untick **Gestures on** in the tray menu.
 
 ## Gestures
 
-Every gesture works with 3, 4 or 5 fingers. Fewer fingers stay with your OS for pointing and scrolling.
+Every gesture works with 3, 4 or 5 fingers. One and two fingers stay with your OS for pointing and scrolling.
 
-| Gesture | Config name | Notes |
+| Gesture | Config name | How to do it |
 |---|---|---|
-| Tap | `tap:N` | Touch and lift quickly. |
-| Double tap | `doubletap:N` | Once a double or triple tap is bound, single taps wait a moment (300 ms by default) to tell them apart. |
-| Triple tap | `tripletap:N` | |
-| Hold | `hold:N` | Rest the fingers without moving (600 ms by default). |
-| Swipe | `swipe:N:up` · `down` · `left` · `right` | With **repeat**, it keeps firing as you keep sliding. |
-| Pinch | `pinch:N:in` · `out` | Fingers moving together or apart, with optional repeat. |
-| Drag | `drag:N` | Holds the left mouse button while the fingers move. Takes over swipes for that finger count. |
+| Tap | `tap:N` | Touch and lift within 220 ms, without moving more than 4 mm. |
+| Double tap | `doubletap:N` | Two taps, the second starting within 300 ms of the first lift. |
+| Triple tap | `tripletap:N` | Three taps in a row. |
+| Hold | `hold:N` | Rest the fingers without moving for 600 ms. |
+| Swipe | `swipe:N:up` · `down` · `left` · `right` | Slide 10 mm. With **repeat** it keeps firing every 7 mm as you keep sliding. |
+| Pinch | `pinch:N:in` · `out` | Close or open your hand by 8 mm. With **repeat** it keeps stepping as you keep pinching. |
+| Drag | `drag:N` | Slide, and Pady holds the left mouse button while the fingers move. Lift and put them back within 350 ms to keep dragging. |
+
+The numbers are the defaults; you can change all of them in Settings.
+
+**33 gestures:** 3 finger counts × 11 (tap, double tap, triple tap, hold, 4 swipes, 2 pinches, drag).
+
+A few rules keep them apart:
+
+- **Taps only wait when they have to.** If no double or triple tap is bound for that finger count, a tap fires the moment you lift. If one is bound, a single tap waits up to 300 ms to see whether another follows.
+- **Drag takes over swipes.** When `drag:3` is on, three fingers moving always drag, so three-finger swipes are not used. The app marks those cards.
+- **Pinches are only looked for when one is bound.** Then a hand that closes or opens more than it slides is a pinch, whatever its angle. Otherwise a sloppy swipe can never turn into a pinch.
 
 ## Actions
 
-| Action | What it does |
-|---|---|
-| Keyboard shortcut | Any combo, e.g. `ctrl+shift+t`, `win+d`, `alt+f4`. Record it straight from your keyboard. |
-| Volume ± / Mute | Exact steps on the default output device, with the level overlay. |
-| Brightness ± | Laptop screens (WMI on Windows; brightnessctl, sysfs or logind on Linux) and external monitors (DDC/CI). |
-| Media keys | Play/pause, next, previous, stop, and volume keys with the OS overlay. |
-| Open a link | In your default browser or a specific one (Chrome, Edge, Firefox, Brave). |
-| Launch an app | A program, path or URI such as `ms-settings:`. |
-| Switch to an app | Brings it to the front, minimises it if it's already in front, and launches it if it isn't running. |
-| Run a command | Anything your shell can run. |
-| Lock the screen | |
-| Drag | Three-finger drag style. Holds the left button while moving. |
+| Action | What it does | In the config file |
+|---|---|---|
+| Keyboard shortcut | Any combo, e.g. `ctrl+shift+t`, `win+d`, `alt+f4`. Record it straight from your keyboard. | `{ type = "keys", combo = "ctrl+shift+t" }` |
+| Volume up / down | Exact steps on the default output device. On Windows, Windows shows its own volume slider. | `{ type = "volume", step = 4 }` |
+| Mute | Toggles mute on the default output device. | `{ type = "mute" }` |
+| Brightness up / down | Laptop screens (WMI on Windows; brightnessctl, sysfs or logind on Linux) and external monitors (DDC/CI). | `{ type = "brightness", step = 10 }` |
+| Media keys | Play/pause, next, previous, stop, and the volume keys. | `{ type = "media", key = "play_pause" }` |
+| Open a link | In your default browser or a specific one (Chrome, Edge, Firefox, Brave). | `{ type = "open_url", url = "https://…", browser = "chrome" }` |
+| Launch an app | A program, path or URI such as `ms-settings:`. Browse for it, or type its name as it appears in Start. | `{ type = "launch", program = "notepad.exe" }` |
+| Switch to an app | Brings it to the front, minimises it if it's already in front, and launches it if it isn't running. | `{ type = "focus_or_launch", program = "chrome.exe" }` |
+| Run a command | Anything your shell can run (`cmd /C` on Windows, `sh -c` on Linux). | `{ type = "run", command = "…" }` |
+| Lock the screen | Locks your session. | `{ type = "lock" }` |
+| Drag | Three-finger drag style: holds the left button while the fingers move. For drag gestures. | `{ type = "drag" }` |
+| Switch keyboard language *(next update)* | Presses Win+Space, and a corner notice names the language, like "Arabic" or "English". | `{ type = "keys", combo = "win+space" }` |
+| Nothing | Switches a gesture off, for example inside one app. | `{ type = "none" }` |
+
+The gesture editor also has one-click choices for common jobs: zoom in and out, show desktop, task view (overview on Linux), next and previous desktop, screenshot, close window, open Chrome, open YouTube. They are shortcuts or actions from the table, picked to suit Windows or Linux.
 
 ## Starter presets
 
-| Preset | In short |
-|---|---|
-| **Recommended** | Three-finger drag; three-finger tap plays or pauses and double tap skips the track; four-finger swipes change volume and brightness; four-finger pinch zooms; three-finger pinch copies and pastes. |
-| **Like a Mac** | Three-finger drag, four-finger swipes for task view, the desktop and switching desktops, pinch to zoom, three-finger pinch to copy and paste. |
-| **Media** | Single, double and triple taps play, skip and go back; four-finger swipes change the volume and track. |
-| **Productivity** | Desktops, task view, screenshots and lock on four fingers, three-finger drag, and three-finger pinch to copy and paste. |
-| **Minimal** | Only three-finger drag. |
+Pick one in the tutorial or in Settings, or run `pady-cli config preset <id>`. A preset replaces the **All apps** gestures; your per-app profiles stay. A new install starts with **Recommended**.
 
-Pick one in the tutorial or in Settings, or run `pady-cli config preset media`.
+| Gesture | Recommended | Like a Mac | Media | Productivity | Minimal |
+|---|---|---|---|---|---|
+| 3-finger drag | Drag | Drag | Drag | Drag | Drag |
+| 3-finger tap | Play / pause | Play / pause | Play / pause | Play / pause | |
+| 3-finger double tap | Next track | | Next track | | |
+| 3-finger triple tap | | | Previous track | | |
+| 3-finger pinch in / out | Copy / paste | Copy / paste | | Copy / paste | |
+| 4-finger swipe up / down | Volume up / down (repeats) | Task view / show desktop | Volume up / down (repeats) | Task view / show desktop | |
+| 4-finger swipe left / right | Brightness down / up (repeats) | Next / previous desktop | Previous / next track | Next / previous desktop | |
+| 4-finger tap | Show desktop | | Mute | Screenshot | |
+| 4-finger hold | Lock | | | Lock | |
+| 4-finger pinch out / in | Zoom in / out (repeats) | Zoom in / out (repeats) | | Zoom in / out (repeats) | |
+
+Shortcuts follow your OS. On Windows, task view is `win+tab`, desktops are `win+ctrl+left/right` and a screenshot is `win+shift+s`. On Linux they are `win` (overview), `win+pageup/pagedown` and `printscreen`. Like on a Mac, fingers moving left bring in the desktop on the right.
+
+Preset ids are `recommended`, `macos`, `media`, `productivity` and `minimal`; `pady-cli presets` lists them.
 
 ## Per-app profiles
 
 A profile changes some gestures while specific apps are in front; everything else follows **All apps**. In the app, click **New profile** and use **Detect app**: switch to the app and Pady records its name. A gesture can also be switched off in an app.
+
+App names are matched loosely: `C:\Apps\Code.EXE`, `code.exe` and `Code` are the same app. `pady-cli app` prints the name of each app as you switch to it.
 
 ```toml
 [[profile]]
@@ -163,6 +194,10 @@ apps = ["chrome.exe", "msedge.exe", "firefox"]
 [[profile.binding]]
 trigger = "swipe:4:left"
 action = { type = "keys", combo = "ctrl+shift+tab" }   # previous tab
+
+[[profile.binding]]
+trigger = "swipe:4:right"
+action = { type = "keys", combo = "ctrl+tab" }         # next tab
 
 [[profile.binding]]
 trigger = "tap:4"
