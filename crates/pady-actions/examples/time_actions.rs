@@ -57,7 +57,10 @@ fn main() {
     let start = Instant::now();
     let app = exec.foreground_app();
     println!("  {:<22} {:>7.2} ms   ({})", "app in front", ms(start.elapsed()), app.as_deref().unwrap_or("none"));
-    let start = Instant::now();
-    let game = exec.fullscreen_game();
-    println!("  {:<22} {:>7.2} ms   ({game})", "full-screen game check", ms(start.elapsed()));
+    // Asked before every gesture: the first time for a window, then again.
+    for label in ["full-screen check", "  …again"] {
+        let start = Instant::now();
+        let game = exec.fullscreen_game();
+        println!("  {:<22} {:>7.2} ms   ({game})", label, ms(start.elapsed()));
+    }
 }
