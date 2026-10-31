@@ -180,7 +180,7 @@ async fn translate_text(pady: State<'_, Pady>, text: String) -> Result<translate
     let to = pady_core::languages::by_code(&s.translate_to)
         .or_else(|| pady_core::languages::by_code("en"))
         .ok_or("no language to translate into")?;
-    translate::translate(&text, to, &s.translate_engine, &s.deepl_key).await.map_err(|p| p.message())
+    translate::translate(&text, to, &s).await.map_err(|p| p.message())
 }
 
 /// One saved copy of the config, as the Settings page lists it.

@@ -172,7 +172,7 @@ fn begin(app: &AppHandle, text: String, target: isize, anchor: (f64, f64)) {
     popup.send(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let result = translate::translate(&text, to, &settings.translate_engine, &settings.deepl_key).await;
+        let result = translate::translate(&text, to, &settings).await;
         let view = match result {
             Ok(translation) => View::Done { rtl: languages::is_rtl(&translation.to), translation },
             Err(problem) => {

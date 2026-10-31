@@ -2,6 +2,7 @@
 //! user's own key). The pop-up that shows the result is in `popup.rs`.
 
 use pady_core::languages::{self, Language};
+use pady_core::Settings;
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::OnceLock;
@@ -48,10 +49,10 @@ impl Problem {
             }
             Problem::Offline => "Couldn't reach the translation service. Check your internet connection.".into(),
             Problem::FreeQuota => {
-                "The free translator's daily limit is used up. It resets tomorrow, or add a DeepL key in Settings."
+                "The free translator's daily limit is used up. It resets tomorrow, or add your email or a DeepL key on the Translator tab."
                     .into()
             }
-            Problem::DeeplKey => "DeepL didn't accept the key. Check it in Settings › Translator.".into(),
+            Problem::DeeplKey => "DeepL didn't accept the key. Check it on the Translator tab.".into(),
             Problem::DeeplQuota => "Your DeepL quota for this month is used up.".into(),
             Problem::Busy => "The translation service is busy. Try again in a moment.".into(),
             Problem::Other(e) => e.clone(),
@@ -122,20 +123,15 @@ pub fn detect(text: &str) -> Option<&'static str> {
 
 /// Translate `text` into `to` with the engine the settings choose. DeepL
 /// falls back to the free service for languages it doesn't offer.
-pub async fn translate(
-    text: &str,
-    to: &'static Language,
-    engine: &str,
-    deepl_key: &str,
-) -> Result<Translation, Problem> {
+pub async fn translate(text: &str, to: &'static Language, settings: &Settings) -> Result<Translation, Problem> {
     let text = text.trim();
     let chars = text.chars().count();
     if chars > MAX_CHARS {
         return Err(Problem::TooLong(chars));
     }
-    match (engine, to.deepl) {
-        ("deepl", Some(target)) if !deepl_key.is_empty() => deepl(text, to, target, deepl_key).await,
-        _ => free(text, to).await,
+    match (settings.translate_engine.as_str(), to.deepl) {
+        ("deepl", Some(target)) if !settings.deepl_key.is_empty() => deepl(text, to, target, &settings.deepl_key).await,
+        _ => free(text, to, &settings.translate_email).await,
     }
 }
 
@@ -154,7 +150,9 @@ fn done(text: String, from: Option<&str>, to: &Language, engine: &'static str, u
 // ---------------------------------------------------------------------------
 // MyMemory
 
-async fn free(text: &str, to: &Language) -> Result<Translation, Problem> {
+/// `email` (may be empty) is MyMemory's `de`: with it the daily limit is
+/// 50,000 characters instead of 5,000.
+async fn free(text: &str, to: &Language, email: &str) -> Result<Translation, Problem> {
     let from = detect(text);
     if from == Some(to.code) {
         return Ok(done(text.to_string(), from, to, "MyMemory", true));
@@ -162,8 +160,11 @@ async fn free(text: &str, to: &Language) -> Result<Translation, Problem> {
     let pair = format!("{}|{}", from.unwrap_or("autodetect"), to.code);
     let mut out = String::with_capacity(text.len());
     for (piece, gap) in chunks(text, FREE_CHUNK_BYTES) {
-        let response =
-            client().get(MYMEMORY).query(&[("q", piece), ("langpair", pair.as_str())]).send().await.map_err(net)?;
+        let mut request = client().get(MYMEMORY).query(&[("q", piece), ("langpair", pair.as_str())]);
+        if !email.is_empty() {
+            request = request.query(&[("de", email)]);
+        }
+        let response = request.send().await.map_err(net)?;
         let status = response.status().as_u16();
         let body: Value = response.json().await.map_err(net)?;
         out.push_str(&mymemory_text(status, &body)?);
@@ -398,7 +399,7 @@ mod tests {
     fn too_long_is_refused_before_any_request() {
         let to = languages::by_code("en").unwrap();
         let text = "a".repeat(MAX_CHARS + 1);
-        let result = tauri::async_runtime::block_on(translate(&text, to, "free", ""));
+        let result = tauri::async_runtime::block_on(translate(&text, to, &Settings::default()));
         assert_eq!(result, Err(Problem::TooLong(MAX_CHARS + 1)));
     }
 
@@ -407,9 +408,12 @@ mod tests {
     #[ignore]
     fn live_free_translation() {
         let to = languages::by_code("en").unwrap();
-        let t =
-            tauri::async_runtime::block_on(translate("Hola, ¿cómo estás? Hoy hace muy buen tiempo.", to, "free", ""))
-                .unwrap();
+        let t = tauri::async_runtime::block_on(translate(
+            "Hola, ¿cómo estás? Hoy hace muy buen tiempo.",
+            to,
+            &Settings::default(),
+        ))
+        .unwrap();
         println!("{t:?}");
         assert_eq!(t.from.as_deref(), Some("es"));
         assert!(t.text.to_lowercase().contains("how are you"), "{}", t.text);
