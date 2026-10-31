@@ -53,6 +53,8 @@ pub struct Popup {
     capturing: AtomicBool,
     /// Whether the window is on screen.
     shown: AtomicBool,
+    /// The user dragged it: it stays where they put it until it closes.
+    moved: AtomicBool,
     /// Bumped whenever the pop-up closes, so only the newest destroy timer acts.
     closings: AtomicU64,
     next_id: AtomicU64,
@@ -74,6 +76,7 @@ impl Popup {
 
     fn close(&self, app: &AppHandle) {
         self.shown.store(false, Ordering::SeqCst);
+        self.moved.store(false, Ordering::SeqCst);
         if let Some(window) = app.get_webview_window(LABEL) {
             let _ = window.hide();
             // The page plays its entrance again next time it's shown.
@@ -206,7 +209,12 @@ pub fn translate_ready(popup: tauri::State<Popup>) -> Option<Payload> {
 #[tauri::command]
 pub fn translate_layout(app: AppHandle, popup: tauri::State<Popup>, width: f64, height: f64) {
     let Some(window) = app.get_webview_window(LABEL) else { return };
-    let Some(anchor) = lock(&popup.job).as_ref().map(|j| j.anchor) else { return };
+    let Some(mut anchor) = lock(&popup.job).as_ref().map(|j| j.anchor) else { return };
+    // Dragged somewhere: keep its top-left there and only fit it on screen.
+    let kept = popup.moved.load(Ordering::SeqCst).then(|| window.outer_position().ok()).flatten();
+    if let Some(at) = kept {
+        anchor = (at.x as f64, at.y as f64);
+    }
     let monitor =
         app.monitor_from_point(anchor.0, anchor.1).ok().flatten().or_else(|| window.primary_monitor().ok().flatten());
     let Some(monitor) = monitor else { return };
@@ -217,9 +225,11 @@ pub fn translate_layout(app: AppHandle, popup: tauri::State<Popup>, width: f64, 
     let (right, bottom) = (left + area.size.width as f64, top + area.size.height as f64);
     let gap = 14.0 * scale;
     // Below and to the right of the cursor; above it if there's no room below.
-    let mut x = anchor.0 - 18.0 * scale;
-    let mut y = anchor.1 + gap;
-    if y + h > bottom - 8.0 {
+    let (mut x, mut y) = match kept {
+        Some(_) => anchor,
+        None => (anchor.0 - 18.0 * scale, anchor.1 + gap),
+    };
+    if kept.is_none() && y + h > bottom - 8.0 {
         y = anchor.1 - gap - h;
     }
     x = x.min(right - w - 8.0).max(left + 8.0);
@@ -233,7 +243,8 @@ pub fn translate_layout(app: AppHandle, popup: tauri::State<Popup>, width: f64, 
     }
 }
 
-/// A button in the pop-up: `copy`, `replace`, `retry` or `close`.
+/// A button in the pop-up: `copy`, `replace`, `retry` or `close`; or `drag`,
+/// pressed on the card to move it.
 #[tauri::command]
 pub fn translate_act(app: AppHandle, popup: tauri::State<Popup>, id: u64, kind: String) -> Result<(), String> {
     let (current, original, text, target) = {
@@ -250,6 +261,12 @@ pub fn translate_act(app: AppHandle, popup: tauri::State<Popup>, id: u64, kind: 
     }
     match kind.as_str() {
         "close" => popup.close(&app),
+        "drag" => {
+            popup.moved.store(true, Ordering::SeqCst);
+            if let Some(window) = app.get_webview_window(LABEL) {
+                window.start_dragging().map_err(|e| e.to_string())?;
+            }
+        }
         "copy" => {
             let text = text.ok_or("nothing to copy yet")?;
             pady_actions::copy_text(&text).map_err(|e| e.to_string())?;

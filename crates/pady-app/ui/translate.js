@@ -3,7 +3,8 @@
  * The backend sends what to show (`pady://translate`, or `translate_ready`
  * on load). After every render the page reports its size; the backend then
  * places the window by the cursor and shows it. Esc, a click elsewhere or
- * a quiet while closes it. Opened in a plain browser, it shows a demo. */
+ * a quiet while closes it. The header and footer drag it around. Opened in
+ * a plain browser, it shows a demo. */
 (() => {
   'use strict';
 
@@ -120,6 +121,18 @@
   }
 
   $('close').addEventListener('click', () => act('close'));
+
+  // Press on the header or the footer's empty space and drag to move it.
+  for (const handle of [card.querySelector('.head'), $('foot')]) {
+    handle.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || e.target.closest('button') || e.detail > 1) return;
+      e.preventDefault();
+      handle.classList.add('is-dragging');
+      act('drag');
+    });
+    handle.addEventListener('mouseup', () => handle.classList.remove('is-dragging'));
+    handle.addEventListener('mouseleave', () => handle.classList.remove('is-dragging'));
+  }
   copyBtn.addEventListener('click', () => act('copy'));
   replaceBtn.addEventListener('click', () => act('replace'));
   retryBtn.addEventListener('click', () => act('retry'));

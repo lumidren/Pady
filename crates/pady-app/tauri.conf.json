@@ -32,6 +32,8 @@
         "focus": false,
         "focusable": false,
         "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
         "shadow": false,
         "visible": false,
         "create": false
