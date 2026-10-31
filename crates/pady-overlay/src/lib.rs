@@ -141,6 +141,13 @@ impl Toasts {
         #[cfg(not(windows))]
         let _ = on;
     }
+
+    /// A gesture just ran and may have switched the keyboard language: check
+    /// closely for a moment, so its notice follows the switch at once.
+    pub fn language_may_change(&self) {
+        #[cfg(windows)]
+        self.inner.language_may_change();
+    }
 }
 
 /// Animations that follow the fingers: a glow at the screen edge a swipe is

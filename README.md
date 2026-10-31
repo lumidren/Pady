@@ -136,7 +136,7 @@ Every gesture works with 3, 4 or 5 fingers. One and two fingers stay with your O
 | Gesture | Config name | How to do it |
 |---|---|---|
 | Tap | `tap:N` | Touch and lift within 220 ms, without moving more than 4 mm. |
-| Double tap | `doubletap:N` | Two taps, the second starting within 300 ms of the first lift. |
+| Double tap | `doubletap:N` | Two taps, the second starting within 250 ms of the first lift. |
 | Triple tap | `tripletap:N` | Three taps in a row. |
 | Hold | `hold:N` | Rest the fingers without moving for 600 ms. |
 | Swipe | `swipe:N:up` · `down` · `left` · `right` | Slide 10 mm. With **repeat** it keeps firing every 7 mm as you keep sliding. |
@@ -149,7 +149,7 @@ The numbers are the defaults; you can change all of them in Settings.
 
 A few rules keep them apart:
 
-- **Taps only wait when they have to.** If no double or triple tap is bound for that finger count, a tap fires the moment you lift. If one is bound, a single tap waits up to 300 ms to see whether another follows.
+- **Taps only wait when they have to.** If no double or triple tap is bound for that finger count, a tap fires the moment you lift. If one is bound, a single tap waits up to 250 ms to see whether another follows.
 - **Drag takes over swipes.** When `drag:3` is on, three fingers moving always drag, so three-finger swipes are not used. The app marks those cards.
 - **Pinches are only looked for when one is bound.** Then a hand that closes or opens more than it slides is a pinch, whatever its angle. Otherwise a sloppy swipe can never turn into a pinch.
 
@@ -306,7 +306,7 @@ All distances are millimetres on the touchpad surface, so they feel the same on 
 | `enabled` | true | Master switch. When off, Pady watches but never acts. |
 | `tap_max_ms` | 220 | A tap must lift within this many milliseconds… |
 | `tap_slop_mm` | 4 | …and no finger may wander further than this. |
-| `multi_tap_ms` | 300 | Longest gap between the taps of a double or triple tap. |
+| `multi_tap_ms` | 250 | Longest gap between the taps of a double or triple tap. |
 | `hold_ms` | 600 | Resting this long without moving counts as a hold. |
 | `swipe_threshold_mm` | 10 | Travel before a swipe or drag starts. |
 | `swipe_step_mm` | 7 | Spacing between repeats while sliding. Volume and brightness swipes glide 3.5 times as often, in 2% steps. Pinches step every 14 mm of hand span. |

@@ -10,6 +10,15 @@
 ### Changed
 
 - **Calmer by default.** New installs show the corner notices (Copied, Pasted, keyboard language, actions, pinch steps) and keep everything else off: swipe glow, touches, card previews, the live touchpad and celebrations. Settings now has a Notices section for the pill, separate from Animations; the Animations switch no longer turns the notices off. Settings you've already saved stay as they are.
+- **Snappier taps.** When a finger count has a double or triple tap too, a single tap now waits 250 ms for a second one instead of 300 ms (new installs; change it under Settings › Double-tap speed).
+
+### Performance
+
+- **Gestures act sooner on Windows.** The check for a full-screen game, made before every gesture, took 17–90 ms; it now takes about 0.1 ms.
+- **Brightness responds at once.** The first step after starting took about 100 ms and now takes 8 ms; every later step is twice as fast.
+- **The keyboard language notice follows the switch.** After a gesture it appears within a frame, and switches made on the keyboard show within 0.1 s instead of up to 0.2 s.
+- **Lighter while touching.** Gesture recognition is 3–4 times faster and no longer allocates memory per touch frame, and two-finger scrolling skips the glyph tracker when you have no glyphs.
+- Apps opened by name ("Spotify") no longer search the Start menu every time.
 
 ## 1.0.0 (2026-10-29)
 

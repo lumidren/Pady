@@ -58,7 +58,13 @@ const WM_WATCH: u32 = WM_APP + 3;
 const WM_WATCH_LANGUAGE: u32 = WM_APP + 4;
 /// The keyboard language is checked this often while its notice is on.
 const LANGUAGE_TIMER: usize = 1;
-const LANGUAGE_EVERY_MS: u32 = 200;
+const LANGUAGE_EVERY_MS: u32 = 100;
+/// Right after a gesture (which may have switched it) it's checked every
+/// frame or so for a moment, so the notice follows the switch at once.
+const WM_LANGUAGE_SOON: u32 = WM_APP + 5;
+const LANGUAGE_SOON_TIMER: usize = 2;
+const LANGUAGE_SOON_EVERY_MS: u32 = 15;
+const LANGUAGE_SOON_CHECKS: u8 = 20;
 const CLASS: PCWSTR = w!("PadyToast");
 
 const GLYPH_CHECK: u16 = 0xE73E;
@@ -147,6 +153,12 @@ impl Toasts {
 
     pub fn watch_language(&self, on: bool) {
         self.post(WM_WATCH_LANGUAGE, usize::from(on));
+    }
+
+    /// Something that may switch the keyboard language just ran (a gesture):
+    /// look closely for a moment, so its notice shows right away.
+    pub fn language_may_change(&self) {
+        self.post(WM_LANGUAGE_SOON, 0);
     }
 
     fn post(&self, msg: u32, wparam: usize) {
@@ -291,6 +303,10 @@ struct Toaster {
     reported: bool,
     /// What the keyboard language has been in each window, to notice a switch.
     language: LanguageWatch,
+    /// The language notice is on.
+    language_on: bool,
+    /// Quick checks left after a gesture.
+    soon_checks: u8,
 }
 
 /// What Pady knows about a clipboard change; never its content.
@@ -457,6 +473,8 @@ impl Toaster {
             watching: false,
             last_copy: 0,
             language: LanguageWatch::default(),
+            language_on: false,
+            soon_checks: 0,
             reported: false,
         }
     }
@@ -498,6 +516,23 @@ impl Toaster {
                     self.check_language();
                     return true;
                 }
+                WM_LANGUAGE_SOON => {
+                    if self.language_on {
+                        self.soon_checks = LANGUAGE_SOON_CHECKS;
+                        unsafe { SetTimer(self.hwnd, LANGUAGE_SOON_TIMER, LANGUAGE_SOON_EVERY_MS, None) };
+                    }
+                    return true;
+                }
+                WM_TIMER if msg.wParam.0 == LANGUAGE_SOON_TIMER => {
+                    self.check_language();
+                    self.soon_checks = self.soon_checks.saturating_sub(1);
+                    if self.soon_checks == 0 {
+                        unsafe {
+                            let _ = KillTimer(self.hwnd, LANGUAGE_SOON_TIMER);
+                        }
+                    }
+                    return true;
+                }
                 WM_STOP => return false,
                 _ => {}
             }
@@ -524,6 +559,7 @@ impl Toaster {
     }
 
     fn watch_language(&mut self, on: bool) {
+        self.language_on = on;
         unsafe {
             if on {
                 SetTimer(self.hwnd, LANGUAGE_TIMER, LANGUAGE_EVERY_MS, None);
@@ -929,6 +965,33 @@ mod tests {
         // Release is what ships; debug builds (and CI runners) are several times slower.
         let budget = Duration::from_millis(if cfg!(debug_assertions) { 30 } else { 8 });
         assert!(per_frame < budget, "{per_frame:?} per frame at 200%");
+    }
+
+    /// What a keyboard-language notice costs at each step, as when switching
+    /// back and forth: `cargo test -p pady-overlay --release language_switch_timings -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn language_switch_timings() {
+        let _turn = GDIPLUS.lock().unwrap_or_else(|e| e.into_inner());
+        let _gdiplus = gdiplus::Session::start().expect("GDI+");
+        let ms = |t: Instant| t.elapsed().as_secs_f64() * 1000.0;
+        let t = Instant::now();
+        let mut r = Renderer::new(Style { dpi: 144, light: false }).expect("renderer");
+        println!("renderer (fonts) {:.2} ms", ms(t));
+        for (i, layout) in [0x0409_0409isize, 0x0C01_0C01, 0x0409_0409, 0x0C01_0C01].into_iter().enumerate() {
+            let t = Instant::now();
+            let text = language_name(layout);
+            let named = ms(t);
+            let t = Instant::now();
+            let resized = r.draw(&Notice::Text { text: text.clone(), icon: Icon::Keyboard }).expect("draw");
+            let drawn = ms(t);
+            let t = Instant::now();
+            r.compose(1.0, 0.1).expect("compose");
+            println!(
+                "switch {i} to {text}: name {named:.2} ms, draw {drawn:.2} ms (resized {resized}), frame {:.2} ms",
+                ms(t)
+            );
+        }
     }
 
     /// Writes renders over a backdrop to `%TEMP%\pady-toast-preview`:
