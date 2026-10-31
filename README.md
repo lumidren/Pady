@@ -33,6 +33,20 @@
   <sub>Pady in 60 seconds (YouTube)</sub>
 </p>
 
+## Contents
+
+- [Why Pady](#why-pady)
+- [What's in each version](#whats-in-each-version)
+- [Videos](#videos) · [Screenshots](#screenshots)
+- [Install](#install) · [Quick start](#quick-start)
+- [Gestures](#gestures) · [Actions](#actions) · [Starter presets](#starter-presets) · [Per-app profiles](#per-app-profiles)
+- [Notices and animations](#notices-and-animations)
+- [Configuration](#configuration) · [Backups](#backups) · [Command line](#command-line)
+- [FAQ](#faq) · [Troubleshooting](#troubleshooting) · [Privacy and security](#privacy-and-security)
+- [How it works](#how-it-works): [architecture](#architecture), [threads and data flow](#threads-and-data-flow), [touchpad input](#touchpad-input), [gesture recognition](#gesture-recognition), [from gesture to action](#from-gesture-to-action), [config and backups](#config-hot-reload-and-backups), [performance](#performance), [tests](#tests), [repository layout](#repository-layout), [release pipeline](#release-pipeline)
+- [Build from source](#build-from-source) · [Contributing](#contributing)
+- [Code signing policy](#code-signing-policy) · [License](#license) · [Made by](#made-by)
+
 ## Why Pady
 
 - **More gestures than your OS gives you.** Tap, double tap, triple tap, hold, swipe in four directions, pinch in or out, and drag, each with 3, 4 or 5 fingers. That's 33 gestures you can bind.
@@ -730,19 +744,22 @@ Bug reports, gesture ideas and pull requests are all welcome. Open an [issue](ht
 
 ## Code signing policy
 
-Windows releases are signed so you can check they come from this project. Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+Windows releases will be signed so you can check they come from this project. Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+> [!NOTE]
+> Signing through SignPath is being set up, and the application is still pending. Until it's approved, Windows installers, v1.0.0 included, are **not** code-signed. Each release lists SHA-256 checksums for every file, and update files are always signed with Pady's updater key, which the app checks before installing anything.
 
 - **Committers and reviewers:** [lumidren](https://github.com/lumidren)
 - **Approvers:** [lumidren](https://github.com/lumidren)
 
 Only what is built from this repository by the [Release workflow](.github/workflows/release.yml) on GitHub Actions is signed: the workflow builds the installers from a version tag, sends them to SignPath, and attaches the signed files with SHA-256 checksums to a draft release that the maintainer publishes. Every signing request is approved by hand. Changes from other contributors are reviewed before they are merged. The maintainer's GitHub and SignPath accounts use multi-factor authentication.
 
+## License
+
+Pady is open source under the [MIT license](LICENSE).
+
 ## Made by
 
 **lumidren**, designed, coded and shipped solo, because the Mac trackpad shouldn't get to have all the fun.
 
 [LinkedIn](https://www.linkedin.com/in/lumidren) · [GitHub](https://github.com/lumidren) · [Website](https://lumidren.github.io/Pady/)
-
-## License
-
-Pady is open source under the [MIT license](LICENSE).
