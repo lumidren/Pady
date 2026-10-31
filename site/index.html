@@ -6,21 +6,26 @@
   <meta name="color-scheme" content="dark">
   <title>Pady · touchpad gestures for Windows and Linux</title>
   <meta name="description" content="Your touchpad, finally awake. Three-finger drag, plus 32 more gestures you can point at anything: volume, brightness, media keys, shortcuts, apps and links. Free for Windows and Linux.">
+  <link rel="canonical" href="https://lumidren.github.io/Pady/">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://lumidren.github.io/Pady/">
   <meta property="og:title" content="Pady · touchpad gestures for Windows and Linux">
   <meta property="og:description" content="Your touchpad, finally awake. Three-finger drag, plus 32 more gestures you can point at anything.">
-  <meta property="og:image" content="docs/screenshots/gestures.png">
+  <meta property="og:image" content="https://lumidren.github.io/Pady/docs/video/poster.png">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="demo/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <a class="skip" href="#top">Skip to content</a>
   <header class="nav">
     <a class="brand" href="#top"><img src="demo/logo.svg" alt="" width="28" height="28">Pady</a>
-    <nav>
+    <nav aria-label="Main">
       <a href="#download">Download</a>
       <a href="#video">Video</a>
       <a href="#demo">Demo</a>
+      <a href="features.html" class="nav-features">Features</a>
       <a href="#how">How it works</a>
-      <a href="#gestures">Gestures</a>
       <a href="#faq">FAQ</a>
       <a href="https://github.com/lumidren/Pady">GitHub</a>
     </nav>
@@ -40,7 +45,7 @@
         <a class="btn btn-ghost" href="#demo">Try it in your browser</a>
       </div>
       <p class="dl-others" id="dl-others"></p>
-      <a class="soon-link" href="#glyphs"><span class="soon-tag">Coming soon</span> Glyphs: draw your own gestures with two fingers <span aria-hidden="true">→</span></a>
+      <a class="soon-link" href="features.html#soon"><span class="soon-tag">Coming soon</span> Glyphs and the Translator <span aria-hidden="true">→</span></a>
       <ul class="facts">
         <li><b>20 MB</b> in the tray</li>
         <li><b>0%</b> CPU while idle</li>
@@ -97,6 +102,7 @@
             <tr><td>Fingers</td><td>3 and 4</td><td class="us">3, 4 and 5</td></tr>
             <tr><td>Double &amp; triple taps, holds</td><td>—</td><td class="us">✓</td></tr>
             <tr><td>Pinch with 3+ fingers</td><td>—</td><td class="us">✓</td></tr>
+            <tr><td>Copy &amp; paste with a pinch</td><td>—</td><td class="us">✓</td></tr>
             <tr><td>Draw your own gestures (glyphs)</td><td>—</td><td class="us">Soon</td></tr>
             <tr><td>Translate selected text in any app</td><td>—</td><td class="us">Soon</td></tr>
             <tr><td>Different gestures per app</td><td>—</td><td class="us">✓</td></tr>
@@ -117,17 +123,19 @@
         <div class="card"><h3>Swipe</h3><p>Up, down, left, right. Keep sliding to keep stepping, like scrubbing the volume.</p></div>
         <div class="card"><h3>Pinch</h3><p>In or out, with repeats. Zoom without lifting.</p></div>
         <div class="card"><h3>Drag</h3><p>Move windows and select text without pressing down. The Mac classic.</p></div>
-        <div class="card"><h3>Glyphs <small class="soon">coming soon</small></h3><p>Record a circle, a V or a Z with two fingers and give it any action. Scrolling stays as it is.</p></div>
+        <a class="card card-wide" href="#glyphs"><h3>Glyphs <small class="soon">coming soon</small></h3><p>Record a circle, a V or a Z with two fingers and give it any action. Scrolling stays as it is. <span class="more">Watch it <span aria-hidden="true">→</span></span></p></a>
       </div>
       <h3 class="small-h">…and point them at</h3>
       <ul class="chips">
         <li>Keyboard shortcuts</li><li>Volume &amp; mute</li><li>Brightness</li><li>Play / pause / skip</li>
+        <li>Copy &amp; paste</li><li>Zoom</li><li>Switch desktops</li><li>Screenshot</li>
         <li>Open a link</li><li>Launch an app</li><li>Switch to an app</li><li>Run a command</li><li>Lock the screen</li>
       </ul>
+      <p class="see-all"><a href="features.html">See every feature <span aria-hidden="true">→</span></a></p>
     </section>
 
     <section id="copy-paste" class="section">
-      <p class="eyebrow">New in 0.6</p>
+      <p class="eyebrow">Since 0.6</p>
       <h2>Copy and paste <span class="grad">with a pinch</span></h2>
       <p class="sub">Pinch three fingers in to copy, spread them to paste. It works in every app, and a glowing "Copied" tells you it worked.</p>
       <div class="video-frame" data-youtube="aciO9Ana1ZE" data-title="Copy and paste with a pinch">
@@ -136,7 +144,7 @@
           <a href="docs/video/copy-and-paste.mp4">Download the video</a>
         </video>
       </div>
-      <p class="note-center">It's in the Recommended set. Unmute for the music.</p>
+      <p class="note-center">It's in the Recommended, Like a Mac and Productivity sets.</p>
     </section>
 
     <section id="glyphs" class="section">
@@ -150,7 +158,7 @@
           <a href="docs/video/glyphs.mp4">Download the video</a>
         </video>
       </div>
-      <p class="note-center">Glyphs arrive in a coming update. Unmute for the music.</p>
+      <p class="note-center">Glyphs arrive in a coming update.</p>
     </section>
 
     <section id="translator" class="section">
@@ -164,17 +172,17 @@
           <a href="docs/video/translator.mp4">Download the video</a>
         </video>
       </div>
-      <p class="note-center">The translator arrives in a coming update. Unmute for the music.</p>
+      <p class="note-center">The translator arrives in a coming update.</p>
     </section>
 
     <section class="section">
       <h2>Pick a starting point</h2>
       <p class="sub">The setup offers five starter sets. Pick one, then change anything.</p>
       <div class="presets">
-        <div class="card"><span class="badge">Best start</span><h3>Recommended</h3><p>Three-finger drag, taps for play/pause and next track, four-finger swipes for volume and brightness, pinch to zoom.</p></div>
-        <div class="card"><h3>Like a Mac</h3><p>Three-finger drag, four-finger swipes between desktops and to task view, pinch to zoom.</p></div>
+        <div class="card"><span class="badge">Best start</span><h3>Recommended</h3><p>Three-finger drag, taps for play/pause and next track, four-finger swipes for volume and brightness, pinch to zoom, three-finger pinch to copy and paste.</p></div>
+        <div class="card"><h3>Like a Mac</h3><p>Three-finger drag, four-finger swipes between desktops and to task view, pinch to zoom, three-finger pinch to copy and paste.</p></div>
         <div class="card"><h3>Media</h3><p>Taps control playback, four-finger swipes scrub the volume and skip tracks.</p></div>
-        <div class="card"><h3>Productivity</h3><p>Task view, show desktop, switching desktops, quick screenshots and lock.</p></div>
+        <div class="card"><h3>Productivity</h3><p>Task view, show desktop, switching desktops, quick screenshots and lock, plus three-finger pinch to copy and paste.</p></div>
         <div class="card"><h3>Minimal</h3><p>Just three-finger drag. Start small and add your own.</p></div>
       </div>
     </section>
@@ -231,7 +239,7 @@
         </div>
       </div>
       <p class="note-center">Prefer the terminal? <code>pady-cli</code> is on the <a href="https://github.com/lumidren/Pady/releases/latest">release page</a> for both systems.</p>
-      <p class="note-center">Free code signing provided by <a href="https://about.signpath.io">SignPath.io</a>, certificate by <a href="https://signpath.org">SignPath Foundation</a>. See the <a href="https://github.com/lumidren/Pady#code-signing-policy">code signing policy</a>.</p>
+      <p class="note-center">Windows code signing is being set up with <a href="https://about.signpath.io">SignPath.io</a>, free for open source, with a certificate by <a href="https://signpath.org">SignPath Foundation</a>. See the <a href="https://github.com/lumidren/Pady#code-signing-policy">code signing policy</a>.</p>
     </section>
 
     <section id="faq" class="section narrow">
@@ -243,6 +251,9 @@
       <details><summary>Which Linux distros are supported?</summary><p>Ubuntu, Debian, Mint, Pop!_OS and friends get the .deb; Fedora and openSUSE the .rpm; everything else the AppImage. Both packages pull in what Pady needs and set up touchpad access, so it works right after installing.</p></details>
       <details><summary>Does it work on Wayland?</summary><p>Gestures and all actions do. Per-app profiles and "switch to app" need to know which window is in front: that works for X11 and XWayland apps, and on KDE Plasma.</p></details>
       <details><summary>How much does it slow my PC down?</summary><p>It doesn't. In the tray Pady is one process using about 20 MB and no CPU while you're not touching the pad. The settings window uses more while it's open and frees it all when you close it.</p></details>
+      <details><summary>Gestures don't work in one app</summary><p>If that app runs as administrator (some disk, security and forensics tools do), Windows blocks normal apps from sending it keys or clicks, Pady included. Gestures keep working everywhere else.</p></details>
+      <details><summary>How do I open an app like Spotify with a gesture?</summary><p>Pick a gesture, choose <b>Switch to app</b> and type the app's program name, such as <code>Spotify.exe</code>. The gesture brings it to the front, or starts it if it isn't running. Microsoft Store apps work the same way when they install a command under that name, as Spotify does.</p></details>
+      <details><summary>What's coming next?</summary><p>Glyphs (draw your own gestures with two fingers) and a translator for selected text are being polished in beta builds. See them on the <a href="features.html#soon">features page</a>.</p></details>
       <details><summary>Is it safe?</summary><p>Pady reads only the touchpad, never the keyboard, and sends nothing about you anywhere. Its only connection is a twice-daily check on GitHub for a new version (you can turn it off), and updates install only if they're signed by Pady. The code is checked with fuzz tests and dependency audits. The details are in the <a href="https://github.com/lumidren/Pady/blob/main/SECURITY.md">security notes</a>, and how releases are signed is in the <a href="https://github.com/lumidren/Pady#code-signing-policy">code signing policy</a>.</p></details>
     </section>
 
@@ -262,6 +273,7 @@
   <footer>
     <span>Pady by <a href="https://www.linkedin.com/in/lumidren">lumidren</a></span>
     <a href="https://www.linkedin.com/in/lumidren">LinkedIn</a>
+    <a href="features.html">Features</a>
     <a href="https://github.com/lumidren/Pady">Source</a>
     <a href="https://github.com/lumidren/Pady/releases">All releases</a>
     <a href="https://github.com/lumidren/Pady/blob/main/CHANGELOG.md">Changelog</a>
