@@ -140,6 +140,7 @@
     focus_or_launch: { label: 'Switch to app', icon: 'switch', group: 'web', make: () => ({ type: 'focus_or_launch', program: '' }) },
     launch: { label: 'Launch app', icon: 'apps', group: 'web', make: () => ({ type: 'launch', program: '' }) },
     run: { label: 'Run command', icon: 'terminal', group: 'web', make: () => ({ type: 'run', command: '' }) },
+    translate: { label: 'Translate', icon: 'translate', group: 'web', make: () => ({ type: 'translate' }) },
     drag: { label: 'Drag', icon: 'drag', group: 'pointer', make: () => ({ type: 'drag' }) },
     none: { label: 'Nothing', icon: 'none', group: null, make: () => ({ type: 'none' }) },
   };
@@ -283,6 +284,7 @@
       case 'focus_or_launch': return { icon: 'switch', text: `Switch to ${programName(a.program)}` };
       case 'run': return { icon: 'terminal', text: a.command };
       case 'drag': return { icon: 'drag', text: 'Click-and-drag' };
+      case 'translate': return { icon: 'translate', text: 'Translate selected text' };
       default: return { icon: t.icon, text: 'Nothing' };
     }
   };

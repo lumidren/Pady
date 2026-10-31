@@ -67,6 +67,8 @@ struct AppState {
     platform: &'static str,
     version: &'static str,
     presets: &'static [Preset],
+    /// What the translator can translate into, for Settings.
+    languages: &'static [pady_core::languages::Language],
 }
 
 impl Pady {
@@ -96,6 +98,7 @@ impl Pady {
             platform: if cfg!(windows) { "windows" } else { "linux" },
             version: env!("CARGO_PKG_VERSION"),
             presets: PRESETS,
+            languages: pady_core::languages::LANGUAGES,
             config,
             devices,
             input_error,

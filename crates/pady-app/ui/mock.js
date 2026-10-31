@@ -44,6 +44,7 @@
     animations: true, anim_swipe_glow: false, anim_hints: false, anim_pinch: true, anim_notices: true, anim_screenshot: false, anim_touches: false,
     anim_previews: false, anim_mirror: false, anim_celebrate: false, anim_language: true,
     anim_glow: true, glow_strength: 1.0, anim_speed: 1.0, notice_time: 1.0,
+    translate_to: 'en', translate_engine: 'free',
   };
   const DEFAULT_BINDINGS = [
     { trigger: 'drag:3', action: { type: 'drag' } },
@@ -171,6 +172,10 @@
     platform,
     version: '0.6.1', // the website build fills in the real version
     presets: PRESETS.map(({ id, name, description }) => ({ id, name, description })),
+    languages: [['ar', 'Arabic', 'AR'], ['zh', 'Chinese', 'ZH-HANS'], ['nl', 'Dutch', 'NL'], ['en', 'English', 'EN-US'], ['fr', 'French', 'FR'],
+      ['de', 'German', 'DE'], ['hi', 'Hindi', null], ['it', 'Italian', 'IT'], ['ja', 'Japanese', 'JA'], ['ko', 'Korean', 'KO'],
+      ['pt', 'Portuguese', 'PT-BR'], ['ru', 'Russian', 'RU'], ['es', 'Spanish', 'ES'], ['tr', 'Turkish', 'TR']]
+      .map(([code, name, deepl]) => ({ code, name, deepl })),
   };
 
   /* ---------- Validation / normalisation (mirrors pady-core) ---------- */
@@ -216,7 +221,7 @@
   function checkAction(a) {
     if (!a || typeof a !== 'object') throw 'invalid type: expected internally tagged enum Action';
     switch (a.type) {
-      case 'none': case 'mute': case 'lock': case 'drag': return;
+      case 'none': case 'mute': case 'lock': case 'drag': case 'translate': return;
       case 'keys': return checkCombo(a.combo);
       case 'volume': case 'brightness':
         if (!Number.isInteger(a.step)) throw `${a.type} step must be a whole number`;
@@ -351,6 +356,7 @@
       case 'run': return `Run \`${a.command}\``;
       case 'lock': return 'Lock screen';
       case 'drag': return 'Drag (hold left button)';
+      case 'translate': return 'Translate selected text';
       default: return 'Nothing';
     }
   }

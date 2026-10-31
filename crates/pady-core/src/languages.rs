@@ -1,7 +1,7 @@
 //! The languages the translator offers, with the codes each engine wants.
 
 /// A language Pady can translate into.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Language {
     /// ISO 639-1 code, as stored in the config (`translate_to`).
     pub code: &'static str,

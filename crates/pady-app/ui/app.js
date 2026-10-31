@@ -1485,6 +1485,10 @@
       }
 
       case 'mute': return aboutType('mute', 'Toggles mute on the default output device.');
+      case 'translate': {
+        const to = (store.app.languages || []).find((l) => l.code === store.app.config.settings.translate_to);
+        return aboutType('translate', `Select some text in any app, then do this gesture: the translation into ${to ? to.name : 'your language'} shows in a pop-up next to it, ready to copy or put in place of the original. Change the language in Settings › Translator.`);
+      }
       case 'lock': return aboutType('lock', 'Locks your session immediately, like pressing ' + (platform() === 'linux' ? 'Super+L.' : 'Win+L.'));
       case 'none': return aboutType('none', 'This gesture does nothing. Pick a preset or an action type above.');
       default: return null;
@@ -2433,6 +2437,7 @@
     animations: true, anim_swipe_glow: false, anim_hints: false, anim_pinch: true, anim_notices: true, anim_screenshot: false, anim_touches: false,
     anim_previews: false, anim_mirror: false, anim_celebrate: false, anim_language: true,
     anim_glow: true, glow_strength: 1, anim_speed: 1, notice_time: 1,
+    translate_to: 'en', translate_engine: 'free', deepl_key: '',
   };
   /** Is this animation on (its own switch and the master switch)? */
   const animates = (key) => {
@@ -2531,7 +2536,8 @@
         h('div', { class: 'settings-col' },
           pinchPanel(SLIDERS.filter((d) => d.group === 'pinch').map(sliderEl)),
           panel('gestures', 'Recognition', 'Timing and distances for taps, holds and swipes', SLIDERS.filter((d) => d.group === 'recog').map(sliderEl)),
-          setUI.presetsPanel = panel('sparkle', 'Starter sets', 'Swap all your All-apps gestures for a ready-made set', setUI.presets)),
+          setUI.presetsPanel = panel('sparkle', 'Starter sets', 'Swap all your All-apps gestures for a ready-made set', setUI.presets),
+          translatorPanel()),
         h('div', { class: 'settings-col' },
           panel('drag', 'Drag', 'How multi-finger drag moves the pointer', SLIDERS.filter((d) => d.group === 'drag').map(sliderEl)),
           panel('power', 'General', 'Start-up, feedback and configuration',
@@ -2575,6 +2581,47 @@
         if (d.windows) row.dataset.windows = '';
         return row;
       });
+    }
+
+    /* The Translate action's language and service. The key saves as it's
+       typed (after a pause), like the sliders. */
+    function translatorPanel() {
+      const queue = (key, value, wait) => {
+        setUI.pending[key] = value;
+        clearTimeout(setUI.timer);
+        if (wait) setUI.timer = setTimeout(flushSettings, wait); else flushSettings();
+      };
+      setUI.trTo = h('select', { class: 'select tr-select', 'aria-labelledby': 'tr-to-title' });
+      setUI.trTo.addEventListener('change', () => { queue('translate_to', setUI.trTo.value); paintTranslator(); });
+      setUI.trEngine = h('select', { class: 'select tr-select', 'aria-labelledby': 'tr-engine-title' },
+        h('option', { value: 'free' }, 'Free (MyMemory)'), h('option', { value: 'deepl' }, 'DeepL'));
+      setUI.trEngine.addEventListener('change', () => {
+        queue('translate_engine', setUI.trEngine.value);
+        paintTranslator();
+        if (setUI.trEngine.value === 'deepl' && !setUI.trKey.value) setTimeout(() => setUI.trKey.focus(), 30);
+      });
+      setUI.trKey = h('input', { class: 'input input--mono', type: 'password', placeholder: 'Your DeepL API key', spellcheck: 'false', autocomplete: 'off', 'aria-labelledby': 'tr-key-title' });
+      setUI.trKey.addEventListener('input', () => queue('deepl_key', setUI.trKey.value.trim(), 700));
+      const reveal = h('button', { class: 'btn btn--sm', type: 'button', 'aria-label': 'Show or hide the key', title: 'Show or hide the key' }, ico('eye', 14));
+      reveal.addEventListener('click', () => { setUI.trKey.type = setUI.trKey.type === 'password' ? 'text' : 'password'; });
+      const getKey = h('button', { class: 'btn btn--sm', type: 'button', onClick: () => call('test_action', { action: { type: 'open_url', url: 'https://www.deepl.com/pro-api' } }, { quiet: true }).catch(() => {}) }, ico('external', 14), 'Get a free key');
+      setUI.trEngineSub = h('div', { class: 'row-sub', id: 'tr-engine-sub' });
+      setUI.trKeyRow = h('div', { class: 'row', style: { 'flex-wrap': 'wrap' } },
+        h('div', { class: 'row-text', style: { 'flex-basis': '100%' } },
+          h('div', { class: 'row-title', id: 'tr-key-title' }, 'DeepL key'),
+          h('div', { class: 'row-sub' }, 'Free up to 500,000 characters a month. It’s kept in your settings file on this computer.')),
+        h('div', { class: 'input-row', style: { flex: '1' } }, setUI.trKey, reveal, getKey));
+      return panel('translate', 'Translator', 'Translate selected text with a gesture',
+        h('div', { class: 'row' },
+          h('div', { class: 'row-text' }, h('div', { class: 'row-title', id: 'tr-to-title' }, 'Translate into'),
+            h('div', { class: 'row-sub' }, 'Text in any language is translated into this one.')),
+          setUI.trTo),
+        h('div', { class: 'row' },
+          h('div', { class: 'row-text' }, h('div', { class: 'row-title', id: 'tr-engine-title' }, 'Translator'), setUI.trEngineSub),
+          setUI.trEngine),
+        setUI.trKeyRow,
+        h('div', { class: 'row' }, h('div', { class: 'row-text' }, h('div', { class: 'row-sub' },
+          'To use it, give a gesture the Translate action on the Gestures page. Then select text anywhere and do the gesture.'))));
     }
 
     function noticesPanel() {
@@ -2693,6 +2740,25 @@
       : 'No pinch is set yet: give one a job on the Gestures page, then try it here.';
   }
 
+  /** The Translator section: languages, the chosen service and its key. */
+  function paintTranslator() {
+    const s = store.app.config.settings;
+    const pending = (key) => (key in setUI.pending ? setUI.pending[key] : s[key] ?? SETTING_DEFAULTS[key]);
+    const langs = store.app.languages || [];
+    if (setUI.trTo.options.length !== langs.length) {
+      setUI.trTo.replaceChildren(...langs.map((l) => h('option', { value: l.code }, l.name)));
+    }
+    setUI.trTo.value = pending('translate_to');
+    const engine = pending('translate_engine');
+    setUI.trEngine.value = engine;
+    if (document.activeElement !== setUI.trKey && !('deepl_key' in setUI.pending)) setUI.trKey.value = s.deepl_key || '';
+    setUI.trKeyRow.hidden = engine !== 'deepl';
+    const lang = langs.find((l) => l.code === setUI.trTo.value);
+    setUI.trEngineSub.textContent = engine === 'deepl'
+      ? (lang && !lang.deepl ? `DeepL doesn’t translate into ${lang.name}, so the free translator does.` : 'The best quality. Needs your own key; the text is sent to DeepL.')
+      : 'No account needed. Up to 5,000 characters a day; the text is sent to MyMemory.';
+  }
+
   function paintSlider(d, v) {
     const { input, val } = setUI.inputs[d.key];
     const [num, unit] = d.fmt(v);
@@ -2720,6 +2786,7 @@
     setUI.animPanel.classList.toggle('is-off', cfg.animations === false);
     syncAnimations();
     paintPinchHint();
+    paintTranslator();
     renderPresetList();
     setUI.autostart.checked = !!s.autostart;
     setUI.autostartTitle.textContent = `Start with ${osName()}`;

@@ -415,6 +415,7 @@ a { color: var(--accent-text); }
   background-position: calc(100% - 16px) 15px, calc(100% - 11px) 15px;
   background-size: 5px 5px; background-repeat: no-repeat;
 }
+.tr-select { width: auto; min-width: 150px; max-width: 46%; flex: none; }
 .select option { background: var(--surface-solid); color: var(--text); }
 .help { font-size: 12px; color: var(--text-3); }
 .error-text { font-size: 12px; color: var(--red); display: flex; align-items: center; gap: 6px; }
