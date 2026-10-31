@@ -16,6 +16,7 @@
 
 - **Gestures act sooner on Windows.** The check for a full-screen game, made before every gesture, took 17–90 ms; it now takes about 0.1 ms.
 - **Brightness responds at once.** The first step after starting took about 100 ms and now takes 8 ms; every later step is twice as fast.
+- **Switching the keyboard language by gesture is instant.** It now uses Windows' language hotkey (Left Alt+Shift, or Ctrl+Shift if you set that) instead of Win+Space, so Windows' language pop-up and its animation no longer get in the way. If the hotkey is off, Pady falls back to Win+Space.
 - **The keyboard language notice follows the switch.** After a gesture it appears within a frame, and switches made on the keyboard show within 0.1 s instead of up to 0.2 s.
 - **Lighter while touching.** Gesture recognition is 3–4 times faster and no longer allocates memory per touch frame, and two-finger scrolling skips the glyph tracker when you have no glyphs.
 - Apps opened by name ("Spotify") no longer search the Start menu every time.
