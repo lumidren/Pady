@@ -18,6 +18,7 @@ pub mod frame;
 pub mod gesture;
 pub mod glyphs;
 pub mod keys;
+pub mod languages;
 pub mod presets;
 pub mod recognizer;
 pub mod trigger;
