@@ -21,16 +21,27 @@
   let hovering = false;
   let idleTimer = 0;
 
+  /** How long the card takes to fade out before the window hides. */
+  const OUT_MS = 120;
+
   function act(kind) {
     if (!current) return;
-    if (kind === 'close' || kind === 'copy' || kind === 'replace') hide();
-    invoke('translate_act', { id: current.id, kind }).catch((e) => console.error('translate_act', e));
+    const id = current.id;
+    const send = () => invoke('translate_act', { id, kind }).catch((e) => console.error('translate_act', e));
+    if (kind === 'close' || kind === 'copy' || kind === 'replace') {
+      if (!visible) return;
+      hide();
+      setTimeout(send, OUT_MS);
+    } else {
+      send();
+    }
   }
 
   function hide() {
     visible = false;
     clearTimeout(idleTimer);
     card.classList.remove('is-in');
+    card.classList.add('is-out');
   }
 
   function armIdleClose() {
@@ -99,7 +110,7 @@
         visible = true;
         shownAt = performance.now();
         // Restart the entrance each time the window appears.
-        card.classList.remove('is-in');
+        card.classList.remove('is-in', 'is-out');
         void card.offsetWidth;
         card.classList.add('is-in');
         // Focus a button so Esc and Tab work straight away (not Replace: Enter mustn't paste).
@@ -136,6 +147,11 @@
 
   if (tauri) {
     tauri.event.listen('pady://translate', (e) => render(e.payload));
+    tauri.event.listen('pady://translate-hidden', () => {
+      visible = false;
+      clearTimeout(idleTimer);
+      card.classList.remove('is-in', 'is-out');
+    });
     invoke('translate_ready').then(render).catch((e) => console.error('translate_ready', e));
   } else {
     // Demo for checking the look in a browser: ?state=loading|done|error|rtl

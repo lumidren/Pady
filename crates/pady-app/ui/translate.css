@@ -72,6 +72,8 @@ body { padding: 14px; width: 400px; }
 /* Plays each time the window appears (the class is re-added). */
 .card.is-in { animation: card-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
 @keyframes card-in { to { opacity: 1; transform: none; } }
+.card.is-out { opacity: 1; transform: none; animation: card-out 0.12s ease-in forwards; }
+@keyframes card-out { to { opacity: 0; transform: translateY(-3px) scale(0.99); } }
 
 .head {
   display: flex;
@@ -175,6 +177,6 @@ svg { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round
 button:focus-visible { outline: none; box-shadow: var(--focus); }
 
 @media (prefers-reduced-motion: reduce) {
-  .card.is-in { animation-duration: 0.01s; }
+  .card.is-in, .card.is-out { animation-duration: 0.01s; }
   .shimmer i { animation: none; }
 }

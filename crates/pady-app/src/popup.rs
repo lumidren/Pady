@@ -76,6 +76,8 @@ impl Popup {
         self.shown.store(false, Ordering::SeqCst);
         if let Some(window) = app.get_webview_window(LABEL) {
             let _ = window.hide();
+            // The page plays its entrance again next time it's shown.
+            let _ = app.emit_to(LABEL, "pady://translate-hidden", ());
         }
         let ticket = self.closings.fetch_add(1, Ordering::SeqCst) + 1;
         let app = app.clone();
