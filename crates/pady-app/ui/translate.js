@@ -113,8 +113,8 @@
         card.classList.remove('is-in', 'is-out');
         void card.offsetWidth;
         card.classList.add('is-in');
-        // Focus a button so Esc and Tab work straight away (not Replace: Enter mustn't paste).
-        (copyBtn.hidden || copyBtn.disabled ? $('close') : copyBtn).focus({ preventScroll: true });
+        // Focus the card (no ring) so Esc and Tab work straight away.
+        card.focus({ preventScroll: true });
       }
     });
   }
