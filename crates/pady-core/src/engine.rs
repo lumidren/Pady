@@ -545,7 +545,11 @@ impl EngineLoop {
     fn on_frame(&mut self, frame: TouchFrame) {
         let gestures = if self.config.settings.enabled { self.recognizer.update(&frame) } else { Vec::new() };
         let t = frame.time_ms;
-        let stroke = self.strokes.update(&frame);
+        // Two-finger strokes matter only with glyphs to match or one being
+        // recorded; otherwise scrolling skips the tracking. Lifts still go
+        // through, so a stroke never carries over from before.
+        let strokes_wanted = !self.matcher.is_empty() || self.recording.load(Ordering::Relaxed);
+        let stroke = if strokes_wanted || frame.contacts.is_empty() { self.strokes.update(&frame) } else { None };
         (self.observer)(EngineEvent::Frame(frame));
         self.report_progress(&gestures);
         self.dispatch(gestures, t);
