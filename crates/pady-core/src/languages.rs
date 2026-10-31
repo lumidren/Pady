@@ -19,7 +19,7 @@ const fn lang(code: &'static str, name: &'static str, iso3: &'static str, deepl:
 
 /// Sorted by name, which is how Settings lists them.
 pub const LANGUAGES: &[Language] = &[
-    lang("ar", "Arabic", "arb", Some("AR")),
+    lang("ar", "Arabic", "ara", Some("AR")),
     lang("bg", "Bulgarian", "bul", Some("BG")),
     lang("zh", "Chinese", "cmn", Some("ZH-HANS")),
     lang("hr", "Croatian", "hrv", None),
@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn lookups() {
         assert_eq!(by_code(" EN ").unwrap().name, "English");
-        assert_eq!(by_iso3("arb").unwrap().code, "ar");
+        assert_eq!(by_iso3("ara").unwrap().code, "ar");
         assert_eq!(by_deepl_source("PT").unwrap().code, "pt");
         assert_eq!(by_deepl_source("EN-GB").unwrap().code, "en");
         assert_eq!(name("xx"), "XX");
