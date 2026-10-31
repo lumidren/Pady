@@ -549,32 +549,56 @@ fn sane(c: &Contact) -> bool {
     c.x.abs() <= 10_000.0 && c.y.abs() <= 10_000.0
 }
 
+/// Most fingers compared between two frames. Touchpads track five or ten;
+/// beyond this the rest are left out of the spread and span.
+const MAX_PAIRS: usize = 16;
+
+/// Positions of the fingers present in both frames, (before, now), kept on
+/// the stack: these run for every frame, so they shouldn't allocate.
+struct Paired {
+    before: [(f32, f32); MAX_PAIRS],
+    now: [(f32, f32); MAX_PAIRS],
+    len: usize,
+}
+
+impl Paired {
+    fn new(prev: &[Contact], cur: &[Contact]) -> Self {
+        let mut p = Paired { before: [(0.0, 0.0); MAX_PAIRS], now: [(0.0, 0.0); MAX_PAIRS], len: 0 };
+        for (b, c) in pairs(prev, cur).take(MAX_PAIRS) {
+            p.before[p.len] = (b.x, b.y);
+            p.now[p.len] = (c.x, c.y);
+            p.len += 1;
+        }
+        p
+    }
+}
+
+/// Mean distance of `points` from their centroid.
+fn spread(points: &[(f32, f32)]) -> f32 {
+    let n = points.len() as f32;
+    let (cx, cy) = points.iter().fold((0.0, 0.0), |(x, y), p| (x + p.0, y + p.1));
+    let (cx, cy) = (cx / n, cy / n);
+    points.iter().map(|&(x, y)| (x - cx).hypot(y - cy)).sum::<f32>() / n
+}
+
 /// Change in how spread out the fingers present in both frames are: the
 /// mean distance from their centroid now, minus the same measure before.
 fn spread_delta(prev: &[Contact], cur: &[Contact]) -> f32 {
-    let pairs: Vec<(&Contact, &Contact)> = pairs(prev, cur).collect();
-    if pairs.len() < 2 {
+    let p = Paired::new(prev, cur);
+    if p.len < 2 {
         return 0.0;
     }
-    let spread = |pts: &mut dyn Iterator<Item = &Contact>| {
-        let pts: Vec<&Contact> = pts.collect();
-        let n = pts.len() as f32;
-        let (cx, cy) = (pts.iter().map(|c| c.x).sum::<f32>() / n, pts.iter().map(|c| c.y).sum::<f32>() / n);
-        pts.iter().map(|c| (c.x - cx).hypot(c.y - cy)).sum::<f32>() / n
-    };
-    spread(&mut pairs.iter().map(|(_, c)| *c)) - spread(&mut pairs.iter().map(|(p, _)| *p))
+    spread(&p.now[..p.len]) - spread(&p.before[..p.len])
 }
 
 /// Change in the hand's span (the largest distance between two fingers),
 /// for the fingers present in both frames. Independent of the hand's angle.
 fn span_delta(prev: &[Contact], cur: &[Contact]) -> f32 {
-    let pairs: Vec<(&Contact, &Contact)> = pairs(prev, cur).collect();
-    if pairs.len() < 2 {
+    let p = Paired::new(prev, cur);
+    if p.len < 2 {
         return 0.0;
     }
-    let now: Vec<(f32, f32)> = pairs.iter().map(|(_, c)| (c.x, c.y)).collect();
-    let before: Vec<(f32, f32)> = pairs.iter().map(|(p, _)| (p.x, p.y)).collect();
-    widest(&now) - widest(&before)
+    widest(&p.now[..p.len]) - widest(&p.before[..p.len])
 }
 
 /// The largest distance between any two of `points`.
