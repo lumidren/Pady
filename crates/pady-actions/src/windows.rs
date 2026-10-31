@@ -44,9 +44,9 @@ use windows::Win32::System::Wmi::{
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::Shell::{SHQueryUserNotificationState, ShellExecuteW, QUNS_RUNNING_D3D_FULL_SCREEN};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindow, GetWindowLongW, GetWindowRect, GetWindowTextLengthW,
-    GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, GWL_EXSTYLE, GW_OWNER,
-    SW_MINIMIZE, SW_RESTORE, SW_SHOWNORMAL, WS_EX_TOOLWINDOW,
+    EnumWindows, GetForegroundWindow, GetGUIThreadInfo, GetWindow, GetWindowLongW, GetWindowRect, GetWindowTextLengthW,
+    GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, GUITHREADINFO, GWL_EXSTYLE,
+    GW_OWNER, SW_MINIMIZE, SW_RESTORE, SW_SHOWNORMAL, WS_EX_TOOLWINDOW,
 };
 
 /// Whether a drag holds the left button right now, so a crash can let go
@@ -108,7 +108,14 @@ impl Executor for WindowsExecutor {
             Action::None | Action::Drag | Action::Brightness { .. } => Ok(()),
             Action::Volume { step } => change_volume(*step),
             Action::Mute => tap_vk(VK_VOLUME_MUTE),
-            Action::Keys { combo } => send_combo(&combo.parse::<KeyCombo>()?),
+            Action::Keys { combo } => {
+                let combo = combo.parse::<KeyCombo>()?;
+                if is_win_space(&combo) {
+                    switch_language()
+                } else {
+                    send_combo(&combo)
+                }
+            }
             Action::Media { key } => tap_vk(media_vk(*key)),
             Action::OpenUrl { url, browser } => {
                 crate::check_url(url).and_then(|()| match browser.as_deref().filter(|b| !b.trim().is_empty()) {
@@ -229,6 +236,72 @@ fn send_combo(combo: &KeyCombo) -> Result<(), ActionError> {
     }
     inputs.extend(mods.iter().rev().map(|&vk| key_input(vk, true)));
     send(&inputs)
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard language
+
+/// Win+Space: what the "Switch keyboard language" choice sends.
+fn is_win_space(combo: &KeyCombo) -> bool {
+    let m = combo.modifiers;
+    combo.key == Some(Key::Space) && m.super_key && !m.ctrl && !m.alt && !m.shift
+}
+
+/// Switches the keyboard language for every app, like Win+Space, but
+/// without Windows' input switcher: that pop-up has an animation of its own
+/// and made the switch feel slow. Windows' language hotkey (Left Alt+Shift
+/// unless changed in its settings) switches the same way, silently. If that
+/// hotkey is off, or the language didn't change, Win+Space it is.
+fn switch_language() -> Result<(), ActionError> {
+    if unsafe { GetKeyboardLayoutList(None) } < 2 {
+        return Ok(()); // one language: nothing to switch to
+    }
+    if let Some(keys) = language_hotkey() {
+        let before = front_layout();
+        let inputs =
+            [key_input(keys[0], false), key_input(keys[1], false), key_input(keys[1], true), key_input(keys[0], true)];
+        send(&inputs)?;
+        // It usually lands in 3-6 ms.
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_millis(60) {
+            if front_layout() != before {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        log::debug!("the language hotkey didn't switch the language; using Win+Space");
+    }
+    send(&[key_input(VK_LWIN, false), key_input(VK_SPACE, false), key_input(VK_SPACE, true), key_input(VK_LWIN, true)])
+}
+
+/// Windows' hotkey for the next input language, from Settings › Time &
+/// language › Typing › Advanced keyboard settings › Input language hot keys:
+/// "1" (the default, also when unset) is Left Alt+Shift, "2" Ctrl+Shift;
+/// anything else (the grave accent, or none) isn't one Pady can press.
+fn language_hotkey() -> Option<[VIRTUAL_KEY; 2]> {
+    let key = w!("Keyboard Layout\\Toggle");
+    let value = read_string(key, w!("Language Hotkey")).or_else(|| read_string(key, w!("Hotkey")));
+    match value.as_deref().map(str::trim) {
+        None | Some("1") => Some([VK_LMENU, VK_LSHIFT]),
+        Some("2") => Some([VK_LCONTROL, VK_LSHIFT]),
+        _ => None,
+    }
+}
+
+/// The keyboard layout of the app in front (its focused thread's).
+fn front_layout() -> isize {
+    unsafe {
+        let front = GetForegroundWindow();
+        let mut thread = GetWindowThreadProcessId(front, None);
+        let mut info = GUITHREADINFO { cbSize: size_of::<GUITHREADINFO>() as u32, ..Default::default() };
+        if GetGUIThreadInfo(thread, &mut info).is_ok() && !info.hwndFocus.is_invalid() {
+            let focus = GetWindowThreadProcessId(info.hwndFocus, None);
+            if focus != 0 {
+                thread = focus;
+            }
+        }
+        GetKeyboardLayout(thread).0 as isize
+    }
 }
 
 fn is_extended(vk: VIRTUAL_KEY) -> bool {
@@ -783,6 +856,26 @@ fn process_exe(hwnd: HWND) -> Option<String> {
 const TOUCHPAD_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\PrecisionTouchPad");
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 const RUN_VALUE: PCWSTR = w!("Pady");
+
+fn read_string(key: PCWSTR, value: PCWSTR) -> Option<String> {
+    let mut buf = [0u16; 64];
+    let mut size = (buf.len() * 2) as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key,
+            value,
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr() as *mut c_void),
+            Some(&mut size),
+        )
+    };
+    status.is_ok().then(|| {
+        let len = (size as usize / 2).saturating_sub(1).min(buf.len());
+        String::from_utf16_lossy(&buf[..len])
+    })
+}
 
 fn read_dword(key: PCWSTR, value: PCWSTR) -> Option<u32> {
     let mut data = 0u32;
