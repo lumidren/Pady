@@ -37,6 +37,8 @@ tauri-plugin-dialog = "2"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json", "query", "form", "system-proxy"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 whatlang = "0.16"
+# Sends a long text's pieces to the free service side by side.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 [target.'cfg(windows)'.dependencies.windows]
 workspace = true

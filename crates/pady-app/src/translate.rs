@@ -1,6 +1,7 @@
 //! Translating text online: MyMemory (free, no account) or DeepL (the
 //! user's own key). The pop-up that shows the result is in `popup.rs`.
 
+use futures_util::stream::{self, StreamExt, TryStreamExt};
 use pady_core::languages::{self, Language};
 use pady_core::Settings;
 use serde::Serialize;
@@ -11,8 +12,12 @@ use std::time::Duration;
 /// Longer selections are refused rather than cut: half a translation reads
 /// like a whole one.
 pub const MAX_CHARS: usize = 5_000;
-/// MyMemory takes up to 500 bytes per request.
-const FREE_CHUNK_BYTES: usize = 480;
+/// MyMemory takes up to 500 characters per request (characters, not bytes:
+/// it says so when refusing more).
+const FREE_CHUNK_CHARS: usize = 480;
+/// Pieces of a long text in flight at once: one after another, a paragraph
+/// of Hindi in 5 pieces took 9 s; side by side, 2.5 s.
+const FREE_PARALLEL: usize = 6;
 const MYMEMORY: &str = "https://api.mymemory.translated.net/get";
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -158,19 +163,29 @@ async fn free(text: &str, to: &Language, email: &str) -> Result<Translation, Pro
         return Ok(done(text.to_string(), from, to, "MyMemory", true));
     }
     let pair = format!("{}|{}", from.unwrap_or("autodetect"), to.code);
+    let pieces = chunks(text, FREE_CHUNK_CHARS);
+    // Side by side, but kept in order (`buffered`, not `buffer_unordered`).
+    // Each request owns its text: borrowed ones trip up the spawned task.
+    let requests: Vec<_> =
+        pieces.iter().map(|&(piece, _)| free_piece(piece.to_string(), pair.clone(), email.to_string())).collect();
+    let translated: Vec<String> = stream::iter(requests).buffered(FREE_PARALLEL).try_collect().await?;
     let mut out = String::with_capacity(text.len());
-    for (piece, gap) in chunks(text, FREE_CHUNK_BYTES) {
-        let mut request = client().get(MYMEMORY).query(&[("q", piece), ("langpair", pair.as_str())]);
-        if !email.is_empty() {
-            request = request.query(&[("de", email)]);
-        }
-        let response = request.send().await.map_err(net)?;
-        let status = response.status().as_u16();
-        let body: Value = response.json().await.map_err(net)?;
-        out.push_str(&mymemory_text(status, &body)?);
+    for (text, (_, gap)) in translated.iter().zip(&pieces) {
+        out.push_str(text);
         out.push_str(gap);
     }
     Ok(done(out.trim_end().to_string(), from, to, "MyMemory", false))
+}
+
+async fn free_piece(piece: String, pair: String, email: String) -> Result<String, Problem> {
+    let mut request = client().get(MYMEMORY).query(&[("q", &piece), ("langpair", &pair)]);
+    if !email.is_empty() {
+        request = request.query(&[("de", &email)]);
+    }
+    let response = request.send().await.map_err(net)?;
+    let status = response.status().as_u16();
+    let body: Value = response.json().await.map_err(net)?;
+    mymemory_text(status, &body)
 }
 
 /// The translation in a MyMemory reply, or why there isn't one.
@@ -241,14 +256,18 @@ fn unescape(s: &str) -> String {
     out
 }
 
-/// Split `text` into pieces of at most `max` bytes, at paragraph, sentence
+/// Split `text` into pieces of at most `max` characters, at paragraph, sentence
 /// or word ends where possible. Each piece comes with the whitespace that
 /// followed it, so line breaks survive.
 fn chunks(text: &str, max: usize) -> Vec<(&str, &str)> {
     let mut out = Vec::new();
     let mut rest = text;
     while !rest.is_empty() {
-        let cut = if rest.len() <= max { rest.len() } else { split_point(rest, max) };
+        // Where the `max`th character starts, if there are that many.
+        let cut = match rest.char_indices().nth(max) {
+            None => rest.len(),
+            Some((limit, _)) => split_point(rest, limit),
+        };
         let (piece, tail) = rest.split_at(cut);
         let gap_len = tail.len() - tail.trim_start().len();
         let (gap, next) = tail.split_at(gap_len);
@@ -270,16 +289,13 @@ fn gap_kind(gap: &str) -> &'static str {
     }
 }
 
-fn split_point(s: &str, max: usize) -> usize {
-    let mut limit = max;
-    while !s.is_char_boundary(limit) {
-        limit -= 1;
-    }
+/// The best place to cut `s` before byte `limit` (a character boundary).
+fn split_point(s: &str, limit: usize) -> usize {
     let head = &s[..limit];
     // Cut after the punctuation but before the whitespace, which becomes
     // the gap that's put back between the translated pieces.
     let cut = |i: usize, sep: &str| i + sep.trim_end().len();
-    for seps in [&["\n\n"][..], &["\n"], &[". ", "! ", "? ", "。", "؟ "], &[", ", "; ", "، "], &[" "]] {
+    for seps in [&["\n\n"][..], &["\n"], &[". ", "! ", "? ", "。", "؟ ", "। "], &[", ", "; ", "، "], &[" "]] {
         if let Some((i, sep)) = seps.iter().filter_map(|sep| head.rfind(sep).map(|i| (i, *sep))).max_by_key(|(i, _)| *i)
         {
             if cut(i, sep) > 0 {
@@ -350,14 +366,23 @@ mod tests {
     }
 
     #[test]
+    fn chunks_end_hindi_sentences_at_the_danda() {
+        let text = "यह पहला वाक्य है। यह दूसरा वाक्य है।";
+        let parts = chunks(text, 25);
+        assert_eq!(parts[0], ("यह पहला वाक्य है।", " "));
+    }
+
+    #[test]
     fn chunks_never_split_a_character() {
         let text = "مرحبا بكم في هذا الاختبار الطويل جدا ".repeat(40);
-        for (piece, _) in chunks(&text, FREE_CHUNK_BYTES) {
-            assert!(piece.len() <= FREE_CHUNK_BYTES);
+        let parts = chunks(&text, FREE_CHUNK_CHARS);
+        assert_eq!(parts.len(), 4, "1,480 letters in pieces of up to 480");
+        for (piece, _) in parts {
+            assert!(piece.chars().count() <= FREE_CHUNK_CHARS);
         }
         let word = "ä".repeat(400); // no spaces at all
         let parts = chunks(&word, 101);
-        assert!(parts.iter().all(|(p, _)| p.len() <= 101));
+        assert!(parts.iter().all(|(p, _)| p.chars().count() <= 101));
         assert_eq!(parts.iter().map(|(p, _)| *p).collect::<String>(), word);
     }
 
@@ -417,5 +442,22 @@ mod tests {
         println!("{t:?}");
         assert_eq!(t.from.as_deref(), Some("es"));
         assert!(t.text.to_lowercase().contains("how are you"), "{}", t.text);
+    }
+
+    /// A long Hindi paragraph is two pieces: they go out side by side and
+    /// come back in order.
+    #[test]
+    #[ignore]
+    fn live_free_translation_of_many_pieces() {
+        let text = "पैडी (Pady) विंडोज़ और लिनक्स के लिए एक मुफ़्त टचपैड जेस्चर ऐप है। इससे आप अपने टचपैड पर तीन या चार उंगलियों से स्वाइप, टैप और पिंच करके अपने कंप्यूटर को आसानी से नियंत्रित कर सकते हैं। उदाहरण के लिए, तीन उंगलियों से पिंच करके आप टेक्स्ट कॉपी कर सकते हैं और उंगलियाँ फैलाकर उसे पेस्ट कर सकते हैं। आप वॉल्यूम और ब्राइटनेस बदल सकते हैं, गाने चला या रोक सकते हैं, कोई ऐप खोल सकते हैं या स्क्रीन लॉक कर सकते हैं। जल्द ही पैडी में एक अनुवादक भी आने वाला है: किसी भी ऐप में टेक्स्ट चुनिए, अपना जेस्चर कीजिए, और उसका अनुवाद तुरंत एक छोटी सी विंडो में दिखाई देगा। पैडी तेज़, हल्का और पूरी तरह ओपन सोर्स है।";
+        assert_eq!(chunks(text, FREE_CHUNK_CHARS).len(), 2);
+        let to = languages::by_code("en").unwrap();
+        let started = std::time::Instant::now();
+        let t = tauri::async_runtime::block_on(translate(text, to, &Settings::default())).unwrap();
+        println!("{:?} {t:?}", started.elapsed());
+        assert_eq!(t.from.as_deref(), Some("hi"));
+        let lower = t.text.to_lowercase();
+        let (first, last) = (lower.find("touchpad").unwrap(), lower.rfind("open source").unwrap());
+        assert!(first < last, "pieces out of order: {}", t.text);
     }
 }
