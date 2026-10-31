@@ -152,6 +152,9 @@ pub enum EngineEvent {
         points: Option<Vec<[f32; 2]>>,
         problem: Option<NotAGlyph>,
     },
+    /// A gesture asked to translate the selected text. The app does it: it
+    /// needs the network and a window, which the engine has neither of.
+    Translate,
 }
 
 pub type Observer = Arc<dyn Fn(EngineEvent) + Send + Sync>;
@@ -397,6 +400,10 @@ impl ActionLoop {
     }
 
     fn execute(&mut self, action: &Action) {
+        if matches!(action, Action::Translate) {
+            (self.observer)(EngineEvent::Translate);
+            return;
+        }
         match self.exec.run(action) {
             Ok(Some(level)) => (self.observer)(EngineEvent::Level(level)),
             Ok(None) => {}
@@ -891,6 +898,15 @@ mod tests {
         cfg.set_binding(Trigger::Tap(3), Action::Run { command: "nope".into() }, false);
         let (_, events) = run_engine(cfg, tap3());
         assert!(events.iter().any(|e| matches!(e, EngineEvent::ActionFailed { error, .. } if error == "boom")));
+    }
+
+    #[test]
+    fn translate_is_handed_to_the_app() {
+        let mut cfg = Config::default();
+        cfg.set_binding(Trigger::Tap(3), Action::Translate, false);
+        let (jobs, events) = run_engine(cfg, tap3());
+        assert!(events.iter().any(|e| matches!(e, EngineEvent::Translate)));
+        assert!(jobs.is_empty(), "the executor never sees it: {jobs:?}");
     }
 
     fn with_browser_profile() -> Config {

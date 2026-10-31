@@ -204,7 +204,7 @@ impl Executor for LinuxExecutor {
             Action::Brightness { step } => return brightness(*step),
             Action::Media { key } => return self.media(*key),
             // Drag is driven through mouse_button / mouse_move.
-            Action::None | Action::Drag => Ok(()),
+            Action::None | Action::Drag | Action::Translate => Ok(()),
             Action::Keys { combo } => {
                 let parsed: KeyCombo = combo.parse().map_err(|e| format!("invalid shortcut `{combo}`: {e}"))?;
                 self.send_combo(&parsed)

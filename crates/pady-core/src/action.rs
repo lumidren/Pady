@@ -41,6 +41,9 @@ pub enum Action {
     Lock,
     /// Hold the left mouse button while the fingers move (drag triggers only).
     Drag,
+    /// Translate the selected text into `translate_to` and show it in a
+    /// pop-up. The app does this itself (it needs the network and a window).
+    Translate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,6 +117,7 @@ impl Action {
             Action::Run { command } => format!("Run `{command}`"),
             Action::Lock => "Lock screen".into(),
             Action::Drag => "Drag (hold left button)".into(),
+            Action::Translate => "Translate selected text".into(),
         }
     }
 }
@@ -137,6 +141,8 @@ mod tests {
         assert_eq!(w.action, Action::Media { key: MediaKey::PlayPause });
         let w: Wrap = toml::from_str(r#"action = { type = "lock" }"#).unwrap();
         assert_eq!(w.action, Action::Lock);
+        let w: Wrap = toml::from_str(r#"action = { type = "translate" }"#).unwrap();
+        assert_eq!(w.action, Action::Translate);
     }
 
     #[test]

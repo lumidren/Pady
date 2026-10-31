@@ -89,6 +89,13 @@ pub struct Settings {
     /// Start-with-the-system has been set up once (on by default at first
     /// launch); after that only the user's own choice counts.
     pub autostart_configured: bool,
+    /// The language the Translate action translates into (ISO 639-1).
+    pub translate_to: String,
+    /// Who translates: `free` (MyMemory, no account) or `deepl` (needs `deepl_key`).
+    pub translate_engine: String,
+    /// The user's DeepL API key, for `translate_engine = "deepl"`.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub deepl_key: String,
 }
 
 impl Default for Settings {
@@ -128,6 +135,9 @@ impl Default for Settings {
             onboarded: false,
             check_updates: true,
             autostart_configured: false,
+            translate_to: "en".into(),
+            translate_engine: "free".into(),
+            deepl_key: String::new(),
         }
     }
 }
@@ -157,6 +167,14 @@ impl Settings {
         self.glow_strength = fit(self.glow_strength, 0.0, 2.0, d.glow_strength);
         self.anim_speed = fit(self.anim_speed, 0.25, 4.0, d.anim_speed);
         self.notice_time = fit(self.notice_time, 0.25, 5.0, d.notice_time);
+        self.translate_to = match crate::languages::by_code(&self.translate_to) {
+            Some(lang) => lang.code.into(),
+            None => d.translate_to,
+        };
+        if !matches!(self.translate_engine.as_str(), "free" | "deepl") {
+            self.translate_engine = d.translate_engine;
+        }
+        self.deepl_key = self.deepl_key.trim().to_string();
     }
 
     /// The glow multiplier for everything that glows (0 = no glow). The
@@ -569,6 +587,29 @@ impl SharedConfig {
 mod tests {
     use super::*;
     use crate::gesture::Direction;
+
+    #[test]
+    fn translator_settings_are_kept_valid() {
+        let cfg = Config::from_toml(
+            "[settings]
+translate_to = \"ES\"
+translate_engine = \"deepl\"
+deepl_key = \" k:fx \"
+",
+        )
+        .unwrap();
+        assert_eq!((cfg.settings.translate_to.as_str(), cfg.settings.translate_engine.as_str()), ("es", "deepl"));
+        assert_eq!(cfg.settings.deepl_key, "k:fx");
+        let cfg = Config::from_toml(
+            "[settings]
+translate_to = \"klingon\"
+translate_engine = \"x\"
+",
+        )
+        .unwrap();
+        assert_eq!((cfg.settings.translate_to.as_str(), cfg.settings.translate_engine.as_str()), ("en", "free"));
+        assert!(!Config::default().to_toml().unwrap().contains("deepl_key"), "no empty key in the file");
+    }
 
     #[test]
     fn default_config_round_trips_through_toml() {
