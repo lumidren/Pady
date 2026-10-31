@@ -1489,7 +1489,7 @@
       case 'mute': return aboutType('mute', 'Toggles mute on the default output device.');
       case 'translate': {
         const to = (store.app.languages || []).find((l) => l.code === store.app.config.settings.translate_to);
-        return aboutType('translate', `Select some text in any app, then do this gesture: the translation into ${to ? to.name : 'your language'} shows in a pop-up next to it, ready to copy or put in place of the original. Change the language in Settings › Translator.`);
+        return aboutType('translate', `Select some text in any app, then do this gesture: the translation into ${to ? to.name : 'your language'} shows in a pop-up next to it, ready to copy or put in place of the original. Change the language on the Translator tab.`);
       }
       case 'lock': return aboutType('lock', 'Locks your session immediately, like pressing ' + (platform() === 'linux' ? 'Super+L.' : 'Win+L.'));
       case 'none': return aboutType('none', 'This gesture does nothing. Pick a preset or an action type above.');
@@ -2439,7 +2439,7 @@
     animations: true, anim_swipe_glow: false, anim_hints: false, anim_pinch: true, anim_notices: true, anim_screenshot: false, anim_touches: false,
     anim_previews: false, anim_mirror: false, anim_celebrate: false, anim_language: true,
     anim_glow: true, glow_strength: 1, anim_speed: 1, notice_time: 1,
-    translate_to: 'en', translate_engine: 'free', deepl_key: '',
+    translate_to: 'en', translate_engine: 'free', deepl_key: '', translate_email: '',
   };
   /** Is this animation on (its own switch and the master switch)? */
   const animates = (key) => {
@@ -2732,6 +2732,24 @@ function translatorSettingsPanel() {
     const reveal = h('button', { class: 'btn btn--sm', type: 'button', 'aria-label': 'Show or hide the key', title: 'Show or hide the key' }, ico('eye', 14));
     reveal.addEventListener('click', () => { trUI.Key.type = trUI.Key.type === 'password' ? 'text' : 'password'; });
     const getKey = h('button', { class: 'btn btn--sm', type: 'button', onClick: () => call('test_action', { action: { type: 'open_url', url: 'https://www.deepl.com/pro-api' } }, { quiet: true }).catch(() => {}) }, ico('external', 14), 'Get a free key');
+    trUI.Email = h('input', { class: 'input', type: 'email', placeholder: 'you@example.com', spellcheck: 'false', autocomplete: 'email', 'aria-labelledby': 'tr-email-title', 'aria-describedby': 'tr-email-sub' });
+    trUI.EmailSub = h('div', { class: 'row-sub', id: 'tr-email-sub' });
+    // Saved only once it looks like an email; Pady would drop anything else.
+    trUI.Email.addEventListener('input', () => {
+      const v = trUI.Email.value.trim();
+      const ok = !v || EMAIL_RE.test(v);
+      trUI.Email.classList.toggle('is-invalid', !ok && !trUI.Email.matches(':focus'));
+      if (ok) queue('translate_email', v, 700);
+      paintEmailSub(v, ok);
+    });
+    trUI.Email.addEventListener('blur', () => {
+      const v = trUI.Email.value.trim();
+      trUI.Email.classList.toggle('is-invalid', !!v && !EMAIL_RE.test(v));
+    });
+    trUI.EmailRow = h('div', { class: 'row', style: { 'flex-wrap': 'wrap' } },
+      h('div', { class: 'row-text', style: { 'flex-basis': '100%' } },
+        h('div', { class: 'row-title', id: 'tr-email-title' }, 'Your email (optional)'), trUI.EmailSub),
+      h('div', { class: 'input-row', style: { flex: '1' } }, trUI.Email));
     trUI.EngineSub = h('div', { class: 'row-sub', id: 'tr-engine-sub' });
     trUI.KeyRow = h('div', { class: 'row', style: { 'flex-wrap': 'wrap' } },
       h('div', { class: 'row-text', style: { 'flex-basis': '100%' } },
@@ -2746,7 +2764,18 @@ function translatorSettingsPanel() {
       h('div', { class: 'row' },
         h('div', { class: 'row-text' }, h('div', { class: 'row-title', id: 'tr-engine-title' }, 'Translator'), trUI.EngineSub),
         trUI.Engine),
+      trUI.EmailRow,
       trUI.KeyRow);
+  }
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@.]+$/;
+
+  function paintEmailSub(v, ok) {
+    trUI.EmailSub.textContent = !ok
+      ? 'That doesn’t look like an email address yet.'
+      : v
+        ? 'Up to 50,000 characters a day. It’s sent to MyMemory with each translation, and nowhere else.'
+        : 'Raises the daily limit from 5,000 to 50,000 characters. No account or sign-up; it’s sent to MyMemory with each translation.';
   }
 
 
@@ -2851,10 +2880,16 @@ function translatorSettingsPanel() {
     trUI.Engine.value = engine;
     if (document.activeElement !== trUI.Key && !('deepl_key' in setUI.pending)) trUI.Key.value = s.deepl_key || '';
     trUI.KeyRow.hidden = engine !== 'deepl';
+    trUI.EmailRow.hidden = engine !== 'free';
+    if (document.activeElement !== trUI.Email && !('translate_email' in setUI.pending)) {
+      trUI.Email.value = s.translate_email || '';
+      trUI.Email.classList.remove('is-invalid');
+    }
+    if (document.activeElement !== trUI.Email) paintEmailSub(trUI.Email.value.trim(), !trUI.Email.value.trim() || EMAIL_RE.test(trUI.Email.value.trim()));
     const lang = langs.find((l) => l.code === trUI.To.value);
     trUI.EngineSub.textContent = engine === 'deepl'
       ? (lang && !lang.deepl ? `DeepL doesn’t translate into ${lang.name}, so the free translator does.` : 'The best quality. Needs your own key; the text is sent to DeepL.')
-      : 'No account needed. Up to 5,000 characters a day; the text is sent to MyMemory.';
+      : `No account needed. Up to ${pending('translate_email') ? '50,000' : '5,000'} characters a day; the text is sent to MyMemory.`;
   }
 
   function paintSlider(d, v) {
