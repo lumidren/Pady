@@ -8,6 +8,7 @@ const COMMANDS: &[&str] = &[
     "reset_config",
     "list_backups",
     "restore_backup",
+    "translate_text",
     "translate_ready",
     "translate_layout",
     "translate_act",

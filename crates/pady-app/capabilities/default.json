@@ -13,6 +13,7 @@
     "allow-reset-config",
     "allow-list-backups",
     "allow-restore-backup",
+    "allow-translate-text",
     "allow-set-autostart",
     "allow-test-action",
     "allow-record-glyph",

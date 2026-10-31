@@ -170,6 +170,19 @@ fn reset_config(app: AppHandle, pady: State<Pady>) -> Result<AppState, String> {
     pady.apply(&app, config)
 }
 
+/// Translate text typed on the Translator tab, with the user's settings.
+#[tauri::command]
+async fn translate_text(pady: State<'_, Pady>, text: String) -> Result<translate::Translation, String> {
+    if text.trim().is_empty() {
+        return Err("Type something to translate.".into());
+    }
+    let s = pady.config.get().settings;
+    let to = pady_core::languages::by_code(&s.translate_to)
+        .or_else(|| pady_core::languages::by_code("en"))
+        .ok_or("no language to translate into")?;
+    translate::translate(&text, to, &s.translate_engine, &s.deepl_key).await.map_err(|p| p.message())
+}
+
 /// One saved copy of the config, as the Settings page lists it.
 #[derive(Serialize)]
 struct BackupInfo {
@@ -849,6 +862,7 @@ fn main() {
             reset_config,
             list_backups,
             restore_backup,
+            translate_text,
             translate_ready,
             translate_layout,
             translate_act,
