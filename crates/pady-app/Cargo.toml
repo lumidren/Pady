@@ -32,6 +32,11 @@ tauri-plugin-single-instance = "2"
 # zip/tar/flate2 dependencies) is left out.
 tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-dialog = "2"
+# The translator: HTTPS to the translation services (rustls with ring, as
+# the updater uses), and offline language detection for the free service.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json", "query", "form", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+whatlang = "0.16"
 
 [target.'cfg(windows)'.dependencies.windows]
 workspace = true
