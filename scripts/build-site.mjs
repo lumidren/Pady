@@ -38,6 +38,7 @@ const bust = (pageFile, files) => {
   writeFileSync(pageFile, html);
 };
 bust(join(OUT, "index.html"), ["style.css", "site.js"]);
+bust(join(OUT, "features.html"), ["style.css"]);
 bust(join(OUT, "demo", "index.html"), ["styles.css", "mock.js", "icons.js", "model.js", "app.js"]);
 console.log("built " + OUT);
 
