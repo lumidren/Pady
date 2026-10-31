@@ -354,26 +354,66 @@ Run `pady-cli doctor`. If Pady can't read the touchpad or send keys, click **Fix
 <details>
 <summary><b>Does it work on Wayland?</b></summary>
 
-Gestures and all actions work. Switching to an app and per-app profiles need to know which window is in front. That works for X11 and XWayland apps, and on KDE Plasma with `kdotool`; on other Wayland desktops those two features fall back gracefully.
+Gestures and all actions work: keys and the drag button go through a virtual input device, which works the same on X11 and Wayland. Switching to an app and per-app profiles need to know which window is in front. That works for X11 and XWayland apps, and on KDE Plasma with `kdotool`; on other Wayland desktops those two features fall back gracefully.
 </details>
 
 <details>
 <summary><b>Which touchpads are supported?</b></summary>
 
-On Windows, any **Precision Touchpad**, which covers most laptops from the last several years. On Linux, any multitouch touchpad the kernel exposes through evdev, including ones that report fewer finger slots than fingers.
+On Windows, any **Precision Touchpad**, which covers most laptops from the last several years. On Linux, any multitouch touchpad the kernel exposes through evdev, including ones that report fewer finger slots than fingers. Touchpads plugged in later (USB, Bluetooth) are picked up too.
 </details>
 
 <details>
 <summary><b>How much memory does it use?</b></summary>
 
-With the window closed, Pady runs without any web view: one process using about 20–40 MB (under 8 MB of it private), and no CPU time at all while you aren't touching the pad. Opening the window starts WebView2, which takes a few hundred MB more until you close the window again. Measured on Windows 11 with Pady 0.3.0.
+With the window closed, Pady runs without any web view: one process using about 20 MB (a 21.7 MB working set, 4.8 MB of it private, measured on Windows 11), and no CPU time at all while you aren't touching the pad. Opening the window starts WebView2, which takes a few hundred MB more until you close the window again.
 </details>
 
 <details>
-<summary><b>Where are the logs?</b></summary>
+<summary><b>Does it slow down games?</b></summary>
 
-Windows: `%LOCALAPPDATA%\com.lumidren.pady\logs`. Linux: `~/.local/share/com.lumidren.pady/logs`. They hold gestures and errors, never what you type.
+No. Pady sleeps until the touchpad reports something. By default it also ignores gestures while a game runs in exclusive full screen, and tells you when it skipped one.
 </details>
+
+<details>
+<summary><b>Does it read what I copy or type?</b></summary>
+
+No. Pady reads only the touchpad. For the "Copied" notice, Windows tells Pady *that* the clipboard changed, never what's in it.
+</details>
+
+<details>
+<summary><b>Is there a macOS version?</b></summary>
+
+No. Macs already have rich trackpad gestures, and Pady is built on the Windows Precision Touchpad and Linux evdev interfaces.
+</details>
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| Windows reacts to a gesture as well as Pady | Set Windows' three- and four-finger **Swipes** and **Taps** to **Nothing** (see the warning under [Install](#install)), or use five fingers. |
+| "No touchpad found" on Windows | Pady needs a Precision Touchpad. **Settings › Bluetooth & devices › Touchpad** shows whether you have one. |
+| Nothing happens on Linux | Run `pady-cli doctor`, then **Fix permissions** or `pady-cli fix-permissions`. |
+| A Linux action fails | The app flags bindings that need a helper tool (brightnessctl, xdotool, wmctrl, playerctl). **Fix permissions** installs the missing ones. |
+| Three-finger swipes do nothing | Three-finger drag is on, and drag takes over swipes for that finger count. Turn it off or use four fingers. |
+| Single taps feel slow | A double or triple tap is bound for that finger count, so single taps wait to tell them apart. Shorten **Double-tap speed** or unbind the multi-tap. |
+| Gestures stop in a game | `pause_in_fullscreen` is on. That's on purpose; turn it off in Settings if you want gestures there. |
+| Gestures stopped after sleep | Pady checks its touchpad listener every two seconds and replaces it after sleep or if it stops. If it still doesn't recover, quit and reopen Pady and [report a bug](https://github.com/lumidren/Pady/issues/new/choose) with the log. |
+| A hand edit went wrong | Restore a copy from **Settings › Backups** *(next update)*, or run `pady-cli config reset`. |
+
+For bug reports, include the output of `pady-cli doctor` and the log (see [Configuration](#configuration)). The app's **About** page has *Report a bug*, *Suggest a feature* and *Share feedback* buttons that fill in your Pady version.
+
+## Privacy and security
+
+Pady will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it, with one exception you can turn off: twice a day it asks GitHub whether a newer version exists (`github.com/lumidren/Pady/releases/latest/download/latest.json`). That request carries no information about you or your PC beyond what any web request does, and you can switch it off under **Settings › Check for updates**. Pady has no accounts, no ads and no telemetry, reads only the touchpad, and never reads what you copy.
+
+- **Touchpad only.** On Windows, Pady registers for the touchpad's Raw Input collection, never the keyboard. On Linux, the udev rule gives the signed-in user access to touchpads and `/dev/uinput`, not keyboards or mice.
+- **Signed updates.** The updater installs a new version only if it's signed with Pady's updater key.
+- **A locked-down window.** The settings window runs only the app's own files under a strict Content Security Policy, and only it may call Pady's commands.
+- **Careful with input.** What devices report and what hand-edited files say is bounds-checked and fuzz tested.
+- **Audited dependencies.** CI checks every dependency against the RustSec advisory database on each push and once a week.
+
+Found a vulnerability? Please report it privately, as described in [SECURITY.md](SECURITY.md), which also explains every permission Pady uses and why.
 
 ## How it works
 
@@ -425,10 +465,6 @@ Windows releases are signed so you can check they come from this project. Free c
 - **Approvers:** [lumidren](https://github.com/lumidren)
 
 Only what is built from this repository by the [Release workflow](.github/workflows/release.yml) on GitHub Actions is signed: the workflow builds the installers from a version tag, sends them to SignPath, and attaches the signed files with SHA-256 checksums to a draft release that the maintainer publishes. Every signing request is approved by hand. Changes from other contributors are reviewed before they are merged. The maintainer's GitHub and SignPath accounts use multi-factor authentication.
-
-### Privacy
-
-Pady will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it, with one exception you can turn off: twice a day it asks GitHub whether a newer version exists (`github.com/lumidren/Pady/releases/latest/download/latest.json`). That request carries no information about you or your PC beyond what any web request does, and you can switch it off under **Settings › Check for updates**. Pady has no accounts, no ads and no telemetry, reads only the touchpad, and never reads what you copy.
 
 ## Made by
 
