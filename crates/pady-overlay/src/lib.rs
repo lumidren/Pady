@@ -95,6 +95,15 @@ pub enum Icon {
     Keyboard,
 }
 
+/// Don't show "Copied" for clipboard changes in the next `time`: Pady is
+/// using the clipboard itself (to read or replace the selected text).
+pub fn quiet_clipboard(time: std::time::Duration) {
+    #[cfg(windows)]
+    toast::quiet_clipboard(time);
+    #[cfg(not(windows))]
+    let _ = time;
+}
+
 /// The corner notices: a layered window on a thread of its own, like the pill.
 pub struct Toasts {
     #[cfg(windows)]
