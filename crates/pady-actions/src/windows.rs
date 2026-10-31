@@ -176,6 +176,11 @@ fn tap_vk(vk: VIRTUAL_KEY) -> Result<(), ActionError> {
 
 /// Press modifiers, tap the key, release in reverse order — all in one
 /// `SendInput` call so no real keystroke can interleave.
+/// Press a shortcut such as `ctrl+c` (outside the executor, from any thread).
+pub(crate) fn press(combo: &str) -> Result<(), ActionError> {
+    send_combo(&combo.parse::<KeyCombo>()?)
+}
+
 fn send_combo(combo: &KeyCombo) -> Result<(), ActionError> {
     let m = combo.modifiers;
     let mods: Vec<VIRTUAL_KEY> =

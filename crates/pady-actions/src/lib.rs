@@ -1,6 +1,8 @@
 //! Native executors for Pady actions, plus a few OS integrations the app
 //! needs (start-with-system, detecting gestures the OS also handles).
 
+#[cfg(windows)]
+mod clipboard;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(windows)]
@@ -50,6 +52,38 @@ pub fn foreground_app() -> Option<String> {
     return linux::LinuxExecutor::new().foreground_app();
     #[cfg(not(any(windows, target_os = "linux")))]
     None
+}
+
+/// The text selected in the app in front, or `None` if nothing is.
+///
+/// Windows: copied with Ctrl+C, with the clipboard put back afterwards.
+/// Linux: the primary selection (whatever is highlighted), read with
+/// wl-paste, xclip or xsel. Takes up to about half a second.
+pub fn selected_text() -> Result<Option<String>, ActionError> {
+    #[cfg(windows)]
+    return clipboard::selected_text(|| windows::press("ctrl+c"));
+    #[cfg(target_os = "linux")]
+    return linux::primary_selection();
+    #[cfg(not(any(windows, target_os = "linux")))]
+    Ok(None)
+}
+
+/// Put text on the clipboard, as if the user had copied it.
+pub fn copy_text(text: &str) -> Result<(), ActionError> {
+    #[cfg(windows)]
+    return clipboard::set_text(text, true);
+    #[cfg(target_os = "linux")]
+    return linux::set_clipboard(text);
+    #[cfg(not(any(windows, target_os = "linux")))]
+    Err(format!("can't copy {} characters here", text.len()).into())
+}
+
+/// Replace the selection in the app in front with `text`, by pasting it.
+/// The clipboard is put back afterwards. Windows only: on Linux, copy the
+/// text and press Ctrl+V through the executor (it owns the keyboard).
+#[cfg(windows)]
+pub fn replace_selection(text: &str) -> Result<(), ActionError> {
+    clipboard::paste_text(text, || windows::press("ctrl+v"))
 }
 
 /// Something on this system that will fight with the user's bindings.
