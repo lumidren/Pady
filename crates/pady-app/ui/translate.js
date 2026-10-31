@@ -154,9 +154,15 @@
   card.addEventListener('mouseleave', () => { hovering = false; armIdleClose(); });
 
   // Clicking anywhere else closes it (ignoring the moment it takes focus).
+  // Dragging the window drops focus for a blink too, so close only if focus
+  // stays away.
+  let blurTimer = 0;
   window.addEventListener('blur', () => {
-    if (visible && performance.now() - shownAt > 300) act('close');
+    if (!visible || performance.now() - shownAt <= 300) return;
+    clearTimeout(blurTimer);
+    blurTimer = setTimeout(() => { if (!document.hasFocus()) act('close'); }, 200);
   });
+  window.addEventListener('focus', () => clearTimeout(blurTimer));
 
   if (tauri) {
     tauri.event.listen('pady://translate', (e) => render(e.payload));
