@@ -168,7 +168,7 @@ A few rules keep them apart:
 | Run a command | Anything your shell can run (`cmd /C` on Windows, `sh -c` on Linux). | `{ type = "run", command = "…" }` |
 | Lock the screen | Locks your session. | `{ type = "lock" }` |
 | Drag | Three-finger drag style: holds the left button while the fingers move. For drag gestures. | `{ type = "drag" }` |
-| Switch keyboard language *(next update)* | Presses Win+Space, and a corner notice names the language, like "Arabic" or "English". | `{ type = "keys", combo = "win+space" }` |
+| Switch keyboard language *(next update)* | Presses Windows' language hotkey (Left Alt+Shift, or Ctrl+Shift if set), which switches without Windows' pop-up, falling back to Win+Space; a corner notice names the language, like "Arabic" or "English". | `{ type = "keys", combo = "win+space" }` |
 | Nothing | Switches a gesture off, for example inside one app. | `{ type = "none" }` |
 
 The gesture editor also has one-click choices for common jobs: zoom in and out, show desktop, task view (overview on Linux), next and previous desktop, screenshot, close window, open Chrome, open YouTube. They are shortcuts or actions from the table, picked to suit Windows or Linux.
