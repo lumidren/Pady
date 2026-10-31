@@ -2647,7 +2647,7 @@ dependencies = [
 
 [[package]]
 name = "pady-actions"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "evdev",
  "log",
@@ -2658,7 +2658,7 @@ dependencies = [
 
 [[package]]
 name = "pady-app"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -2684,7 +2684,7 @@ dependencies = [
 
 [[package]]
 name = "pady-cli"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "crossbeam-channel",
  "env_logger",
@@ -2699,7 +2699,7 @@ dependencies = [
 
 [[package]]
 name = "pady-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -2711,7 +2711,7 @@ dependencies = [
 
 [[package]]
 name = "pady-input"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "crossbeam-channel",
  "evdev",
@@ -2724,7 +2724,7 @@ dependencies = [
 
 [[package]]
 name = "pady-overlay"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "env_logger",
  "log",
