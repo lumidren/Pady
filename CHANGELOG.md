@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Translator.** Select text in any app and do your gesture: the translation pops up next to it, with Copy and Replace (puts the translation in place of the text). It detects the language by itself and leaves your clipboard as it was. The new Translator tab picks the language, the service (free MyMemory, or DeepL with your own key) and has a box to try it. Online for now.
 - **Switch keyboard language** is a new action for any gesture. The corner pill names the language you switched to.
 
 ### Changed
