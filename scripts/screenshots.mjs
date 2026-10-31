@@ -172,10 +172,23 @@ async function main() {
 
     cdp.ws.close();
   } finally {
-    proc.kill();
+    await stopBrowser(proc, profile);
     await sleep(500);
     rmSync(profile, { recursive: true, force: true });
   }
+}
+
+/** Headless Edge and Chrome on Windows hand the work to processes outside
+ *  the one started here, which outlive it (hundreds of MB each), so stop
+ *  every browser process using this run's throwaway profile. */
+async function stopBrowser(proc, profile) {
+  proc.kill();
+  if (process.platform !== "win32") return;
+  const stop =
+    `Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe'" | ` +
+    `Where-Object { $_.CommandLine -like '*${profile}*' } | ` +
+    `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+  await new Promise((done) => spawn("powershell", ["-NoProfile", "-Command", stop], { stdio: "ignore" }).on("exit", done));
 }
 
 main().catch((e) => {
