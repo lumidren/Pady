@@ -96,6 +96,10 @@ pub struct Settings {
     /// The user's DeepL API key, for `translate_engine = "deepl"`.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub deepl_key: String,
+    /// An email the free translator (MyMemory) can reach the user at. With
+    /// one its daily limit goes from 5,000 to 50,000 characters.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub translate_email: String,
 }
 
 impl Default for Settings {
@@ -138,6 +142,7 @@ impl Default for Settings {
             translate_to: "en".into(),
             translate_engine: "free".into(),
             deepl_key: String::new(),
+            translate_email: String::new(),
         }
     }
 }
@@ -175,6 +180,10 @@ impl Settings {
             self.translate_engine = d.translate_engine;
         }
         self.deepl_key = self.deepl_key.trim().to_string();
+        self.translate_email = self.translate_email.trim().to_string();
+        if !looks_like_email(&self.translate_email) {
+            self.translate_email.clear();
+        }
     }
 
     /// The glow multiplier for everything that glows (0 = no glow). The
@@ -583,6 +592,22 @@ impl SharedConfig {
     }
 }
 
+/// Enough of a check to keep typos and stray text out of every request.
+fn looks_like_email(s: &str) -> bool {
+    match s.split_once('@') {
+        Some((user, host)) => {
+            !user.is_empty()
+                && host.contains('.')
+                && !host.starts_with('.')
+                && !host.ends_with('.')
+                && !host.contains('@')
+                && !s.chars().any(char::is_whitespace)
+                && s.len() <= 254
+        }
+        None => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -595,20 +620,25 @@ mod tests {
 translate_to = \"ES\"
 translate_engine = \"deepl\"
 deepl_key = \" k:fx \"
+translate_email = \" me@example.com \"
 ",
         )
         .unwrap();
         assert_eq!((cfg.settings.translate_to.as_str(), cfg.settings.translate_engine.as_str()), ("es", "deepl"));
         assert_eq!(cfg.settings.deepl_key, "k:fx");
+        assert_eq!(cfg.settings.translate_email, "me@example.com");
         let cfg = Config::from_toml(
             "[settings]
 translate_to = \"klingon\"
 translate_engine = \"x\"
+translate_email = \"not an email\"
 ",
         )
         .unwrap();
         assert_eq!((cfg.settings.translate_to.as_str(), cfg.settings.translate_engine.as_str()), ("en", "free"));
-        assert!(!Config::default().to_toml().unwrap().contains("deepl_key"), "no empty key in the file");
+        assert_eq!(cfg.settings.translate_email, "");
+        let toml = Config::default().to_toml().unwrap();
+        assert!(!toml.contains("deepl_key") && !toml.contains("translate_email"), "no empty values in the file");
     }
 
     #[test]
