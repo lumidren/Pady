@@ -647,9 +647,11 @@ Writes are atomic (a temporary file, then a rename), so a crash never leaves hal
 |---|---|---|
 | Memory in the tray | about 20 MB (21.7 MB working set, 4.8 MB private) | Measured on Windows 11 with the window closed |
 | CPU while idle | 0% | No polling: every thread sleeps until a frame, a timer or a message arrives |
-| Recognizing one touch frame | 83 ns (one finger pointing) to 402 ns (three-finger drag) | `cargo bench -p pady-core` on a Windows 11 laptop. Touchpads send a frame every 7–8 ms. A test also keeps the 99th percentile under 100 µs on every CI run |
-| Finger lift to action running | 50 µs median, 152 µs at the 99th percentile | `cargo bench -p pady-core`, a five-finger tap through the engine to the action thread |
+| Recognizing one touch frame | 23 ns (one finger pointing) to about 120 ns (swipes, pinches, drags), with no memory allocated while pointing or scrolling | `cargo bench -p pady-core` on a Windows 11 laptop. Touchpads send a frame every 7–8 ms. A test also keeps the 99th percentile under 100 µs on every CI run |
+| Finger lift to action running | 56 µs median, about 200 µs at the 99th percentile | `cargo bench -p pady-core`, a five-finger tap through the engine to the action thread |
+| Full-screen game check before each gesture (Windows) | about 0.1 ms; only the first gesture in a newly full-screen window waits for Windows' answer (17–90 ms) | `time_actions`; the shell's answer is reused and refreshed in the background |
 | A volume step on Windows | well under 1 ms (about 13 ms before 0.3.2) | `cargo run -p pady-actions --release --example time_actions` |
+| A brightness step on Windows | about 4.5 ms, the first one 8 ms (it connects to WMI at startup) | `time_actions` |
 | Swipe glow and touches | about 0.2 ms of work per frame, paced by the display | The glow is drawn once; each frame only moves it and changes its opacity |
 | Timers for holds, double taps, drag release | 1 ms precision while one is pending (Windows' default tick is ~15.6 ms) | Requested only while needed, then given back |
 | Download | 5.6 MB Windows setup, 5.4 MB .deb | v1.0.0 release files |
