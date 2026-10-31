@@ -529,6 +529,9 @@ fn observer(
         }
         EngineEvent::Gesture { gesture, trigger, action, profile } => {
             if let Some(toasts) = &toasts {
+                if action.is_some() {
+                    toasts.language_may_change();
+                }
                 if let Some(notice) =
                     feedback::notice_for(&settings.get(), &gesture, trigger.as_deref(), action.as_deref())
                 {
@@ -539,7 +542,7 @@ fn observer(
             let _ = app.emit("pady://gesture", payload);
         }
         EngineEvent::Level(level) => {
-            if config.get().settings.show_overlay {
+            if settings.get().show_overlay {
                 match &native_overlay {
                     Some(native) => native.show(level),
                     None => web_overlay.show(&level),
