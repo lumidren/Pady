@@ -148,7 +148,7 @@ action = { type = "none" }   <span class="c"># off here</span></code></pre>
               <tr><td>Pinch starts after</td><td>8 mm</td></tr>
             </tbody>
           </table>
-          <div class="f-point"><h3>A readable config file</h3><p>Everything is saved as plain TOML. Edit it by hand if you like; changes apply instantly.</p></div>
+          <div class="f-point"><h3>A readable config file</h3><p>Everything is saved as plain TOML. Edit it by hand if you like; Pady picks up the changes within a couple of seconds.</p></div>
         </div>
       </div>
     </section>
@@ -187,7 +187,7 @@ pady-cli fix-permissions   <span class="c"># Linux: set up touchpad access</span
       <div class="f-grid">
         <div class="card"><h3>Written in Rust</h3><p>Reads every finger straight from the touchpad and sleeps when you're not touching it. The settings window frees its memory when you close it.</p></div>
         <div class="card"><h3>Reads only the touchpad</h3><p>Never the keyboard. Nothing about you is sent anywhere; the only connection is the update check, which you can turn off.</p></div>
-        <div class="card"><h3>Tested hard</h3><p>About 160 unit tests cover every gesture and the config, and fuzz tests throw random input at every parser.</p></div>
+        <div class="card"><h3>Tested hard</h3><p>About 260 unit tests cover every gesture and the config, and fuzz tests throw random input at every parser.</p></div>
       </div>
     </section>
 
