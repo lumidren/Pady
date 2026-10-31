@@ -464,15 +464,16 @@ fn copy_notice_wanted(s: &Settings) -> bool {
 /// at them for every touch frame.
 struct SettingsCache {
     config: Arc<SharedConfig>,
-    cached: Mutex<(u64, Settings)>,
+    /// Shared, so handing them out per frame copies nothing.
+    cached: Mutex<(u64, Arc<Settings>)>,
 }
 
 impl SettingsCache {
-    fn get(&self) -> Settings {
+    fn get(&self) -> Arc<Settings> {
         let generation = self.config.generation();
         let mut cached = lock(&self.cached);
         if cached.0 != generation {
-            *cached = (generation, self.config.get().settings);
+            *cached = (generation, Arc::new(self.config.get().settings));
         }
         cached.1.clone()
     }
@@ -489,7 +490,7 @@ fn observer(
     let last_frame = AtomicU64::new(0);
     let last_paused_notice = AtomicU64::new(0);
     let web_overlay = WebOverlay { app: app.clone(), shown: Arc::new(AtomicU64::new(0)) };
-    let settings = SettingsCache { config: config.clone(), cached: Mutex::new((u64::MAX, Settings::default())) };
+    let settings = SettingsCache { config: config.clone(), cached: Mutex::new((u64::MAX, Arc::default())) };
     // Did we start a glow (so its end is ours to send) / are we showing touches?
     let glowing = AtomicBool::new(false);
     let touching = AtomicBool::new(false);
