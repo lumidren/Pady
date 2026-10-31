@@ -630,8 +630,11 @@ mod tests {
         ] {
             while rx.try_recv().is_ok() {}
             unsafe { SendMessageW(hwnd, msg, WPARAM(wparam), LPARAM(0)) };
-            let frame = rx.recv_timeout(Duration::from_secs(2)).unwrap_or_else(|_| panic!("{what}: no frame"));
-            assert!(frame.contacts.is_empty(), "{what}: every finger lifted, so no stale touch survives");
+            // Fingers really on the pad while the test runs send frames too;
+            // what matters is that the "every finger lifted" frame comes.
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            let lifted = std::iter::from_fn(|| rx.recv_deadline(deadline).ok()).any(|f| f.contacts.is_empty());
+            assert!(lifted, "{what}: every finger lifted, so no stale touch survives");
             assert!(first.is_alive(), "{what}: still listening");
         }
 
