@@ -7,7 +7,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod feedback;
+mod popup;
 mod responsive;
+mod translate;
 mod update;
 
 use crossbeam_channel::Sender;
@@ -17,6 +19,7 @@ use pady_core::{
     backups, Action, Config, Engine, EngineEvent, Level, NotAGlyph, Preset, Settings, SharedConfig, TouchFrame, PRESETS,
 };
 use pady_input::{DeviceInfo, InputHandle};
+use popup::{translate_act, translate_layout, translate_ready};
 use serde::Serialize;
 use serde_json::json;
 use std::io::Write;
@@ -548,6 +551,7 @@ fn observer(
         EngineEvent::ActionFailed { action, error } => {
             let _ = app.emit("pady://action-failed", json!({ "action": action, "error": error }));
         }
+        EngineEvent::Translate => popup::start(app.clone()),
         EngineEvent::GlyphRecorded { points, problem } => {
             let message = problem.map(NotAGlyph::message);
             let _ = app.emit("pady://glyph-recorded", json!({ "points": points, "problem": message }));
@@ -834,6 +838,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(update::Updates::default())
+        .manage(popup::Popup::default())
         .invoke_handler(tauri::generate_handler![
             get_state,
             save_config,
@@ -841,6 +846,9 @@ fn main() {
             reset_config,
             list_backups,
             restore_backup,
+            translate_ready,
+            translate_layout,
+            translate_act,
             set_autostart,
             test_action,
             set_live,
@@ -898,7 +906,9 @@ fn main() {
             // Windows are created only now (`create: false` in tauri.conf.json):
             // a fast page load would otherwise call get_state before `manage` ran.
             // The settings window waits until it's opened (see show_main).
-            let wanted = |label: &str| label != "main" && (label != "overlay" || web_overlay_needed);
+            // So does the translation pop-up (see popup.rs).
+            let wanted =
+                |label: &str| !matches!(label, "main" | "translate") && (label != "overlay" || web_overlay_needed);
             for window in app.config().app.windows.iter().filter(|w| wanted(&w.label)) {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), window)?.build()?;
             }
@@ -962,21 +972,40 @@ mod tests {
         text[start..end].split(',').map(|s| s.trim().trim_matches('"')).filter(|s| !s.is_empty()).collect()
     }
 
-    /// A command missing from build.rs or the main window's capability fails
-    /// at runtime ("not allowed"), so the three lists must agree.
+    /// The translation pop-up's own commands; no other window may call them.
+    const POPUP_COMMANDS: &[&str] = &["translate_ready", "translate_layout", "translate_act"];
+
+    /// A command missing from build.rs or a window's capability fails at
+    /// runtime ("not allowed"), so the lists must agree. The main window gets
+    /// every command but the pop-up's; the pop-up gets only its own.
     #[test]
-    fn every_command_is_permitted_for_the_main_window_only() {
+    fn every_command_is_permitted_for_its_window_only() {
         let handlers = names(include_str!("main.rs"), "generate_handler![", ']');
         let declared = names(include_str!("../build.rs"), "const COMMANDS: &[&str] = &[", ']');
         let main_window = include_str!("../capabilities/default.json");
         let overlay = include_str!("../capabilities/overlay.json");
+        let popup = include_str!("../capabilities/translate.json");
         assert!(!handlers.is_empty());
         assert_eq!(handlers, declared, "build.rs COMMANDS must match generate_handler!");
         for command in handlers {
             let permission = format!("\"allow-{}\"", command.replace('_', "-"));
-            assert!(main_window.contains(&permission), "{permission} missing from capabilities/default.json");
+            let for_popup = POPUP_COMMANDS.contains(&command);
+            assert_eq!(main_window.contains(&permission), !for_popup, "{permission} in capabilities/default.json");
+            assert_eq!(popup.contains(&permission), for_popup, "{permission} in capabilities/translate.json");
             assert!(!overlay.contains(&permission), "the overlay must not get {permission}");
         }
+    }
+
+    /// The pop-up shows a translation: it may listen for it and call its
+    /// own three commands, nothing else.
+    #[test]
+    fn the_popup_window_gets_only_its_own_commands() {
+        let popup = json(include_str!("../capabilities/translate.json"));
+        assert_eq!(popup["windows"], serde_json::json!(["translate"]));
+        assert!(popup.get("webviews").is_none() && popup.get("remote").is_none());
+        let mut expected = vec!["core:event:allow-listen".to_string(), "core:event:allow-unlisten".to_string()];
+        expected.extend(POPUP_COMMANDS.iter().map(|c| format!("allow-{}", c.replace('_', "-"))));
+        assert_eq!(popup["permissions"], serde_json::json!(expected));
     }
 
     fn json(text: &str) -> serde_json::Value {

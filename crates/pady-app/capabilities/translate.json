@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "translate",
+  "description": "The translation pop-up listens for its translation and calls its own three commands, nothing else.",
+  "windows": [
+    "translate"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-translate-ready",
+    "allow-translate-layout",
+    "allow-translate-act"
+  ]
+}

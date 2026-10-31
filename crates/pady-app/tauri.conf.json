@@ -35,6 +35,21 @@
         "shadow": false,
         "visible": false,
         "create": false
+      },
+      {
+        "label": "translate",
+        "url": "translate.html",
+        "title": "Pady translation",
+        "width": 400,
+        "height": 200,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "visible": false,
+        "create": false
       }
     ],
     "security": {

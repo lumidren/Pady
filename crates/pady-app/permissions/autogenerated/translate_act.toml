@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-translate-act"
+description = "Enables the translate_act command without any pre-configured scope."
+commands.allow = ["translate_act"]
+
+[[permission]]
+identifier = "deny-translate-act"
+description = "Denies the translate_act command without any pre-configured scope."
+commands.deny = ["translate_act"]

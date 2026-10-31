@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-translate-layout"
+description = "Enables the translate_layout command without any pre-configured scope."
+commands.allow = ["translate_layout"]
+
+[[permission]]
+identifier = "deny-translate-layout"
+description = "Denies the translate_layout command without any pre-configured scope."
+commands.deny = ["translate_layout"]
