@@ -3,48 +3,75 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/lumidren/Pady/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/lumidren/Pady?include_prereleases&sort=semver&color=7c3aed"></a>
+  <a href="https://github.com/lumidren/Pady/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/lumidren/Pady?sort=semver&color=7c3aed"></a>
   <a href="https://github.com/lumidren/Pady/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/lumidren/Pady/total?color=8b5cf6"></a>
   <a href="https://github.com/lumidren/Pady/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/lumidren/Pady/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Windows and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-6366f1">
   <img alt="Rust 1.82+" src="https://img.shields.io/badge/rust-1.82%2B-a855f7">
+  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24c8db">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-22c55e"></a>
 </p>
 
 <p align="center">
-  <b>Your touchpad, finally awake.</b> Three-finger drag, plus 32 more gestures you can point at anything:<br>
+  <b>Your touchpad, finally awake.</b><br>
+  Three-finger drag, plus 32 more gestures you can point at anything:<br>
   volume, brightness, media keys, shortcuts, apps, links. Per app, if you're picky.<br>
-  Windows &amp; Linux · written in Rust · 20 MB in the tray · set up in a minute.
+  Free and open source · Windows &amp; Linux · written in Rust · about 20 MB in the tray.
 </p>
 
 <p align="center">
-  <a href="https://github.com/lumidren/Pady/releases/latest"><b>⬇ Download for Windows or Linux</b></a> ·
+  <a href="https://github.com/lumidren/Pady/releases/latest"><b>Download for Windows or Linux</b></a> ·
   <a href="https://lumidren.github.io/Pady/">Website &amp; live demo</a> ·
+  <a href="https://www.youtube.com/watch?v=e4grMSxty78">Video</a> ·
   <a href="#quick-start">Quick start</a> ·
-  <a href="#gestures">Gestures</a> ·
-  <a href="#actions">Actions</a> ·
-  <a href="#faq">FAQ</a>
+  <a href="#faq">FAQ</a> ·
+  <a href="#how-it-works">How it works</a>
 </p>
 
 <p align="center">
-  <a href="https://lumidren.github.io/Pady/#video"><img src="docs/video/thumbnail.png" alt="Watch Pady in 60 seconds" width="88%"></a>
-</p>
-
-<p align="center">
-  <img src="docs/demo.svg" alt="Four fingers swipe up and the volume rises, a three-finger double tap skips the track, a three-finger drag moves a window" width="88%">
+  <a href="https://www.youtube.com/watch?v=e4grMSxty78"><img src="docs/video/poster.png" alt="Watch Pady in 60 seconds on YouTube" width="88%"></a><br>
+  <sub>Pady in 60 seconds (YouTube)</sub>
 </p>
 
 ## Why Pady
 
 - **More gestures than your OS gives you.** Tap, double tap, triple tap, hold, swipe in four directions, pinch in or out, and drag, each with 3, 4 or 5 fingers. That's 33 gestures you can bind.
-- **Copy and paste with one hand.** Pinch three fingers together on the touchpad to copy, spread them to paste. A glowing "Copied" or "Pasted" notice confirms it.
+- **Copy and paste with one hand.** Pinch three fingers together to copy, spread them to paste. A glowing "Copied" or "Pasted" notice confirms it.
 - **Three-finger drag on Windows.** Move windows and select text without pressing the touchpad, like on a Mac.
-- **Scrub, don't spam.** Keep sliding and volume, brightness or zoom keeps stepping. An on-screen pill shows the level without ever stealing focus.
-- **Per-app profiles.** Swipes switch browser tabs in Chrome and desktops everywhere else. Pady can detect the app for you.
-- **Feedback you can see.** A small pill in the corner says what happened: "Copied", "Pasted", the keyboard language you switched to, a screenshot taken, a track skipped. If you like motion, turn on the swipe glow, live touches and more under Animations; they start off, and one switch turns them all on or off.
+- **Scrub, don't spam.** Keep sliding and volume, brightness or zoom keeps stepping. Volume and brightness glide in small steps, like a slider under your fingers.
+- **Per-app profiles.** Swipes can switch browser tabs in Chrome and desktops everywhere else. Pady detects the app for you.
+- **Feedback you can see.** A small pill in the corner says what happened: "Copied", "Pasted", a track skipped. Moving effects like the swipe glow are there if you want them.
 - **Beginner friendly.** A first-run tutorial checks your touchpad, turns off clashing OS gestures, offers starter presets and lets you practise.
-- **Keeps itself up to date.** A new version is one click away, from the tray or the app.
-- **Light and private.** Written in Rust. In the tray it's one ~20 MB process that uses no CPU while idle, and it has no telemetry and no accounts.
+- **Keeps itself up to date.** A new version is one click away, from the tray or the app, and only installs if it carries Pady's update signature.
+- **Light and private.** One small Rust process in the tray, no CPU while idle, no telemetry, no accounts, no ads.
+
+## What's in each version
+
+| | Feature | Where it is |
+|---|---|---|
+| ✅ | 33 gestures, a dozen kinds of action, per-app profiles, five starter presets, three-finger drag | **v1.0.0** (released 2026-10-29) |
+| ✅ | Copy and paste with a three-finger pinch, corner notices, swipe glow, show touches | **v1.0.0** |
+| ✅ | Auto-update, first-run tutorial, `pady-cli`, Linux packages that set up touchpad access | **v1.0.0** |
+| 🔜 | **Switch keyboard language** as an action, with the language named in a corner notice | Next update (on `main`) |
+| 🔜 | **Calmer defaults**: corner notices on, moving animations off, and a separate Notices section in Settings | Next update (on `main`) |
+| 🔜 | **Config backups**: a copy before every change, and **Restore** in Settings | Next update (on `main`) |
+| 🔜 | **Beta builds** for trying new things early (they never update themselves) | Next update (on `main`) |
+| 🧪 | **Glyphs**: draw your own two-finger shapes (a circle, a V, a check mark) and bind them like any gesture | Coming soon. Built, but shown only in beta builds for now |
+| 🧪 | **Translator**: select text, do a gesture, and a pop-up shows the translation (free MyMemory or DeepL, 38 languages) | Coming soon. Being built on the `translator` branch |
+
+The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+## Videos
+
+| Pady in 60 seconds | Copy and paste with a pinch |
+|---|---|
+| <a href="https://www.youtube.com/watch?v=e4grMSxty78"><img src="docs/video/poster.png" alt="Pady in 60 seconds"></a> | <a href="https://www.youtube.com/watch?v=aciO9Ana1ZE"><img src="docs/video/copy-and-paste-poster.jpg" alt="Copy and paste with a three-finger pinch"></a> |
+| **Glyphs (coming soon)** | **Translator (coming soon)** |
+| <a href="https://www.youtube.com/watch?v=Cz4-n7IDi_s"><img src="docs/video/glyphs-poster.jpg" alt="Glyphs: draw your own two-finger gestures"></a> | <a href="https://www.youtube.com/watch?v=sNIkzMRkDb4"><img src="docs/video/translator-poster.jpg" alt="Translator: select text and translate it with a gesture"></a> |
+
+<p align="center">
+  <img src="docs/demo.svg" alt="Four fingers swipe up and the volume rises, a three-finger double tap skips the track, a three-finger drag moves a window" width="88%">
+</p>
 
 ## Screenshots
 
