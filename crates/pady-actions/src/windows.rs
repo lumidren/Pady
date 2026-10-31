@@ -9,11 +9,13 @@
 
 use crate::Conflict;
 use pady_core::{Action, ActionError, Config, Direction, Executor, Key, KeyCombo, Level, MediaKey, Trigger};
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::mem::size_of;
 use std::os::windows::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use windows::core::{w, BSTR, HSTRING, PCWSTR, VARIANT};
 use windows::Win32::Devices::Display::{
@@ -51,6 +53,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// (see `release_held_button`).
 static BUTTON_HELD: AtomicBool = AtomicBool::new(false);
 
+/// The shell's last full-screen answer (it takes 17–50 ms to give one): the
+/// window it was for, the answer, and when.
+static FULLSCREEN: Mutex<Option<(isize, bool, Instant)>> = Mutex::new(None);
+/// A background refresh of `FULLSCREEN` is running.
+static FULLSCREEN_REFRESHING: AtomicBool = AtomicBool::new(false);
+
 /// Release the left button if a drag holds it. Safe to call from a panic
 /// hook: Windows doesn't let go of a button injected by a process that dies.
 pub fn release_held_button() {
@@ -62,6 +70,9 @@ pub fn release_held_button() {
 pub struct WindowsExecutor {
     com_ready: bool,
     wmi: Option<IWbemServices>,
+    /// The panel's WmiSetBrightness target and a reusable argument object,
+    /// looked up once: finding them took most of each step's time.
+    brightness_method: Option<(BSTR, IWbemClassObject)>,
     /// WMI reports the old level for a moment after a change, so remember
     /// what we set to make quick repeated steps accumulate correctly.
     last_brightness: Option<(u32, Instant)>,
@@ -71,7 +82,14 @@ impl WindowsExecutor {
     pub fn new() -> Self {
         // Runs on the action thread, which owns COM for its whole life.
         let com_ready = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
-        WindowsExecutor { com_ready, wmi: None, last_brightness: None }
+        let mut exec = WindowsExecutor { com_ready, wmi: None, brightness_method: None, last_brightness: None };
+        // Connect to WMI now, while nothing waits: done on the first brightness
+        // swipe instead, it held that step up by ~50 ms. Displays without WMI
+        // brightness (external monitors) just fail here and use DDC/CI later.
+        if let Ok(wmi) = exec.wmi().cloned() {
+            let _ = exec.brightness_method(&wmi);
+        }
+        exec
     }
 }
 
@@ -121,9 +139,29 @@ impl Executor for WindowsExecutor {
 
     /// Only exclusive full-screen Direct3D games count. Full-screen video
     /// and presentations are left alone: people scrub volume there.
+    ///
+    ///
+    /// This runs before every gesture, so it must be quick. The cheap window
+    /// checks go first; the shell, which takes 17–50 ms to answer, is asked
+    /// only about a window that covers its monitor. Its answer for that window
+    /// is reused and refreshed in the background after 2 s, so only the first
+    /// gesture in a newly full-screen window waits for it.
     fn fullscreen_game(&mut self) -> bool {
-        unsafe { SHQueryUserNotificationState() }.is_ok_and(|state| state == QUNS_RUNNING_D3D_FULL_SCREEN)
-            && foreground_fills_monitor()
+        let Some(hwnd) = foreground_fills_monitor() else { return false };
+        let hwnd = hwnd.0 as isize;
+        let known = *FULLSCREEN.lock().unwrap_or_else(|e| e.into_inner());
+        match known {
+            Some((window, answer, at)) if window == hwnd => {
+                if at.elapsed() > Duration::from_secs(2) && !FULLSCREEN_REFRESHING.swap(true, Ordering::SeqCst) {
+                    std::thread::spawn(move || {
+                        ask_shell_fullscreen(hwnd);
+                        FULLSCREEN_REFRESHING.store(false, Ordering::SeqCst);
+                    });
+                }
+                answer
+            }
+            _ => ask_shell_fullscreen(hwnd),
+        }
     }
 
     fn mouse_button(&mut self, down: bool) -> Result<(), ActionError> {
@@ -394,8 +432,35 @@ impl WindowsExecutor {
             }
         };
         let next = (current as i32).saturating_add(step).clamp(0, 100) as u32;
-        unsafe {
-            let instance = wmi_first(&wmi, "SELECT * FROM WmiMonitorBrightnessMethods WHERE Active=TRUE")?;
+        let (path, params) = self.brightness_method(&wmi)?;
+        let set = unsafe {
+            params.Put(w!("Brightness"), 0, &VARIANT::from(next as u8), 0).and_then(|()| {
+                wmi.ExecMethod(
+                    &path,
+                    &BSTR::from("WmiSetBrightness"),
+                    WBEM_GENERIC_FLAG_TYPE(0),
+                    None,
+                    &params,
+                    None,
+                    None,
+                )
+            })
+        };
+        if let Err(e) = set {
+            // The panel may have changed (a dock, a driver update): look it up again next time.
+            self.brightness_method = None;
+            return Err(e.into());
+        }
+        self.last_brightness = Some((next, Instant::now()));
+        Ok(next)
+    }
+
+    fn brightness_method(&mut self, wmi: &IWbemServices) -> Result<(BSTR, IWbemClassObject), ActionError> {
+        if let Some(found) = &self.brightness_method {
+            return Ok(found.clone());
+        }
+        let found = unsafe {
+            let instance = wmi_first(wmi, "SELECT * FROM WmiMonitorBrightnessMethods WHERE Active=TRUE")?;
             let mut path = VARIANT::default();
             instance.Get(w!("__PATH"), 0, &mut path, None, None)?;
             let path = BSTR::try_from(&path)?;
@@ -414,19 +479,10 @@ impl WindowsExecutor {
             let params = signature.ok_or("WmiSetBrightness signature missing")?.SpawnInstance(0)?;
             // WMI maps CIM uint32 to VT_I4 and uint8 to VT_UI1.
             params.Put(w!("Timeout"), 0, &VARIANT::from(0i32), 0)?;
-            params.Put(w!("Brightness"), 0, &VARIANT::from(next as u8), 0)?;
-            wmi.ExecMethod(
-                &path,
-                &BSTR::from("WmiSetBrightness"),
-                WBEM_GENERIC_FLAG_TYPE(0),
-                None,
-                &params,
-                None,
-                None,
-            )?;
-        }
-        self.last_brightness = Some((next, Instant::now()));
-        Ok(next)
+            (path, params)
+        };
+        self.brightness_method = Some(found.clone());
+        Ok(found)
     }
 }
 
@@ -579,14 +635,27 @@ fn resolve_program(program: &str) -> String {
         return p.to_string();
     }
     let wanted = lower.strip_suffix(".lnk").unwrap_or(&lower).to_string();
-    let menus = [std::env::var_os("APPDATA"), std::env::var_os("ProgramData")];
-    menus
-        .into_iter()
-        .flatten()
-        .map(|base| Path::new(&base).join(r"Microsoft\Windows\Start Menu\Programs"))
-        .find_map(|dir| find_shortcut(&dir, &wanted, 3))
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|| p.to_string())
+    // Searching the Start menu takes 20–90 ms, so remember what it found:
+    // a shortcut while it still exists, a miss for a minute (an app may get installed).
+    type Found = HashMap<String, (Option<PathBuf>, Instant)>;
+    static FOUND: Mutex<Option<Found>> = Mutex::new(None);
+    let mut found = FOUND.lock().unwrap_or_else(|e| e.into_inner());
+    let known = found.get_or_insert_with(HashMap::new).get(&wanted).cloned();
+    let shortcut = match known {
+        Some((Some(path), _)) if path.exists() => Some(path),
+        Some((None, at)) if at.elapsed() < Duration::from_secs(60) => None,
+        _ => {
+            let menus = [std::env::var_os("APPDATA"), std::env::var_os("ProgramData")];
+            let path = menus
+                .into_iter()
+                .flatten()
+                .map(|base| Path::new(&base).join(r"Microsoft\Windows\Start Menu\Programs"))
+                .find_map(|dir| find_shortcut(&dir, &wanted, 3));
+            found.get_or_insert_with(HashMap::new).insert(wanted, (path.clone(), Instant::now()));
+            path
+        }
+    };
+    shortcut.map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|| p.to_string())
 }
 
 /// A `.lnk` named `wanted` (case-insensitive) in `dir` or up to `depth`
@@ -643,6 +712,14 @@ fn find_window(exe: &str) -> Option<HWND> {
     search.found
 }
 
+/// Asks the shell whether an exclusive full-screen Direct3D app runs, and
+/// remembers the answer for `hwnd`.
+fn ask_shell_fullscreen(hwnd: isize) -> bool {
+    let answer = unsafe { SHQueryUserNotificationState() }.is_ok_and(|state| state == QUNS_RUNNING_D3D_FULL_SCREEN);
+    *FULLSCREEN.lock().unwrap_or_else(|e| e.into_inner()) = Some((hwnd, answer, Instant::now()));
+    answer
+}
+
 /// Executable of the window in front, e.g. `chrome.exe`. Needs no COM, so
 /// any thread may call it.
 pub fn foreground_app() -> Option<String> {
@@ -654,7 +731,8 @@ pub fn foreground_app() -> Option<String> {
 /// sleep or unlocking (the lock screen is one), which used to pause every
 /// gesture until another window came to the front. So also require that the
 /// window in front really covers its monitor and isn't part of the shell.
-fn foreground_fills_monitor() -> bool {
+/// Returns that window if so.
+fn foreground_fills_monitor() -> Option<HWND> {
     const SHELL: &[&str] = &[
         "explorer.exe",
         "lockapp.exe",
@@ -666,21 +744,21 @@ fn foreground_fills_monitor() -> bool {
     unsafe {
         let hwnd = GetForegroundWindow();
         if hwnd.0.is_null() || !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
-            return false;
-        }
-        if process_exe(hwnd).is_some_and(|exe| SHELL.contains(&exe.to_ascii_lowercase().as_str())) {
-            return false;
+            return None;
         }
         let mut rect = RECT::default();
-        if GetWindowRect(hwnd, &mut rect).is_err() {
-            return false;
-        }
+        GetWindowRect(hwnd, &mut rect).ok()?;
         let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
         if !GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut info).as_bool() {
-            return false;
+            return None;
         }
         let m = info.rcMonitor;
-        rect.left <= m.left && rect.top <= m.top && rect.right >= m.right && rect.bottom >= m.bottom
+        let fills = rect.left <= m.left && rect.top <= m.top && rect.right >= m.right && rect.bottom >= m.bottom;
+        // The shell check opens the process, so it waits until the size matches.
+        if !fills || process_exe(hwnd).is_some_and(|exe| SHELL.contains(&exe.to_ascii_lowercase().as_str())) {
+            return None;
+        }
+        Some(hwnd)
     }
 }
 
@@ -908,6 +986,23 @@ mod tests {
                 (0..1 + next(4)).map(|_| (0..next(9)).map(|_| alphabet[next(alphabet.len())]).collect()).collect();
             let line = format!("prog.exe {}", join_args(&args).unwrap());
             assert_eq!(split(&line)[1..], args[..], "{line}");
+        }
+    }
+
+    /// How long finding a window and a Start menu shortcut take here:
+    /// `cargo test -p pady-actions --release lookup_timings -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn lookup_timings() {
+        for exe in ["chrome.exe", "spotify.exe", "nothing-like-this.exe"] {
+            let start = Instant::now();
+            let found = find_window(exe).is_some();
+            println!("find_window({exe}) {:.2} ms, found {found}", start.elapsed().as_secs_f64() * 1000.0);
+        }
+        for name in ["Spotify", "Notepad", "Nothing Like This", "Spotify", "Nothing Like This"] {
+            let start = Instant::now();
+            let path = resolve_program(name);
+            println!("resolve_program({name}) {:.2} ms → {path}", start.elapsed().as_secs_f64() * 1000.0);
         }
     }
 }
