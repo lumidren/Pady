@@ -68,6 +68,16 @@ pub fn selected_text() -> Result<Option<String>, ActionError> {
     Ok(None)
 }
 
+/// The text that was just copied, for Pady's clipboard history. `None` if
+/// it isn't text, or the app asked clipboard histories to skip it (password
+/// managers do). Windows only for now.
+pub fn copied_text() -> Result<Option<String>, ActionError> {
+    #[cfg(windows)]
+    return clipboard::copied_text();
+    #[cfg(not(windows))]
+    Ok(None)
+}
+
 /// Put text on the clipboard, as if the user had copied it.
 pub fn copy_text(text: &str) -> Result<(), ActionError> {
     #[cfg(windows)]

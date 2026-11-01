@@ -93,6 +93,9 @@ pub enum Icon {
     Lock,
     Done,
     Keyboard,
+    Timer,
+    Note,
+    Clipboard,
 }
 
 /// Don't show "Copied" for clipboard changes in the next `time`: Pady is
@@ -132,6 +135,19 @@ impl Toasts {
         self.inner.watch_clipboard(on);
         #[cfg(not(windows))]
         let _ = on;
+    }
+
+    /// Call `hook` whenever something new is copied (on), for the clipboard
+    /// history; or stop (off). The hook runs on the notices' thread and must
+    /// return quickly. Windows only.
+    pub fn watch_history(&self, on: bool, hook: impl Fn() + Send + Sync + 'static) {
+        #[cfg(windows)]
+        {
+            toast::on_copy(Box::new(hook));
+            self.inner.watch_history(on);
+        }
+        #[cfg(not(windows))]
+        let _ = (on, hook);
     }
 
     /// Name the keyboard language whenever it's switched (on) or never (off).

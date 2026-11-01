@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 use windows::core::w;
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData, GetClipboardSequenceNumber, OpenClipboard,
-    RegisterClipboardFormatW, SetClipboardData,
+    CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData, GetClipboardSequenceNumber,
+    IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
 };
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -176,6 +176,31 @@ fn read_text() -> Result<Option<String>, ActionError> {
     let units: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
     let end = units.iter().position(|&u| u == 0).unwrap_or(units.len());
     Ok(Some(String::from_utf16_lossy(&units[..end])))
+}
+
+/// The text just copied, for Pady's clipboard history; `None` when it isn't
+/// text or the app that copied it asked clipboard histories to leave it out
+/// (password managers do, and so does Pady for its own writes). These are
+/// the same signals Windows' own history (Win+V) honours.
+pub(crate) fn copied_text() -> Result<Option<String>, ActionError> {
+    let _open = Open::new(None)?;
+    let format = |name: windows::core::PCWSTR| unsafe { RegisterClipboardFormatW(name) };
+    let has = |f: u32| f != 0 && unsafe { IsClipboardFormatAvailable(f) }.is_ok();
+    if has(format(w!("ExcludeClipboardContentFromMonitorProcessing"))) || has(format(w!("Clipboard Viewer Ignore"))) {
+        return Ok(None);
+    }
+    // A DWORD: 0 means "keep me out of clipboard history".
+    let allowed = format(w!("CanIncludeInClipboardHistory"));
+    if has(allowed) {
+        let value = unsafe { GetClipboardData(allowed) }.ok().and_then(bytes_of);
+        if value.is_some_and(|b| b.len() >= 4 && b[..4] == [0, 0, 0, 0]) {
+            return Ok(None);
+        }
+    }
+    let Some(bytes) = unsafe { GetClipboardData(CF_UNICODETEXT) }.ok().and_then(bytes_of) else { return Ok(None) };
+    let units: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let end = units.iter().position(|&u| u == 0).unwrap_or(units.len());
+    Ok(Some(String::from_utf16_lossy(&units[..end])).filter(|t| !t.trim().is_empty()))
 }
 
 /// Put text on the clipboard. `history`: let Win+V remember it.

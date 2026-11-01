@@ -62,6 +62,7 @@ const LANGUAGE_EVERY_MS: u32 = 100;
 /// Right after a gesture (which may have switched it) it's checked every
 /// frame or so for a moment, so the notice follows the switch at once.
 const WM_LANGUAGE_SOON: u32 = WM_APP + 5;
+const WM_WATCH_HISTORY: u32 = WM_APP + 6;
 const LANGUAGE_SOON_TIMER: usize = 2;
 const LANGUAGE_SOON_EVERY_MS: u32 = 15;
 const LANGUAGE_SOON_CHECKS: u8 = 20;
@@ -96,6 +97,9 @@ impl Notice {
                 Icon::Lock => 0xE72E,
                 Icon::Done => GLYPH_CHECK,
                 Icon::Keyboard => 0xE765,
+                Icon::Timer => 0xE916,
+                Icon::Note => 0xE70B,
+                Icon::Clipboard => 0xE77F,
             },
         }
     }
@@ -153,6 +157,10 @@ impl Toasts {
 
     pub fn watch_language(&self, on: bool) {
         self.post(WM_WATCH_LANGUAGE, usize::from(on));
+    }
+
+    pub fn watch_history(&self, on: bool) {
+        self.post(WM_WATCH_HISTORY, usize::from(on));
     }
 
     /// Something that may switch the keyboard language just ran (a gesture):
@@ -296,7 +304,12 @@ struct Toaster {
     /// The window's top-left while resting, and the work area's right/top edge it hangs from.
     origin: (i32, i32),
     anchor: (i32, i32),
+    /// The clipboard listener is on: for "Copied", the history, or both.
     watching: bool,
+    copy_notice: bool,
+    history: bool,
+    /// The clipboard's sequence number when the history was last told.
+    last_history: u32,
     /// The clipboard's sequence number when "Copied" was last shown, so one
     /// copy announced twice (some apps write it in two goes) shows once.
     last_copy: u32,
@@ -322,6 +335,15 @@ struct ClipboardChange {
     idle: Option<Duration>,
     /// Ctrl+V or Shift+Insert held: apps fill in clipboard formats on paste.
     pasting: bool,
+}
+
+/// Called (on the notices' thread) whenever something new is copied while
+/// the clipboard history is on. It must return quickly.
+static COPY_HOOK: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+
+/// Set what runs when something is copied; the first call wins.
+pub fn on_copy(hook: Box<dyn Fn() + Send + Sync>) {
+    let _ = COPY_HOOK.set(hook);
 }
 
 /// Until when (ms after [`epoch`]) Pady's own clipboard use, such as reading
@@ -471,6 +493,9 @@ impl Toaster {
             origin: (0, 0),
             anchor: (0, 0),
             watching: false,
+            copy_notice: false,
+            history: false,
+            last_history: 0,
             last_copy: 0,
             language: LanguageWatch::default(),
             language_on: false,
@@ -493,8 +518,8 @@ impl Toaster {
                     return true;
                 }
                 WM_COPIED => {
-                    if self.watching {
-                        let seq = unsafe { GetClipboardSequenceNumber() };
+                    let seq = unsafe { GetClipboardSequenceNumber() };
+                    if self.copy_notice {
                         if clipboard_quiet() {
                             self.last_copy = seq;
                         } else if seq != self.last_copy && looks_like_your_copy(&ClipboardChange::now()) {
@@ -502,10 +527,24 @@ impl Toaster {
                             self.show(Notice::Copied);
                         }
                     }
+                    // Pady's own writes are marked to be left out, so the
+                    // history needs no quiet time of its own.
+                    if self.history && seq != self.last_history {
+                        self.last_history = seq;
+                        if let Some(hook) = COPY_HOOK.get() {
+                            hook();
+                        }
+                    }
                     return true;
                 }
                 WM_WATCH => {
-                    self.watch(msg.wParam.0 != 0);
+                    self.copy_notice = msg.wParam.0 != 0;
+                    self.watch(self.copy_notice || self.history);
+                    return true;
+                }
+                WM_WATCH_HISTORY => {
+                    self.history = msg.wParam.0 != 0;
+                    self.watch(self.copy_notice || self.history);
                     return true;
                 }
                 WM_WATCH_LANGUAGE => {
