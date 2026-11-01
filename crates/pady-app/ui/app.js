@@ -322,7 +322,7 @@
   // Glyphs (recorded two-finger gestures) are saved for a later release:
   // switch this on to show their page again.
   const GLYPHS_READY = false;
-  let PAGES = ['stats', 'gestures', 'glyphs', 'translator', 'focus', 'notes', 'live', 'settings', 'about'];
+  let PAGES = ['gestures', 'glyphs', 'translator', 'focus', 'notes', 'stats', 'live', 'settings', 'about'];
 
   /** A pre-release version (`1.0.0-beta`): a beta build, installed by hand. */
   const isBeta = () => /-/.test((store.app && store.app.version) || '');
@@ -4770,7 +4770,7 @@ function translatorSettingsPanel() {
       $('#boot').remove();
       syncLive(); // tells the backend "no frames" unless a page below asks for them
       const first = state.open_page || initial;
-      route(PAGES.includes(first) ? first : state.config.settings.onboarded === false ? 'gestures' : 'stats');
+      route(PAGES.includes(first) ? first : 'gestures');
       // `=== false`: a backend without the field never shows the tutorial.
       if (state.config.settings.onboarded === false) openTutorial({ firstRun: true });
       if (state.config.settings.check_updates !== false && !isBeta()) checkUpdate(false);
