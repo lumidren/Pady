@@ -189,7 +189,8 @@
     else if (store.page === 'about') renderAbout();
     else if (store.page === 'glyphs') renderGlyphs();
     else if (store.page === 'translator') renderTranslator();
-    else if (store.page === 'today') renderToday();
+    else if (store.page === 'stats') renderStats();
+    else if (store.page === 'focus') renderFocus();
     else if (store.page === 'notes') renderNotes();
     if (tour.open) tourOnState();
   }
@@ -321,7 +322,7 @@
   // Glyphs (recorded two-finger gestures) are saved for a later release:
   // switch this on to show their page again.
   const GLYPHS_READY = false;
-  let PAGES = ['today', 'gestures', 'glyphs', 'translator', 'notes', 'live', 'settings', 'about'];
+  let PAGES = ['stats', 'gestures', 'glyphs', 'translator', 'focus', 'notes', 'live', 'settings', 'about'];
 
   /** A pre-release version (`1.0.0-beta`): a beta build, installed by hand. */
   const isBeta = () => /-/.test((store.app && store.app.version) || '');
@@ -379,9 +380,11 @@
     if (page === 'gestures') renderGestures(true);
     if (page === 'glyphs') renderGlyphs(true);
     if (page === 'translator') renderTranslator();
-    if (page === 'today') renderToday(true);
+    if (page === 'stats') renderStats(true);
+    if (page === 'focus') renderFocus(true);
     if (page === 'notes') renderNotes(true);
-    if (prev === 'today' && page !== 'today') stopTodayClock();
+    if (prev === 'focus' && page !== 'focus') stopFocusClock();
+    if (prev === 'notes' && page !== 'notes' && notesUI.built) toggleViewMenu(false);
     if (prev === 'notes' && page !== 'notes') flushNote();
     if (page === 'settings') renderSettings();
     if (page === 'about') renderAbout();
@@ -1497,9 +1500,9 @@
         const to = (store.app.languages || []).find((l) => l.code === store.app.config.settings.translate_to);
         return aboutType('translate', `Select some text in any app, then do this gesture: the translation into ${to ? to.name : 'your language'} shows in a pop-up next to it, ready to copy or put in place of the original. Change the language on the Translator tab.`);
       }
-      case 'clipboard': return aboutType('clipboard', 'Shows the last things you copied next to the cursor; pick one to paste it. Turn the history on from the pop-up or the Today page. It’s kept in memory only, and passwords from password managers are skipped.');
+      case 'clipboard': return aboutType('clipboard', 'Shows the last things you copied next to the cursor; pick one to paste it. Turn the history on from the pop-up or in Settings. It’s kept in memory only, and passwords from password managers are skipped.');
       case 'quick_note': return aboutType('note', 'Opens a small note by the cursor, with any selected text already in it. Closing it saves it to the Notes page.');
-      case 'focus': return aboutType('timer', `Starts a ${(store.app.config.settings.focus_minutes || 25)}-minute focus timer; a corner notice says when it’s done. Do the gesture again to see the time left, twice quickly to stop. The length is on the Today page.`);
+      case 'focus': return aboutType('timer', `Starts a ${(store.app.config.settings.focus_minutes || 25)}-minute focus timer; a corner notice says when it’s done. Do the gesture again to see the time left, twice quickly to stop. The length, breaks and a daily goal are on the Focus page.`);
       case 'lock': return aboutType('lock', 'Locks your session immediately, like pressing ' + (platform() === 'linux' ? 'Super+L.' : 'Win+L.'));
       case 'none': return aboutType('none', 'This gesture does nothing. Pick a preset or an action type above.');
       default: return null;
@@ -2449,7 +2452,7 @@
     anim_previews: false, anim_mirror: false, anim_celebrate: false, anim_language: true,
     anim_glow: true, glow_strength: 1, anim_speed: 1, notice_time: 1,
     translate_to: 'en', translate_engine: 'free', deepl_key: '', translate_email: '',
-    clipboard_history: false, focus_minutes: 25, keep_stats: true,
+    clipboard_history: false, focus_minutes: 25, keep_stats: true, focus_goal: 120, break_minutes: 5, focus_auto_break: false, focus_sound: true,
   };
   /** Is this animation on (its own switch and the master switch)? */
   const animates = (key) => {
@@ -2557,6 +2560,7 @@
               h('span', { class: 'switch' }, setUI.autostart, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' })))),
             settingToggle('show_overlay', 'Show Pady\'s level pill', 'Pady\'s own volume & brightness pill near the bottom of the screen. On Windows, volume always shows Windows\' own slider.'),
             settingToggle('check_updates', 'Check for updates', 'Looks for a new version on GitHub twice a day and lets you install it with one click.'),
+            setUI.clipRow = settingToggle('clipboard_history', 'Remember what I copy', 'For the Clipboard history gesture: the last 25 texts you copy, in memory only, gone when Pady quits. Password managers’ copies are skipped.'),
             setUI.pauseRow = settingToggle('pause_in_fullscreen', 'Pause in full-screen games', 'Pady ignores gestures while a game runs in exclusive full screen.'),
             h('div', { class: 'row' },
               h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Tutorial'), h('div', { class: 'row-sub' }, 'A quick, hands-on tour of the basics.')),
@@ -2711,11 +2715,8 @@
   }
 
   /* =====================================================================
-     The Today page: the day in numbers (counts only, kept on this
-     computer), the focus timer and the clipboard history switch.
+     Shared by the Stats, Focus and Notes pages.
      ===================================================================== */
-
-  const todayUI = { built: false, stats: {}, focus: null, clock: 0, refetch: 0 };
 
   /** Every gesture whose action is `type`, with the profile it's in. */
   function gesturesFor(type) {
@@ -2761,225 +2762,553 @@
     return { input, el: h('span', { class: 'switch' }, input, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' }))) };
   }
 
-  function buildToday() {
-    const page = $('#page-today');
-    todayUI.tiles = h('div', { class: 'today-tiles' });
-    todayUI.week = h('div', { class: 'today-week', role: 'img' });
-    todayUI.top = h('div', { class: 'today-top' });
-    todayUI.statsSwitch = switchEl('keep_stats', 'keep-stats-title');
-    todayUI.clear = h('button', { class: 'btn btn--sm', type: 'button', onClick: clearStats }, ico('trash', 14), 'Clear');
+  const switchRow = (sw, id, title, sub) => h('label', { class: 'row', style: { cursor: 'pointer' } },
+    h('div', { class: 'row-text' }, h('div', { class: 'row-title', id }, title), sub ? h('div', { class: 'row-sub' }, sub) : ''),
+    sw.el);
 
-    todayUI.time = h('div', { class: 'focus-time', 'aria-live': 'off' });
-    todayUI.timeSub = h('div', { class: 'focus-sub' });
-    todayUI.bar = h('div', { class: 'focus-bar' }, h('i'));
-    todayUI.go = h('button', { class: 'btn btn--primary', type: 'button', onClick: toggleFocus });
-    todayUI.length = h('select', { class: 'select', 'aria-label': 'Focus length' },
-      ...[10, 15, 25, 30, 45, 60, 90].map((m) => h('option', { value: String(m) }, `${m} min`)));
-    todayUI.length.addEventListener('change', () => { saveSetting('focus_minutes', Number(todayUI.length.value)); paintFocus(); });
-    todayUI.focusGesture = h('div');
-
-    todayUI.clipSwitch = switchEl('clipboard_history', 'clip-history-title');
-    todayUI.clipGesture = h('div');
-
-    page.append(h('div', { class: 'settings-grid' },
-      h('div', { class: 'settings-col' },
-        trPanel('today', 'Today', 'Counted on this computer, never sent anywhere',
-          todayUI.tiles,
-          h('div', { class: 'today-label' }, 'Last 7 days'),
-          todayUI.week,
-          h('div', { class: 'today-label' }, 'Most used today'),
-          todayUI.top,
-          h('label', { class: 'row', style: { cursor: 'pointer' } },
-            h('div', { class: 'row-text' },
-              h('div', { class: 'row-title', id: 'keep-stats-title' }, 'Keep daily stats'),
-              h('div', { class: 'row-sub' }, 'How many gestures ran and which actions, for two months. Nothing you type or copy.')),
-            todayUI.statsSwitch.el),
-          h('div', { class: 'row', style: { 'border-top': '0', 'padding-top': '4px' } }, todayUI.clear))),
-      h('div', { class: 'settings-col' },
-        trPanel('timer', 'Focus', 'A timer for getting one thing done',
-          h('div', { class: 'focus-card' }, todayUI.time, todayUI.timeSub, todayUI.bar,
-            h('div', { class: 'focus-actions' }, todayUI.length, todayUI.go)),
-          h('div', { class: 'help', style: { margin: '0 0 6px' } }, 'Do the gesture to start. Again shows the time left; twice quickly stops it. A corner notice and a soft sound say when it’s done.'),
-          todayUI.focusGesture),
-        trPanel('clipboard', 'Clipboard history', 'Paste something you copied earlier',
-          h('label', { class: 'row', style: { cursor: 'pointer' } },
-            h('div', { class: 'row-text' },
-              h('div', { class: 'row-title', id: 'clip-history-title' }, 'Remember what I copy'),
-              h('div', { class: 'row-sub' }, store.app.platform === 'windows'
-                ? 'The last 25 texts you copy, kept in memory only: gone when Pady quits or this is switched off. Password managers’ copies are skipped.'
-                : 'Works on Windows for now.')),
-            todayUI.clipSwitch.el),
-          todayUI.clipGesture))));
-    if (store.app.platform !== 'windows') todayUI.clipSwitch.input.disabled = true;
-    todayUI.built = true;
+  /** A row of buttons, one of them pressed. */
+  function pills(label, options, onPick) {
+    const el = h('div', { class: 'pills', role: 'group', 'aria-label': label });
+    const buttons = options.map(([value, text]) => h('button', { class: 'pill', type: 'button', 'aria-pressed': 'false', onClick: () => onPick(value) }, text));
+    buttons.forEach((b, i) => { b.dataset.value = String(options[i][0]); });
+    el.append(...buttons);
+    el.set = (value) => buttons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.value === String(value))));
+    return el;
   }
 
-  function renderToday(entering) {
-    if (!todayUI.built) buildToday();
-    todayUI.statsSwitch.input.checked = settingNow('keep_stats') !== false;
-    todayUI.clipSwitch.input.checked = !!settingNow('clipboard_history');
-    todayUI.length.value = String(settingNow('focus_minutes') || 25);
-    todayUI.focusGesture.replaceChildren(...gestureRows('focus', 'timer', 'Focus timer'));
-    todayUI.clipGesture.replaceChildren(...gestureRows('clipboard', 'clipboard', 'Clipboard history'));
+  const selectEl = (label, options, onChange) => {
+    const el = h('select', { class: 'select', 'aria-label': label }, ...options.map(([v, t]) => h('option', { value: String(v) }, t)));
+    el.addEventListener('change', () => onChange(el.value));
+    return el;
+  };
+
+  const dayKey = (d) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  /** Noon `offset` days ago (noon: daylight-saving days still land on the right date). */
+  const daysAgo = (offset) => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - offset); return d; };
+  const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  const hoursMin = (m) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}` : `${m} min`);
+  const hourLabel = (hr) => new Date(2000, 0, 1, hr).toLocaleTimeString(undefined, { hour: 'numeric' });
+
+  /** A bar chart: one bar per entry, the `mark`ed one stands out. */
+  function barChart(el, bars, unit) {
+    const max = Math.max(1, ...bars.map((b) => b.n));
+    el.style.setProperty('--bars', String(bars.length));
+    el.classList.toggle('is-dense', bars.length > 14);
+    el.setAttribute('aria-label', bars.map((b) => `${b.title || b.label} ${b.n} ${unit}`).join(', '));
+    el.replaceChildren(...bars.map((b) => h('div', { class: 'bars-col' + (b.mark ? ' is-mark' : ''), title: `${b.title || b.label}: ${b.n} ${unit}` },
+      h('span', { class: 'bars-n' }, b.n && bars.length <= 14 ? String(b.n) : ''),
+      h('span', { class: 'bars-bar' }, h('i', { style: { height: `${b.n ? Math.max(6, (b.n / max) * 100) : 2}%` } })),
+      h('span', { class: 'bars-label' }, b.label))));
+  }
+
+  /** Ranked rows with a bar each: [[name, n, icon?]]. */
+  function rankRows(el, rows, emptyText) {
+    const total = rows.reduce((a, r) => a + r[1], 0);
+    el.replaceChildren(...(rows.length
+      ? rows.map(([name, n, icon], i) => h('div', { class: 'rank-row' },
+          h('span', { class: 'rank-i' }, String(i + 1)),
+          icon ? h('span', { class: 'rank-icon' }, ico(icon, 15)) : '',
+          h('span', { class: 'rank-name', title: name }, name),
+          h('span', { class: 'rank-bar' }, h('i', { style: { width: `${(n / rows[0][1]) * 100}%` } })),
+          h('span', { class: 'rank-n' }, `${n}×`, h('small', null, ` ${Math.round((n / total) * 100)}%`))))
+      : [h('div', { class: 'help rank-empty' }, emptyText)]));
+  }
+
+  /* =====================================================================
+     The Stats page: how you use Pady, in numbers. Counts only, kept on
+     this computer for two months.
+     ===================================================================== */
+
+  const statsUI = { built: false, stats: {}, range: 7, refetch: 0 };
+  const RANGES = [[1, 'Today'], [7, '7 days'], [30, '30 days'], [64, 'All']];
+
+  function triggerIcon(trigger) {
+    const [kind, , dir] = String(trigger).split(':');
+    if (kind === 'swipe') return { up: 'arrow-up', down: 'arrow-down', left: 'arrow-left', right: 'arrow-right' }[dir] || 'gestures';
+    if (kind === 'pinch') return dir === 'out' ? 'pinch-out' : 'pinch-in';
+    return { tap: 'tap', doubletap: 'tap', tripletap: 'tap', hold: 'hold', drag: 'drag', glyph: 'glyph' }[kind] || 'gestures';
+  }
+
+  function buildStats() {
+    const page = $('#page-stats');
+    statsUI.seg = pills('Time range', RANGES, (n) => { statsUI.range = Number(n); paintStats(); });
+    statsUI.tiles = h('div', { class: 'stats-tiles' });
+    statsUI.chart = h('div', { class: 'bars', role: 'img' });
+    statsUI.chartTitle = h('div', { class: 'panel-title' });
+    statsUI.chartSub = h('div', { class: 'panel-sub' });
+    statsUI.gestures = h('div', { class: 'rank' });
+    statsUI.actions = h('div', { class: 'rank' });
+    statsUI.hours = h('div', { class: 'hours', role: 'img' });
+    statsUI.hoursNote = h('div', { class: 'help' });
+    statsUI.days = h('div', { class: 'weekdays', role: 'img' });
+    statsUI.keep = switchEl('keep_stats', 'keep-stats-title');
+
+    const card = (iconName, title, sub, ...body) => h('section', { class: 'panel', style: { 'margin-bottom': '16px' } },
+      h('div', { class: 'panel-head' }, h('span', { class: 'panel-icon' }, ico(iconName, 16)),
+        h('div', null, typeof title === 'string' ? h('div', { class: 'panel-title' }, title) : title, typeof sub === 'string' ? h('div', { class: 'panel-sub' }, sub) : sub)),
+      h('div', { class: 'panel-body' }, body));
+
+    page.append(
+      h('div', { class: 'stats-top' }, statsUI.seg, h('span', { class: 'help' }, ico('lock', 13), ' Counted on this computer, never sent anywhere')),
+      statsUI.tiles,
+      h('div', { class: 'settings-grid' },
+        h('div', { class: 'settings-col' },
+          card('live', statsUI.chartTitle, statsUI.chartSub, statsUI.chart),
+          card('gestures', 'Most used gestures', 'Which moves you make the most', statsUI.gestures),
+          card('zap', 'Most used actions', 'What those gestures did', statsUI.actions)),
+        h('div', { class: 'settings-col' },
+          card('timer', 'Busiest hours', 'When in the day you use gestures', statsUI.hours, statsUI.hoursNote),
+          card('today', 'By weekday', 'Average gestures on each day of the week', statsUI.days),
+          card('lock', 'Your data', 'Counts and action names only: never what you type or copy',
+            switchRow(statsUI.keep, 'keep-stats-title', 'Keep stats', 'Kept for two months, in stats.json next to your settings.'),
+            h('div', { class: 'row', style: { 'border-top': '0', 'padding-top': '4px' } },
+              h('button', { class: 'btn btn--sm', type: 'button', onClick: clearStats }, ico('trash', 14), 'Clear all stats'))))));
+    statsUI.built = true;
+  }
+
+  function renderStats(entering) {
+    if (!statsUI.built) buildStats();
+    statsUI.keep.input.checked = settingNow('keep_stats') !== false;
     paintStats();
-    paintFocus();
-    if (entering) {
-      loadStats();
-      call('focus_get', null, { quiet: true }).then((f) => { todayUI.focus = f; paintFocus(); }).catch(() => {});
-    }
+    if (entering) loadStats();
   }
 
   async function loadStats() {
-    try { todayUI.stats = (await call('stats_get', null, { quiet: true })) || {}; } catch (_) { todayUI.stats = {}; }
+    try { statsUI.stats = (await call('stats_get', null, { quiet: true })) || {}; } catch (_) { statsUI.stats = {}; }
     paintStats();
   }
 
-  /** A gesture ran: the Today page counts it a moment later. */
-  function todayGestured() {
-    if (store.page !== 'today') return;
-    clearTimeout(todayUI.refetch);
-    todayUI.refetch = setTimeout(loadStats, 400);
+  /** A gesture ran: the Stats page counts it a moment later. */
+  function statsGestured() {
+    if (store.page !== 'stats') return;
+    clearTimeout(statsUI.refetch);
+    statsUI.refetch = setTimeout(loadStats, 400);
   }
 
-  const dayKey = (d) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-
-  /** The 15-minute slots added up into local days. */
-  function statsByDay() {
+  /** The 15-minute slots added up into local days (and hours of the day). */
+  function statsByDay(since) {
     const days = new Map();
-    for (const [start, slot] of Object.entries(todayUI.stats || {})) {
-      const key = dayKey(new Date(Number(start)));
-      const day = days.get(key) || { gestures: 0, focus: 0, actions: {} };
+    const hours = new Array(24).fill(0);
+    const sum = { gestures: 0, focus: 0, actions: {}, triggers: {} };
+    for (const [start, slot] of Object.entries(statsUI.stats || {})) {
+      const at = new Date(Number(start));
+      const key = dayKey(at);
+      const day = days.get(key) || { gestures: 0, focus: 0 };
       day.gestures += slot.gestures || 0;
       day.focus += slot.focus_minutes || 0;
-      for (const [name, n] of Object.entries(slot.actions || {})) day.actions[name] = (day.actions[name] || 0) + n;
       days.set(key, day);
+      if (Number(start) < since) continue;
+      hours[at.getHours()] += slot.gestures || 0;
+      sum.gestures += slot.gestures || 0;
+      sum.focus += slot.focus_minutes || 0;
+      for (const [name, n] of Object.entries(slot.actions || {})) sum.actions[name] = (sum.actions[name] || 0) + n;
+      for (const [name, n] of Object.entries(slot.triggers || {})) sum.triggers[name] = (sum.triggers[name] || 0) + n;
     }
-    return days;
+    return { days, hours, sum };
   }
 
   function paintStats() {
-    if (!todayUI.built) return;
-    const days = statsByDay();
-    const empty = { gestures: 0, focus: 0, actions: {} };
-    const at = (offset) => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - offset); return d; };
-    const today = days.get(dayKey(at(0))) || empty;
+    if (!statsUI.built) return;
+    const range = statsUI.range;
+    statsUI.seg.set(range);
+    const since = startOfToday() - (range - 1) * 864e5;
+    const { days, hours, sum } = statsByDay(since);
+    const empty = { gestures: 0, focus: 0 };
+    const day = (i) => days.get(dayKey(daysAgo(i))) || empty;
+
     // Days in a row with something done, counting today only once it has.
     let streak = 0;
-    for (let i = today.gestures || today.focus ? 0 : 1; i < 70; i++) {
-      const d = days.get(dayKey(at(i)));
-      if (!d || !(d.gestures || d.focus)) break;
+    for (let i = day(0).gestures || day(0).focus ? 0 : 1; i < 70; i++) {
+      const d = day(i);
+      if (!d.gestures && !d.focus) break;
       streak++;
     }
-    const tile = (value, unit, label) => h('div', { class: 'today-tile' },
-      h('div', { class: 'today-num' }, String(value), unit ? h('small', null, unit) : ''), h('div', { class: 'today-tile-label' }, label));
-    todayUI.tiles.replaceChildren(
-      tile(today.gestures, '', today.gestures === 1 ? 'gesture today' : 'gestures today'),
-      tile(today.focus, 'min', 'focused today'),
-      tile(streak, streak === 1 ? 'day' : 'days', 'streak'));
+    let best = 0, run = 0;
+    for (let i = 64; i >= 0; i--) { const d = day(i); run = d.gestures || d.focus ? run + 1 : 0; best = Math.max(best, run); }
+    const active = [...Array(range).keys()].filter((i) => day(i).gestures).length;
 
-    const week = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = at(i);
-      week.push({ label: i === 0 ? 'Today' : d.toLocaleDateString(undefined, { weekday: 'short' }), n: (days.get(dayKey(d)) || empty).gestures, today: i === 0 });
+    const tile = (iconName, value, unit, label) => h('div', { class: 'stats-tile' },
+      h('span', { class: 'stats-tile-icon' }, ico(iconName, 16)),
+      h('div', { class: 'today-num' }, String(value), unit ? h('small', null, unit) : ''),
+      h('div', { class: 'today-tile-label' }, label));
+    const focus = sum.focus >= 60 ? [(sum.focus / 60).toFixed(1).replace(/\.0$/, ''), 'h'] : [sum.focus, 'min'];
+    statsUI.tiles.replaceChildren(
+      tile('gestures', sum.gestures.toLocaleString(), '', range === 1 ? 'gestures today' : 'gestures'),
+      tile('timer', focus[0], focus[1], 'focused'),
+      tile('live', range === 1 ? Object.keys(sum.triggers).length : (active ? Math.round(sum.gestures / active) : 0), '',
+        range === 1 ? 'different gestures' : 'a day, on days used'),
+      tile('zap', streak, streak === 1 ? 'day' : 'days', best > streak ? `streak · best ${best}` : 'streak'));
+
+    if (range === 1) {
+      statsUI.chartTitle.textContent = 'Today, hour by hour';
+      statsUI.chartSub.textContent = 'Gestures in each hour';
+      const now = new Date().getHours();
+      barChart(statsUI.chart, hours.map((n, hr) => ({ n, label: hr % 6 === 0 ? hourLabel(hr) : '', title: hourLabel(hr), mark: hr === now })), 'gestures');
+    } else {
+      statsUI.chartTitle.textContent = range === 64 ? 'Every day' : `Last ${range} days`;
+      statsUI.chartSub.textContent = 'Gestures per day';
+      const bars = [];
+      for (let i = range - 1; i >= 0; i--) {
+        const d = daysAgo(i);
+        const short = range <= 7 ? d.toLocaleDateString(undefined, { weekday: 'short' }) : (i % 7 === 0 ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '');
+        bars.push({ n: day(i).gestures, label: i === 0 ? 'Today' : short, title: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }), mark: i === 0 });
+      }
+      barChart(statsUI.chart, bars, 'gestures');
     }
-    const max = Math.max(1, ...week.map((w) => w.n));
-    todayUI.week.setAttribute('aria-label', 'Gestures per day: ' + week.map((w) => `${w.label} ${w.n}`).join(', '));
-    todayUI.week.replaceChildren(...week.map((w) => h('div', { class: 'today-day' + (w.today ? ' is-today' : '') },
-      h('span', { class: 'today-day-n' }, w.n ? String(w.n) : ''),
-      h('span', { class: 'today-day-bar' }, h('i', { style: { height: `${Math.max(w.n ? 6 : 2, (w.n / max) * 100)}%` } })),
-      h('span', { class: 'today-day-label' }, w.label))));
 
-    const top = Object.entries(today.actions).sort((a, b) => b[1] - a[1]).slice(0, 4);
-    todayUI.top.replaceChildren(...(top.length
-      ? top.map(([name, n]) => h('div', { class: 'today-top-row' },
-          h('span', { class: 'today-top-name' }, name),
-          h('span', { class: 'today-top-bar' }, h('i', { style: { width: `${(n / top[0][1]) * 100}%` } })),
-          h('span', { class: 'today-top-n' }, `${n}×`)))
-      : [h('div', { class: 'help' }, settingNow('keep_stats') === false ? 'Daily stats are off.' : 'Nothing yet today. Do a gesture and it shows up here.')]));
+    const off = settingNow('keep_stats') === false;
+    const nothing = off ? 'Stats are off.' : range === 1 ? 'Nothing yet today. Do a gesture and it shows up here.' : 'Nothing in this time yet.';
+    rankRows(statsUI.gestures, Object.entries(sum.triggers).sort((a, b) => b[1] - a[1]).slice(0, 8)
+      .map(([t, n]) => [M.triggerLabel(t), n, triggerIcon(t)]), Object.keys(sum.actions).length && !Object.keys(sum.triggers).length
+      ? 'Gestures are counted from this version on; actions below include earlier ones.' : nothing);
+    rankRows(statsUI.actions, Object.entries(sum.actions).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([a, n]) => [a, n]), nothing);
+
+    // Hours as a strip of 24 cells, darker for busier.
+    const top = Math.max(1, ...hours);
+    statsUI.hours.setAttribute('aria-label', hours.map((n, hr) => `${hourLabel(hr)} ${n}`).join(', '));
+    statsUI.hours.replaceChildren(
+      h('div', { class: 'hours-strip' }, ...hours.map((n, hr) => h('span', { class: 'hours-cell', title: `${hourLabel(hr)}: ${n} gestures`, style: { '--k': String(n ? 0.15 + 0.85 * (n / top) : 0) } }))),
+      h('div', { class: 'hours-axis' }, ...[0, 6, 12, 18].map((hr) => h('span', null, hourLabel(hr)))));
+    const busiest = hours.indexOf(Math.max(...hours));
+    statsUI.hoursNote.textContent = sum.gestures ? `Busiest around ${hourLabel(busiest)}.` : '';
+
+    // Weekdays: the average over the range's days of that weekday.
+    const totals = new Array(7).fill(0), counts = new Array(7).fill(0);
+    for (let i = 0; i < Math.max(range, 7); i++) { const d = daysAgo(i); totals[d.getDay()] += day(i).gestures; counts[d.getDay()]++; }
+    const first = new Date(2024, 0, 7); // a Sunday
+    const order = [1, 2, 3, 4, 5, 6, 0];
+    barChart(statsUI.days, order.map((wd) => ({
+      n: counts[wd] ? Math.round(totals[wd] / counts[wd]) : 0,
+      label: new Date(first.getTime() + wd * 864e5).toLocaleDateString(undefined, { weekday: 'short' }),
+      mark: wd === new Date().getDay(),
+    })), 'gestures on average');
   }
 
   async function clearStats() {
-    const ok = await confirmDialog({ title: 'Clear your stats?', text: 'Every count Pady has kept goes, including your streak.', confirm: 'Clear', danger: true });
+    const ok = await confirmDialog({ title: 'Clear your stats?', text: 'Every count Pady has kept goes, including your streak. Your focus history stays.', confirm: 'Clear', danger: true });
     if (!ok) return;
     try { await call('stats_clear', null, { errorTitle: 'Couldn’t clear the stats' }); } catch (_) { return; }
-    todayUI.stats = {};
+    statsUI.stats = {};
     paintStats();
   }
 
-  const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  /* =====================================================================
+     The Focus page: a timer for one thing at a time, short breaks, a daily
+     goal and what you focused on before.
+     ===================================================================== */
 
-  function paintFocus() {
-    if (!todayUI.built) return;
-    const f = todayUI.focus;
+  const focusUI = { built: false, state: null, sessions: [], clock: 0, minutes: null };
+  const FOCUS_LENGTHS = [15, 25, 45, 60, 90];
+  const RING = 2 * Math.PI * 92;
+
+  function buildFocus() {
+    const page = $('#page-focus');
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 200 200');
+    svg.setAttribute('class', 'focus-ring');
+    svg.setAttribute('aria-hidden', 'true');
+    const circle = (cls) => { const c = document.createElementNS(ns, 'circle'); c.setAttribute('cx', '100'); c.setAttribute('cy', '100'); c.setAttribute('r', '92'); c.setAttribute('class', cls); svg.append(c); return c; };
+    circle('focus-ring-track');
+    focusUI.arc = circle('focus-ring-arc');
+    focusUI.arc.style.strokeDasharray = String(RING);
+    focusUI.time = h('div', { class: 'focus-time' });
+    focusUI.kind = h('div', { class: 'focus-kind' });
+    focusUI.sub = h('div', { class: 'focus-sub' });
+    focusUI.dial = h('div', { class: 'focus-dial' }, svg, h('div', { class: 'focus-dial-text' }, focusUI.kind, focusUI.time, focusUI.sub));
+
+    focusUI.label = h('input', { class: 'input focus-label', type: 'text', maxlength: '80', placeholder: 'What are you focusing on? (optional)', 'aria-label': 'What are you focusing on' });
+    focusUI.label.addEventListener('keydown', (e) => { if (e.key === 'Enter') startFocus('focus'); });
+    focusUI.lengths = pills('Focus length', FOCUS_LENGTHS.map((m) => [m, `${m} min`]), (m) => pickLength(Number(m)));
+    focusUI.custom = h('input', { class: 'input focus-custom', type: 'number', min: '1', max: '240', 'aria-label': 'Minutes', title: 'Any length, 1 to 240 minutes' });
+    focusUI.custom.addEventListener('change', () => { const m = Math.round(Number(focusUI.custom.value)); if (m >= 1 && m <= 240) pickLength(m); });
+    focusUI.go = h('button', { class: 'btn btn--primary btn--lg', type: 'button', onClick: () => (focusUI.state && focusUI.state.running ? stopFocus() : startFocus('focus')) });
+    focusUI.breakBtn = h('button', { class: 'btn btn--lg', type: 'button', onClick: () => startFocus('break') });
+    focusUI.setup = h('div', { class: 'focus-setup' }, focusUI.label,
+      h('div', { class: 'focus-lengths' }, focusUI.lengths, h('label', { class: 'focus-custom-wrap' }, focusUI.custom, h('span', null, 'min'))));
+
+    focusUI.goalText = h('div', { class: 'focus-goal-text' });
+    focusUI.goalBar = h('div', { class: 'focus-bar' }, h('i'));
+    focusUI.goal = selectEl('Daily goal', [[0, 'No goal'], [30, '30 min'], [60, '1 hour'], [90, '1.5 hours'], [120, '2 hours'], [180, '3 hours'], [240, '4 hours'], [360, '6 hours']],
+      (v) => { saveSetting('focus_goal', Number(v)); paintFocusPage(); });
+    focusUI.week = h('div', { class: 'bars bars--short', role: 'img' });
+    focusUI.today = h('div', { class: 'focus-today' });
+
+    focusUI.breakLen = selectEl('Break length', [3, 5, 10, 15, 20, 30].map((m) => [m, `${m} min`]), (v) => { saveSetting('break_minutes', Number(v)); paintFocusPage(); });
+    focusUI.autoBreak = switchEl('focus_auto_break', 'focus-auto-break');
+    focusUI.sound = switchEl('focus_sound', 'focus-sound');
+    focusUI.gesture = h('div');
+    focusUI.history = h('div', { class: 'focus-history' });
+
+    page.append(h('div', { class: 'settings-grid' },
+      h('div', { class: 'settings-col' },
+        h('section', { class: 'panel focus-main', style: { 'margin-bottom': '16px' } },
+          h('div', { class: 'panel-body' }, focusUI.dial, focusUI.setup,
+            h('div', { class: 'focus-buttons' }, focusUI.go, focusUI.breakBtn))),
+        trPanel('timer', 'History', 'Your recent focus timers',
+          focusUI.history,
+          h('div', { class: 'row', style: { 'border-top': '0', 'padding-top': '4px' } },
+            h('button', { class: 'btn btn--sm', type: 'button', onClick: clearFocusHistory }, ico('trash', 14), 'Clear history')))),
+      h('div', { class: 'settings-col' },
+        trPanel('target', 'Daily goal', 'How much focus a day you aim for',
+          focusUI.goalText, focusUI.goalBar, focusUI.today,
+          h('div', { class: 'row' }, h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Goal')), focusUI.goal),
+          h('div', { class: 'today-label', style: { 'margin-top': '10px' } }, 'Focus this week'),
+          focusUI.week),
+        trPanel('settings', 'Options', 'Breaks, sound and the gesture',
+          h('div', { class: 'row' }, h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Break length'), h('div', { class: 'row-sub' }, 'A short rest between focus timers.')), focusUI.breakLen),
+          switchRow(focusUI.autoBreak, 'focus-auto-break', 'Start the break by itself', 'When a focus timer ends, the break starts right away.'),
+          switchRow(focusUI.sound, 'focus-sound', 'Play a sound', 'A soft chime when a timer ends.'),
+          h('div', { class: 'help', style: { margin: '10px 0 6px' } }, 'The gesture starts a timer. Again shows the time left; twice quickly stops it.'),
+          focusUI.gesture))));
+    focusUI.built = true;
+  }
+
+  function pickLength(m) {
+    focusUI.minutes = m;
+    saveSetting('focus_minutes', m);
+    paintFocusPage();
+  }
+
+  function renderFocus(entering) {
+    if (!focusUI.built) buildFocus();
+    focusUI.goal.value = String(settingNow('focus_goal') ?? 120);
+    if (!focusUI.goal.value) focusUI.goal.value = '120';
+    focusUI.breakLen.value = String(settingNow('break_minutes') || 5);
+    focusUI.autoBreak.input.checked = !!settingNow('focus_auto_break');
+    focusUI.sound.input.checked = settingNow('focus_sound') !== false;
+    focusUI.gesture.replaceChildren(...gestureRows('focus', 'timer', 'Focus timer'));
+    paintFocusPage();
+    if (entering) {
+      call('focus_get', null, { quiet: true }).then((f) => { focusUI.state = f; paintFocusPage(); }).catch(() => {});
+      loadFocusHistory();
+    }
+  }
+
+  async function loadFocusHistory() {
+    try { focusUI.sessions = (await call('focus_history', null, { quiet: true })) || []; } catch (_) { focusUI.sessions = []; }
+    paintFocusPage();
+  }
+
+  /** The backend says the timer changed (started, stopped, ended). */
+  function onFocusEvent(state) {
+    const was = focusUI.state && focusUI.state.running;
+    focusUI.state = state;
+    if (was && (!state.running || state.kind === 'break')) loadFocusHistory();
+    paintFocusPage();
+  }
+
+  function paintFocusPage() {
+    if (!focusUI.built) return;
+    const f = focusUI.state;
     const running = !!(f && f.running);
-    const minutes = Number(settingNow('focus_minutes')) || 25;
+    const isBreak = running && f.kind === 'break';
+    const minutes = focusUI.minutes || Number(settingNow('focus_minutes')) || 25;
+    const breakMin = Number(settingNow('break_minutes')) || 5;
+    focusUI.lengths.set(minutes);
+    if (document.activeElement !== focusUI.custom) focusUI.custom.value = FOCUS_LENGTHS.includes(minutes) ? '' : String(minutes);
+    focusUI.custom.placeholder = 'Other';
+
+    let frac = 0;
     if (running) {
       const left = f.ends - Date.now();
-      todayUI.time.textContent = mmss(left);
-      todayUI.timeSub.textContent = `of ${f.minutes} min · ends at ${new Date(f.ends).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
-      todayUI.bar.firstChild.style.width = `${Math.min(100, ((Date.now() - f.started) / (f.ends - f.started)) * 100)}%`;
-      if (left <= 0 && !todayUI.clockDone) {
-        todayUI.clockDone = true; // the backend says when it's over
-        setTimeout(() => call('focus_get', null, { quiet: true }).then((x) => { todayUI.focus = x; paintFocus(); }).catch(() => {}), 1500);
+      frac = Math.min(1, Math.max(0, (Date.now() - f.started) / (f.ends - f.started)));
+      focusUI.time.textContent = mmss(left);
+      focusUI.kind.textContent = isBreak ? 'Break' : (f.label || 'Focus');
+      focusUI.sub.textContent = `ends at ${new Date(f.ends).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+      if (left <= 0 && !focusUI.clockDone) {
+        focusUI.clockDone = true; // the backend says when it's over
+        setTimeout(() => call('focus_get', null, { quiet: true }).then(onFocusEvent).catch(() => {}), 1500);
       }
     } else {
-      todayUI.clockDone = false;
-      todayUI.time.textContent = mmss(minutes * 60000);
-      todayUI.timeSub.textContent = 'Ready when you are';
-      todayUI.bar.firstChild.style.width = '0%';
+      focusUI.clockDone = false;
+      focusUI.time.textContent = mmss(minutes * 60000);
+      focusUI.kind.textContent = 'Focus';
+      focusUI.sub.textContent = 'Ready when you are';
     }
-    todayUI.go.replaceChildren(ico(running ? 'stop' : 'play', 14), running ? 'Stop' : 'Start');
-    todayUI.go.className = running ? 'btn' : 'btn btn--primary';
-    todayUI.length.disabled = running;
-    todayUI.time.parentElement.classList.toggle('is-running', running);
-    clearInterval(todayUI.clock);
-    todayUI.clock = running && store.page === 'today' ? setInterval(paintFocus, 1000) : 0;
+    focusUI.arc.style.strokeDashoffset = String(RING * (1 - frac));
+    focusUI.dial.classList.toggle('is-running', running);
+    focusUI.dial.classList.toggle('is-break', isBreak);
+    focusUI.setup.hidden = running;
+    focusUI.go.replaceChildren(ico(running ? 'stop' : 'play', 15), running ? (isBreak ? 'End break' : 'Stop') : 'Start focus');
+    focusUI.go.className = running ? 'btn btn--lg' : 'btn btn--primary btn--lg';
+    focusUI.breakBtn.hidden = running;
+    focusUI.breakBtn.replaceChildren(ico('pause', 15), `Break · ${breakMin} min`);
+
+    // Today and this week, from the history (and the timer running now).
+    const sessions = focusUI.sessions;
+    const today0 = startOfToday();
+    const doneToday = sessions.filter((s) => s.started >= today0);
+    const runningMin = running && !isBreak ? Math.floor((Date.now() - f.started) / 60000) : 0;
+    const todayMin = doneToday.reduce((a, s) => a + s.minutes, 0) + runningMin;
+    const goal = Number(settingNow('focus_goal') ?? 120);
+    focusUI.goalText.replaceChildren(h('strong', null, hoursMin(todayMin)), goal ? ` of ${hoursMin(goal)} today` : ' focused today',
+      goal && todayMin >= goal ? h('span', { class: 'focus-goal-done' }, ico('check', 13), ' Goal reached') : '');
+    focusUI.goalBar.hidden = !goal;
+    focusUI.goalBar.firstChild.style.width = `${goal ? Math.min(100, (todayMin / goal) * 100) : 0}%`;
+    const finished = doneToday.filter((s) => s.done).length;
+    focusUI.today.textContent = `${doneToday.length} ${doneToday.length === 1 ? 'timer' : 'timers'} today · ${finished} finished`;
+    const week = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = daysAgo(i);
+      const key = dayKey(d);
+      const n = sessions.filter((s) => dayKey(new Date(s.started)) === key).reduce((a, s) => a + s.minutes, 0) + (i === 0 ? runningMin : 0);
+      week.push({ n, label: i === 0 ? 'Today' : d.toLocaleDateString(undefined, { weekday: 'short' }), mark: i === 0 });
+    }
+    barChart(focusUI.week, week, 'min');
+
+    const recent = sessions.slice(-30).reverse();
+    focusUI.history.replaceChildren(...(recent.length
+      ? recent.map((s) => h('div', { class: 'focus-item' },
+          h('span', { class: 'focus-item-dot' + (s.done ? ' is-done' : '') }, ico(s.done ? 'check' : 'stop', 12)),
+          h('div', { class: 'row-text' },
+            h('div', { class: 'row-title' }, s.label || 'Focus'),
+            h('div', { class: 'row-sub' }, `${new Date(s.started).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}, ${new Date(s.started).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}${s.done ? '' : ` · stopped of ${s.planned} min`}`)),
+          h('span', { class: 'focus-item-min' }, `${s.minutes} min`)))
+      : [h('div', { class: 'help', style: { padding: '6px 0' } }, 'Your focus timers show up here.')]));
+
+    clearInterval(focusUI.clock);
+    focusUI.clock = running && store.page === 'focus' ? setInterval(paintFocusPage, 1000) : 0;
   }
 
-  function stopTodayClock() {
-    clearInterval(todayUI.clock);
-    todayUI.clock = 0;
+  function stopFocusClock() {
+    clearInterval(focusUI.clock);
+    focusUI.clock = 0;
   }
 
-  async function toggleFocus() {
-    const running = todayUI.focus && todayUI.focus.running;
+  async function startFocus(kind) {
+    const minutes = kind === 'break' ? Number(settingNow('break_minutes')) || 5 : focusUI.minutes || Number(settingNow('focus_minutes')) || 25;
     try {
-      if (running) await call('focus_stop', null, { errorTitle: 'Couldn’t stop the timer' });
-      else await call('focus_start', { minutes: Number(todayUI.length.value) || 25 }, { errorTitle: 'Couldn’t start the timer' });
-      todayUI.focus = await call('focus_get', null, { quiet: true });
+      await call('focus_start', { minutes, kind, label: kind === 'focus' ? focusUI.label.value : '' }, { errorTitle: 'Couldn’t start the timer' });
+      focusUI.state = await call('focus_get', null, { quiet: true });
     } catch (_) { /* toast shown */ }
-    paintFocus();
+    paintFocusPage();
+  }
+
+  async function stopFocus() {
+    try {
+      await call('focus_stop', null, { errorTitle: 'Couldn’t stop the timer' });
+      focusUI.state = await call('focus_get', null, { quiet: true });
+    } catch (_) { /* toast shown */ }
+    loadFocusHistory();
+  }
+
+  async function clearFocusHistory() {
+    const ok = await confirmDialog({ title: 'Clear your focus history?', text: 'The list of past focus timers goes. Your stats stay.', confirm: 'Clear', danger: true });
+    if (!ok) return;
+    try { await call('focus_history_clear', null, { errorTitle: 'Couldn’t clear the history' }); } catch (_) { return; }
+    loadFocusHistory();
   }
 
   /* =====================================================================
      The Notes page: everything the Quick note gesture saved, to read,
-     search, edit, pin and delete. Edits save as you type.
+     search, edit, colour, tag, pin and delete. Edits save as you type;
+     how the page looks is remembered in this window.
      ===================================================================== */
 
-  const notesUI = { built: false, notes: [], open: null, timer: 0, saving: null, query: '' };
+  const NOTE_COLORS = [['', 'None'], ['yellow', 'Yellow'], ['orange', 'Orange'], ['red', 'Red'], ['pink', 'Pink'], ['purple', 'Purple'], ['blue', 'Blue'], ['teal', 'Teal'], ['green', 'Green'], ['gray', 'Gray']];
+  const NOTE_PREFS = { sort: 'edited', pinnedFirst: true, density: 'comfortable', font: 'sans', size: 2, preview: false, spellcheck: true, wrap: true };
+  const notesUI = { built: false, notes: [], open: null, timer: 0, query: '', tag: null, color: null, prefs: { ...NOTE_PREFS } };
+  try { Object.assign(notesUI.prefs, JSON.parse(localStorage.getItem('pady-notes-view') || '{}')); } catch (_) { /* defaults */ }
+
+  function setNotePref(key, value) {
+    notesUI.prefs[key] = value;
+    try { localStorage.setItem('pady-notes-view', JSON.stringify(notesUI.prefs)); } catch (_) { /* not kept */ }
+    paintNotePrefs();
+    paintNoteList();
+    paintNotePane();
+  }
+
+  const noteTags = (text) => [...new Set([...text.matchAll(/(?:^|\s)#([\p{L}\p{N}_-]{1,30})/gu)].map((m) => m[1].toLowerCase()))];
 
   function buildNotes() {
     const page = $('#page-notes');
     notesUI.search = h('input', { class: 'input notes-search', type: 'search', placeholder: 'Search notes', 'aria-label': 'Search notes', spellcheck: 'false' });
     notesUI.search.addEventListener('input', () => { notesUI.query = notesUI.search.value.trim().toLowerCase(); paintNoteList(); });
     notesUI.gesture = h('div', { class: 'notes-gesture' });
+    notesUI.filters = h('div', { class: 'notes-filters' });
     notesUI.list = h('div', { class: 'notes-list', role: 'list' });
-    notesUI.editor = h('textarea', { class: 'input notes-editor', placeholder: 'Write something…', spellcheck: 'true', 'aria-label': 'Note' });
-    notesUI.editor.addEventListener('input', () => { clearTimeout(notesUI.timer); notesUI.timer = setTimeout(flushNote, 500); notesUI.status.textContent = ''; });
+    notesUI.editor = h('textarea', { class: 'input notes-editor', placeholder: 'Write something…  Use #tags, - lists and - [ ] checkboxes.', 'aria-label': 'Note' });
+    notesUI.editor.addEventListener('input', () => { clearTimeout(notesUI.timer); notesUI.timer = setTimeout(flushNote, 500); notesUI.status.textContent = ''; paintCount(); });
+    notesUI.editor.addEventListener('keydown', noteKeys);
+    notesUI.preview = h('div', { class: 'notes-preview selectable' });
+    notesUI.preview.addEventListener('click', onPreviewClick);
     notesUI.status = h('span', { class: 'help notes-status', 'aria-live': 'polite' });
-    notesUI.meta = h('span', { class: 'help' });
-    notesUI.pin = h('button', { class: 'btn btn--sm', type: 'button', onClick: pinNote, title: 'Keep at the top' }, ico('pin', 14), 'Pin');
-    notesUI.copy = h('button', { class: 'btn btn--sm', type: 'button', onClick: copyNote, title: 'Copy the note' }, ico('copy', 14), 'Copy');
-    notesUI.del = h('button', { class: 'btn btn--sm', type: 'button', onClick: deleteNote, title: 'Delete the note' }, ico('trash', 14), 'Delete');
+    notesUI.meta = h('span', { class: 'help notes-meta' });
+    notesUI.count = h('span', { class: 'help' });
+    const tool = (iconName, title, onClick, text) => h('button', { class: 'btn btn--sm' + (text ? '' : ' btn--icon'), type: 'button', title, 'aria-label': title, onClick }, ico(iconName, 14), text || '');
+    notesUI.mode = pills('Edit or read', [['edit', 'Edit'], ['read', 'Read']], (m) => setNotePref('preview', m === 'read'));
+    notesUI.colors = h('div', { class: 'note-colors', role: 'radiogroup', 'aria-label': 'Note colour' },
+      ...NOTE_COLORS.map(([c, name]) => h('button', { class: 'note-swatch', type: 'button', role: 'radio', 'aria-checked': 'false', 'data-color': c, title: name, 'aria-label': name, onClick: () => colorNote(c) })));
+    notesUI.pin = tool('pin', 'Pin to the top', pinNote);
+    notesUI.check = tool('check', 'Add a checkbox', () => insertLinePrefix('- [ ] '));
+    notesUI.bullet = tool('minimal', 'Add a bullet', () => insertLinePrefix('- '));
+    notesUI.copy = tool('copy', 'Copy the note', copyNote);
+    notesUI.dupe = tool('layers', 'Duplicate the note', duplicateNote);
+    notesUI.del = tool('trash', 'Delete the note', deleteNote);
     notesUI.pane = h('section', { class: 'panel notes-pane' },
-      h('div', { class: 'notes-toolbar' }, notesUI.meta, h('span', { style: { flex: '1' } }), notesUI.status, notesUI.pin, notesUI.copy, notesUI.del),
-      notesUI.editor);
+      h('div', { class: 'notes-toolbar' }, notesUI.mode, notesUI.check, notesUI.bullet,
+        h('span', { style: { flex: '1' } }), notesUI.pin, notesUI.copy, notesUI.dupe, notesUI.del),
+      notesUI.editor, notesUI.preview,
+      h('div', { class: 'notes-foot' }, notesUI.colors, notesUI.meta, h('span', { style: { flex: '1' } }), notesUI.status, notesUI.count));
+
+    // How the page looks.
+    notesUI.sort = selectEl('Sort notes', [['edited', 'Last edited'], ['created', 'Newest first'], ['oldest', 'Oldest first'], ['title', 'Title A–Z'], ['color', 'By colour']], (v) => setNotePref('sort', v));
+    notesUI.viewBtn = h('button', { class: 'btn', type: 'button', 'aria-expanded': 'false', onClick: () => toggleViewMenu() }, ico('settings', 14), 'View');
+    notesUI.density = pills('List', [['comfortable', 'Comfortable'], ['compact', 'Compact'], ['cards', 'Cards']], (v) => setNotePref('density', v));
+    notesUI.font = pills('Font', [['sans', 'Sans'], ['serif', 'Serif'], ['mono', 'Mono']], (v) => setNotePref('font', v));
+    notesUI.size = pills('Text size', [[1, 'S'], [2, 'M'], [3, 'L'], [4, 'XL']], (v) => setNotePref('size', Number(v)));
+    const prefSwitch = (key, title) => {
+      const input = h('input', { type: 'checkbox', role: 'switch' });
+      input.addEventListener('change', () => setNotePref(key, input.checked));
+      notesUI['sw_' + key] = input;
+      return h('label', { class: 'row', style: { cursor: 'pointer' } }, h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, title)),
+        h('span', { class: 'switch' }, input, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' }))));
+    };
+    notesUI.viewMenu = h('div', { class: 'notes-view-menu panel', hidden: true },
+      h('div', { class: 'today-label' }, 'List'), notesUI.density,
+      h('div', { class: 'today-label' }, 'Font'), notesUI.font,
+      h('div', { class: 'today-label' }, 'Text size'), notesUI.size,
+      prefSwitch('pinnedFirst', 'Pinned notes first'),
+      prefSwitch('wrap', 'Wrap long lines'),
+      prefSwitch('spellcheck', 'Check spelling'));
+    document.addEventListener('click', (e) => {
+      if (!notesUI.viewMenu.hidden && !notesUI.viewMenu.contains(e.target) && !notesUI.viewBtn.contains(e.target)) toggleViewMenu(false);
+    });
+    notesUI.viewMenu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { toggleViewMenu(false); notesUI.viewBtn.focus(); } });
+
     page.append(
       h('div', { class: 'notes-top' }, notesUI.search,
         h('button', { class: 'btn btn--primary', type: 'button', onClick: newNote }, ico('plus', 14), 'New note'),
+        notesUI.sort,
+        h('div', { class: 'notes-view-wrap' }, notesUI.viewBtn, notesUI.viewMenu),
         notesUI.gesture),
+      notesUI.filters,
       h('div', { class: 'notes-grid' }, notesUI.list, notesUI.pane));
     notesUI.built = true;
+    paintNotePrefs();
+  }
+
+  function toggleViewMenu(open = notesUI.viewMenu.hidden) {
+    notesUI.viewMenu.hidden = !open;
+    notesUI.viewBtn.setAttribute('aria-expanded', String(open));
+  }
+
+  function paintNotePrefs() {
+    const p = notesUI.prefs;
+    notesUI.sort.value = p.sort;
+    notesUI.density.set(p.density);
+    notesUI.font.set(p.font);
+    notesUI.size.set(p.size);
+    notesUI.mode.set(p.preview ? 'read' : 'edit');
+    for (const key of ['pinnedFirst', 'wrap', 'spellcheck']) notesUI['sw_' + key].checked = !!p[key];
+    const page = $('#page-notes');
+    page.dataset.density = p.density;
+    page.dataset.font = p.font;
+    page.style.setProperty('--note-size', `${[13, 14.5, 16, 18.5][p.size - 1] || 14.5}px`);
+    notesUI.editor.spellcheck = !!p.spellcheck;
+    notesUI.editor.wrap = p.wrap ? 'soft' : 'off';
   }
 
   function renderNotes(entering) {
@@ -2995,21 +3324,57 @@
     try { notesUI.notes = (await call('notes_list', null, { quiet: true })) || []; } catch (_) { notesUI.notes = []; }
     // Keep the open note (and what's being typed in it).
     if (notesUI.open != null && !notesUI.notes.some((n) => n.id === notesUI.open)) notesUI.open = null;
-    if (notesUI.open == null && notesUI.notes.length && document.activeElement !== notesUI.editor) openNote(notesUI.notes[0].id);
+    if (notesUI.open == null && notesUI.notes.length && document.activeElement !== notesUI.editor) openNote(sortedNotes()[0].id);
     paintNoteList();
     paintNotePane();
   }
 
-  const noteTitle = (text) => (text.trim().split('\n')[0] || 'Empty note').slice(0, 80);
+  const noteTitle = (text) => (text.trim().split('\n')[0] || 'Empty note').replace(/^#{1,3}\s+/, '').slice(0, 80);
   const noteWhen = (ms) => {
     const d = new Date(ms), now = new Date();
     if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
   };
 
+  function sortedNotes() {
+    const p = notesUI.prefs;
+    const colorRank = (n) => { const i = NOTE_COLORS.findIndex(([c]) => c === (n.color || '')); return i <= 0 ? 99 : i; };
+    const by = {
+      edited: (a, b) => b.updated - a.updated,
+      created: (a, b) => b.created - a.created,
+      oldest: (a, b) => a.created - b.created,
+      title: (a, b) => noteTitle(a.text).localeCompare(noteTitle(b.text), undefined, { sensitivity: 'base' }),
+      color: (a, b) => colorRank(a) - colorRank(b) || b.updated - a.updated,
+    }[p.sort] || ((a, b) => b.updated - a.updated);
+    return notesUI.notes.slice().sort((a, b) => (p.pinnedFirst ? b.pinned - a.pinned : 0) || by(a, b));
+  }
+
+  function paintFilters() {
+    const tags = new Map();
+    for (const n of notesUI.notes) for (const t of noteTags(n.text)) tags.set(t, (tags.get(t) || 0) + 1);
+    const colors = new Set(notesUI.notes.map((n) => n.color).filter(Boolean));
+    if (notesUI.tag && !tags.has(notesUI.tag)) notesUI.tag = null;
+    if (notesUI.color && !colors.has(notesUI.color)) notesUI.color = null;
+    const chip = (text, on, onClick, extra) => h('button', { class: 'tag-chip' + (on ? ' is-on' : ''), type: 'button', 'aria-pressed': String(on), onClick }, extra || '', text);
+    const all = !notesUI.tag && !notesUI.color;
+    notesUI.filters.hidden = !tags.size && !colors.size;
+    notesUI.filters.replaceChildren(
+      chip(`All ${notesUI.notes.length}`, all, () => { notesUI.tag = null; notesUI.color = null; paintNoteList(); }),
+      ...NOTE_COLORS.filter(([c]) => colors.has(c)).map(([c, name]) => h('button', {
+        class: 'note-swatch note-swatch--filter' + (notesUI.color === c ? ' is-on' : ''), type: 'button', 'data-color': c, title: `${name} notes`, 'aria-label': `${name} notes`, 'aria-pressed': String(notesUI.color === c),
+        onClick: () => { notesUI.color = notesUI.color === c ? null : c; paintNoteList(); },
+      })),
+      ...[...tags].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t, n]) =>
+        chip(`#${t} ${n}`, notesUI.tag === t, () => { notesUI.tag = notesUI.tag === t ? null : t; paintNoteList(); })));
+  }
+
   function paintNoteList() {
+    if (!notesUI.built) return;
+    paintFilters();
     const q = notesUI.query;
-    const shown = notesUI.notes.filter((n) => !q || n.text.toLowerCase().includes(q));
+    const shown = sortedNotes().filter((n) => (!q || n.text.toLowerCase().includes(q))
+      && (!notesUI.tag || noteTags(n.text).includes(notesUI.tag))
+      && (!notesUI.color || n.color === notesUI.color));
     if (!notesUI.notes.length) {
       notesUI.list.replaceChildren(h('div', { class: 'empty notes-empty' },
         h('div', { class: 'empty-icon' }, ico('note', 26)),
@@ -3018,14 +3383,18 @@
       return;
     }
     notesUI.list.replaceChildren(...(shown.length ? shown.map((n) => {
-      const rest = n.text.trim().split('\n').slice(1).join(' ').trim();
+      const lines = n.text.trim().split('\n');
+      const rest = lines.slice(1).map((l) => l.replace(/^\s*(?:- \[[ xX]\]|[-*]|\d+[.)]|#{1,3})\s+/, '')).join(' ').replace(/\*\*|`/g, '').trim();
+      const todo = lines.filter((l) => /^\s*- \[[ xX]\]/.test(l));
+      const doneCount = todo.filter((l) => /^\s*- \[[xX]\]/.test(l)).length;
       return h('button', {
-        class: 'note-item' + (n.id === notesUI.open ? ' is-open' : ''), type: 'button', role: 'listitem',
-        onClick: () => { flushNote(); openNote(n.id); paintNoteList(); paintNotePane(); notesUI.editor.focus(); },
+        class: 'note-item' + (n.id === notesUI.open ? ' is-open' : ''), type: 'button', role: 'listitem', 'data-color': n.color || '',
+        onClick: () => { flushNote(); openNote(n.id); paintNoteList(); paintNotePane(); if (!notesUI.prefs.preview) notesUI.editor.focus(); },
       },
       h('span', { class: 'note-item-title' }, n.pinned ? ico('pin', 12) : '', noteTitle(n.text)),
-      rest ? h('span', { class: 'note-item-rest' }, rest.slice(0, 140)) : '',
-      h('span', { class: 'note-item-meta' }, noteWhen(n.updated), n.source ? ` · ${n.source}` : ''));
+      rest ? h('span', { class: 'note-item-rest' }, rest.slice(0, 160)) : '',
+      h('span', { class: 'note-item-meta' }, noteWhen(n.updated), n.source ? ` · ${n.source}` : '',
+        todo.length ? h('span', { class: 'note-item-todo' }, ico('check', 11), ` ${doneCount}/${todo.length}`) : ''));
     }) : [h('div', { class: 'help', style: { padding: '12px' } }, 'No note matches.')]));
   }
 
@@ -3036,14 +3405,123 @@
   }
 
   function paintNotePane() {
+    if (!notesUI.built) return;
     const n = notesUI.notes.find((x) => x.id === notesUI.open);
     notesUI.pane.hidden = !n && !notesUI.drafting;
-    notesUI.pin.hidden = notesUI.copy.hidden = notesUI.del.hidden = !n;
+    for (const b of [notesUI.pin, notesUI.copy, notesUI.dupe, notesUI.del, notesUI.colors]) b.hidden = !n;
+    notesUI.pane.dataset.color = (n && n.color) || '';
+    $$('.note-swatch', notesUI.colors).forEach((s) => s.setAttribute('aria-checked', String(s.dataset.color === ((n && n.color) || ''))));
     if (n) {
-      notesUI.pin.replaceChildren(ico('pin', 14), n.pinned ? 'Unpin' : 'Pin');
-      notesUI.meta.textContent = `Edited ${noteWhen(n.updated)}${n.source ? ` · from ${n.source}` : ''}`;
+      notesUI.pin.setAttribute('aria-pressed', String(!!n.pinned));
+      notesUI.pin.title = n.pinned ? 'Unpin' : 'Pin to the top';
+      notesUI.meta.textContent = `Edited ${noteWhen(n.updated)} · created ${noteWhen(n.created)}${n.source ? ` · from ${n.source}` : ''}`;
     } else {
       notesUI.meta.textContent = 'New note';
+    }
+    const reading = notesUI.prefs.preview && !!n;
+    notesUI.editor.hidden = reading;
+    notesUI.preview.hidden = !reading;
+    notesUI.check.hidden = notesUI.bullet.hidden = reading;
+    if (reading) notesUI.preview.replaceChildren(...renderNoteText(notesUI.editor.value));
+    paintCount();
+  }
+
+  function paintCount() {
+    const text = notesUI.editor.value;
+    const words = (text.match(/\S+/g) || []).length;
+    notesUI.count.textContent = `${words} ${words === 1 ? 'word' : 'words'} · ${text.length} characters`;
+  }
+
+  /** The note as it reads: headings, lists, checkboxes, bold, italics, code and #tags. */
+  function renderNoteText(text) {
+    const inline = (s) => {
+      const out = [];
+      const re = /(\*\*[^*]+\*\*|\*[^*\s][^*]*\*|`[^`]+`|(?:^|(?<=\s))#[\p{L}\p{N}_-]{1,30}|https?:\/\/[^\s)]+)/gu;
+      let last = 0;
+      for (const m of s.matchAll(re)) {
+        if (m.index > last) out.push(s.slice(last, m.index));
+        const t = m[0];
+        if (t.startsWith('**')) out.push(h('strong', null, t.slice(2, -2)));
+        else if (t.startsWith('`')) out.push(h('code', null, t.slice(1, -1)));
+        else if (t.startsWith('#')) out.push(h('span', { class: 'note-tag' }, t));
+        else if (t.startsWith('http')) out.push(h('span', { class: 'note-link' }, t));
+        else out.push(h('em', null, t.slice(1, -1)));
+        last = m.index + t.length;
+      }
+      if (last < s.length) out.push(s.slice(last));
+      return out;
+    };
+    const out = [];
+    let list = null;
+    text.split('\n').forEach((line, i) => {
+      const box = /^(\s*)- \[([ xX])\]\s?(.*)$/.exec(line);
+      const bullet = /^(\s*)[-*]\s+(.*)$/.exec(line);
+      const num = /^(\s*)\d+[.)]\s+(.*)$/.exec(line);
+      const head = /^(#{1,3})\s+(.*)$/.exec(line);
+      if (box || bullet || num) {
+        if (!list) { list = h('ul', { class: 'note-list' }); out.push(list); }
+        if (box) {
+          const done = box[2] !== ' ';
+          list.append(h('li', { class: 'note-check' + (done ? ' is-done' : ''), 'data-line': String(i) },
+            h('span', { class: 'note-box', role: 'checkbox', 'aria-checked': String(done), tabindex: '0' }, done ? ico('check', 11) : ''), h('span', null, ...inline(box[3]))));
+        } else {
+          list.append(h('li', { class: num ? 'is-num' : '' }, ...inline((bullet || num)[2])));
+        }
+        return;
+      }
+      list = null;
+      if (head) out.push(h(['h2', 'h3', 'h4'][head[1].length - 1], null, ...inline(head[2])));
+      else if (!line.trim()) out.push(h('div', { class: 'note-gap' }));
+      else out.push(h('p', null, ...inline(line)));
+    });
+    return out.length ? out : [h('p', { class: 'help' }, 'This note is empty.')];
+  }
+
+  /** Ticking a checkbox while reading changes the note itself. */
+  function onPreviewClick(e) {
+    const li = e.target.closest('.note-check');
+    if (!li || !e.target.closest('.note-box')) return;
+    const lines = notesUI.editor.value.split('\n');
+    const i = Number(li.dataset.line);
+    lines[i] = lines[i].replace(/- \[([ xX])\]/, (_, c) => (c === ' ' ? '- [x]' : '- [ ]'));
+    notesUI.editor.value = lines.join('\n');
+    flushNote();
+    paintNotePane();
+  }
+
+  function insertLinePrefix(prefix) {
+    const ed = notesUI.editor;
+    const start = ed.value.lastIndexOf('\n', ed.selectionStart - 1) + 1;
+    ed.focus();
+    ed.setRangeText(prefix, start, start, 'end');
+    ed.dispatchEvent(new Event('input'));
+  }
+
+  /** Enter continues a list; Ctrl+B / Ctrl+I mark text bold or italic. */
+  function noteKeys(e) {
+    const ed = notesUI.editor;
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+      const start = ed.value.lastIndexOf('\n', ed.selectionStart - 1) + 1;
+      const line = ed.value.slice(start, ed.selectionStart);
+      const m = /^(\s*)(- \[[ xX]\] |[-*] |\d+[.)] )/.exec(line);
+      if (!m) return;
+      e.preventDefault();
+      if (line === m[0]) { // an empty item ends the list
+        ed.setRangeText('', start, ed.selectionStart, 'end');
+      } else {
+        let next = m[2].startsWith('- [') ? '- [ ] ' : m[2];
+        const n = /^(\d+)([.)]) $/.exec(m[2]);
+        if (n) next = `${Number(n[1]) + 1}${n[2]} `;
+        ed.setRangeText('\n' + m[1] + next, ed.selectionStart, ed.selectionEnd, 'end');
+      }
+      ed.dispatchEvent(new Event('input'));
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'i')) {
+      e.preventDefault();
+      const mark = e.key === 'b' ? '**' : '*';
+      const { selectionStart: a, selectionEnd: b } = ed;
+      ed.setRangeText(mark + ed.value.slice(a, b) + mark, a, b, 'select');
+      if (a === b) ed.setSelectionRange(a + mark.length, a + mark.length);
+      ed.dispatchEvent(new Event('input'));
     }
   }
 
@@ -3051,10 +3529,12 @@
     flushNote();
     notesUI.open = null;
     notesUI.drafting = true;
-    notesUI.editor.value = '';
+    notesUI.editor.value = notesUI.tag ? `\n\n#${notesUI.tag}` : '';
+    if (notesUI.prefs.preview) setNotePref('preview', false);
     paintNoteList();
     paintNotePane();
     notesUI.editor.focus();
+    notesUI.editor.setSelectionRange(0, 0);
   }
 
   /** Save what's in the editor now (it also saves itself as you type). */
@@ -3070,7 +3550,6 @@
       if (saved) {
         const i = notesUI.notes.findIndex((n) => n.id === saved.id);
         if (i >= 0) notesUI.notes[i] = saved; else notesUI.notes.unshift(saved);
-        notesUI.notes.sort((a, b) => b.pinned - a.pinned || b.updated - a.updated);
         if (notesUI.open === id) notesUI.open = saved.id;
         notesUI.drafting = false;
       } else {
@@ -3089,11 +3568,35 @@
     loadNotes();
   }
 
+  async function colorNote(color) {
+    const n = notesUI.notes.find((x) => x.id === notesUI.open);
+    if (!n) return;
+    try { await call('note_color', { id: n.id, color: color || null }, { errorTitle: 'Couldn’t change the colour' }); } catch (_) { return; }
+    n.color = color || undefined;
+    paintNoteList();
+    paintNotePane();
+  }
+
   async function copyNote() {
     try {
       await navigator.clipboard.writeText(notesUI.editor.value);
       toast({ title: 'Copied the note' });
     } catch (e) { toast({ kind: 'error', title: 'Couldn’t copy', text: errText(e) }); }
+  }
+
+  async function duplicateNote() {
+    await flushNote();
+    const n = notesUI.notes.find((x) => x.id === notesUI.open);
+    if (!n) return;
+    try {
+      const copy = await call('note_save', { id: null, text: n.text }, { errorTitle: 'Couldn’t duplicate the note' });
+      if (copy && n.color) await call('note_color', { id: copy.id, color: n.color }, { quiet: true });
+      if (copy) notesUI.open = copy.id;
+    } catch (_) { return; }
+    await loadNotes();
+    openNote(notesUI.open);
+    paintNotePane();
+    toast({ title: 'Duplicated the note' });
   }
 
   async function deleteNote() {
@@ -3320,6 +3823,7 @@ function translatorSettingsPanel() {
       if (!(key in setUI.pending)) input.checked = (cfg[key] ?? SETTING_DEFAULTS[key]) !== false;
     }
     setUI.pauseRow.hidden = platform() !== 'windows'; // exclusive full screen is a Windows thing
+    setUI.clipRow.hidden = platform() !== 'windows'; // the clipboard history is Windows-only for now
     // The corner notices, the glow and the touches are drawn natively on Windows.
     [setUI.noticePanel, setUI.animPanel].forEach((p) => $$('[data-windows]', p).forEach((row) => { row.hidden = platform() !== 'windows'; }));
     setUI.animPanel.classList.toggle('is-off', cfg.animations === false);
@@ -4172,9 +4676,9 @@ function translatorSettingsPanel() {
     const on = (name, cb) => Promise.resolve(api.listen(name, cb)).catch((err) => console.error(`listen ${name} failed:`, err));
     on('pady://state', (e) => applyState(e.payload));
     on('pady://frame', (e) => onFrame(e.payload));
-    on('pady://gesture', (e) => { onGesture(e.payload); todayGestured(); });
+    on('pady://gesture', (e) => { onGesture(e.payload); statsGestured(); });
     on('pady://notes', () => { if (store.page === 'notes') loadNotes(); });
-    on('pady://focus', (e) => { todayUI.focus = e.payload; paintFocus(); });
+    on('pady://focus', (e) => onFocusEvent(e.payload));
     on('pady://update', (e) => announceUpdate(e.payload));
     on('pady://glyph-recorded', (e) => onGlyphRecorded(e.payload));
     on('pady://action-failed', (e) => {
@@ -4266,7 +4770,7 @@ function translatorSettingsPanel() {
       $('#boot').remove();
       syncLive(); // tells the backend "no frames" unless a page below asks for them
       const first = state.open_page || initial;
-      route(PAGES.includes(first) ? first : state.config.settings.onboarded === false ? 'gestures' : 'today');
+      route(PAGES.includes(first) ? first : state.config.settings.onboarded === false ? 'gestures' : 'stats');
       // `=== false`: a backend without the field never shows the tutorial.
       if (state.config.settings.onboarded === false) openTutorial({ firstRun: true });
       if (state.config.settings.check_updates !== false && !isBeta()) checkUpdate(false);

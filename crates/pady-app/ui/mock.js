@@ -439,13 +439,14 @@
   let live = false;
   const snapshot = () => clone(state);
 
-  // Notes, stats and the focus timer for the Today and Notes pages.
+  // Notes, stats and the focus timer for the Stats, Focus and Notes pages.
   const mockNotes = (() => {
     const now = Date.now();
     return [
-      { id: 1, text: 'Ideas for the weekend\n- hike the ridge trail\n- try the new ramen place', created: now - 3 * 864e5, updated: now - 2 * 3600e3, pinned: true },
-      { id: 2, text: 'Meeting moved to 3pm, room 4B', created: now - 5 * 3600e3, updated: now - 5 * 3600e3, source: 'outlook.exe', pinned: false },
-      { id: 3, text: 'https://lumidren.github.io/Pady/\nShare this with the team', created: now - 864e5, updated: now - 864e5, source: 'chrome.exe', pinned: false },
+      { id: 1, text: 'Ideas for the weekend\n- [x] book the cabin\n- [ ] hike the ridge trail\n- [ ] try the new ramen place\n\n#plans', created: now - 3 * 864e5, updated: now - 2 * 3600e3, pinned: true, color: 'yellow' },
+      { id: 2, text: 'Meeting moved to 3pm, room 4B\nBring the **Q3 numbers** and the `budget.xlsx` draft. #work', created: now - 5 * 3600e3, updated: now - 5 * 3600e3, source: 'outlook.exe', pinned: false, color: 'blue' },
+      { id: 3, text: 'https://lumidren.github.io/Pady/\nShare this with the team #work', created: now - 864e5, updated: now - 864e5, source: 'chrome.exe', pinned: false },
+      { id: 4, text: '## Reading list\n1. Deep Work\n2. The Design of Everyday Things\n3. Make Time\n#books', created: now - 6 * 864e5, updated: now - 4 * 864e5, pinned: false, color: 'green' },
     ];
   })();
   const mockStats = (() => {
@@ -453,19 +454,28 @@
     const slot = 15 * 60000;
     const now = Date.now();
     const names = ['Copy', 'Paste', 'Volume +4%', 'Next track', 'Switch keyboard language', 'Quick note'];
+    const triggers = ['tap:3', 'doubletap:3', 'swipe:3:up', 'swipe:4:right', 'hold:3', 'pinch:4:in'];
     for (let d = 0; d < 9; d++) {
       if (d === 4) continue; // a day off breaks the streak before it
       for (let k = 0; k < 6; k++) {
         const at = now - d * 864e5 - k * 47 * 60000;
         const key = at - (at % slot);
         const actions = {};
-        names.forEach((n, i) => { const c = (d * 7 + k * 3 + i * 5) % 6; if (c) actions[n] = c; });
-        out[key] = { gestures: Object.values(actions).reduce((a, b) => a + b, 0), focus_minutes: k === 2 ? 25 : 0, actions };
+        const byTrigger = {};
+        names.forEach((n, i) => { const c = (d * 7 + k * 3 + i * 5) % 6; if (c) { actions[n] = c; byTrigger[triggers[i]] = c; } });
+        out[key] = { gestures: Object.values(actions).reduce((a, b) => a + b, 0), focus_minutes: k === 2 ? 25 : 0, actions, triggers: byTrigger };
       }
     }
     return out;
   })();
-  const mockFocus = { running: false, started: 0, ends: 0, minutes: 0 };
+  const mockFocus = { running: false, started: 0, ends: 0, minutes: 0, kind: 'focus', label: '' };
+  const mockFocusLog = (() => {
+    const now = Date.now();
+    const labels = ['Write the report', '', 'Inbox zero', 'Study Rust', 'Write the report'];
+    return [5, 4, 3, 2, 1, 1, 0, 0].map((d, i) => ({
+      started: now - d * 864e5 - (i + 1) * 2 * 3600e3, minutes: i % 4 === 3 ? 12 : 25, planned: 25, label: labels[i % labels.length], done: i % 4 !== 3,
+    })).sort((a, b) => a.started - b.started);
+  })();
 
   const handlers = {
     get_state: () => snapshot(),
@@ -499,11 +509,21 @@
     },
     note_delete: ({ id }) => { const i = mockNotes.findIndex((n) => n.id === id); if (i >= 0) mockNotes.splice(i, 1); },
     note_pin: ({ id, pinned }) => { const n = mockNotes.find((x) => x.id === id); if (n) n.pinned = pinned; },
+    note_color: ({ id, color }) => { const n = mockNotes.find((x) => x.id === id); if (n) n.color = color || undefined; },
     stats_get: () => mockStats,
     stats_clear: () => { for (const k of Object.keys(mockStats)) delete mockStats[k]; },
     focus_get: () => mockFocus,
-    focus_start: ({ minutes }) => { const now = Date.now(); Object.assign(mockFocus, { running: true, started: now, ends: now + minutes * 60000, minutes }); emit('pady://focus', mockFocus); },
-    focus_stop: () => { Object.assign(mockFocus, { running: false, started: 0, ends: 0, minutes: 0 }); emit('pady://focus', mockFocus); },
+    focus_start: ({ minutes, kind, label }) => { const now = Date.now(); Object.assign(mockFocus, { running: true, started: now, ends: now + minutes * 60000, minutes, kind: kind || 'focus', label: label || '' }); emit('pady://focus', { ...mockFocus }); },
+    focus_stop: () => {
+      if (mockFocus.running && mockFocus.kind === 'focus') {
+        const m = Math.floor((Date.now() - mockFocus.started) / 60000);
+        if (m > 0) mockFocusLog.push({ started: mockFocus.started, minutes: m, planned: mockFocus.minutes, label: mockFocus.label, done: false });
+      }
+      Object.assign(mockFocus, { running: false, started: 0, ends: 0, minutes: 0, kind: 'focus', label: '' });
+      emit('pady://focus', { ...mockFocus });
+    },
+    focus_history: () => mockFocusLog.slice(),
+    focus_history_clear: () => { mockFocusLog.length = 0; },
     translate_text: async ({ text }) => {
       await new Promise((r) => setTimeout(r, 600));
       if (!String(text || '').trim()) throw 'Type something to translate.';
