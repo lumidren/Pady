@@ -221,7 +221,7 @@
   function checkAction(a) {
     if (!a || typeof a !== 'object') throw 'invalid type: expected internally tagged enum Action';
     switch (a.type) {
-      case 'none': case 'mute': case 'lock': case 'drag': case 'translate': return;
+      case 'none': case 'mute': case 'lock': case 'drag': case 'translate': case 'clipboard': case 'quick_note': case 'focus': return;
       case 'keys': return checkCombo(a.combo);
       case 'volume': case 'brightness':
         if (!Number.isInteger(a.step)) throw `${a.type} step must be a whole number`;
@@ -357,6 +357,9 @@
       case 'lock': return 'Lock screen';
       case 'drag': return 'Drag (hold left button)';
       case 'translate': return 'Translate selected text';
+      case 'clipboard': return 'Clipboard history';
+      case 'quick_note': return 'Quick note';
+      case 'focus': return 'Focus timer';
       default: return 'Nothing';
     }
   }
@@ -436,6 +439,34 @@
   let live = false;
   const snapshot = () => clone(state);
 
+  // Notes, stats and the focus timer for the Today and Notes pages.
+  const mockNotes = (() => {
+    const now = Date.now();
+    return [
+      { id: 1, text: 'Ideas for the weekend\n- hike the ridge trail\n- try the new ramen place', created: now - 3 * 864e5, updated: now - 2 * 3600e3, pinned: true },
+      { id: 2, text: 'Meeting moved to 3pm, room 4B', created: now - 5 * 3600e3, updated: now - 5 * 3600e3, source: 'outlook.exe', pinned: false },
+      { id: 3, text: 'https://lumidren.github.io/Pady/\nShare this with the team', created: now - 864e5, updated: now - 864e5, source: 'chrome.exe', pinned: false },
+    ];
+  })();
+  const mockStats = (() => {
+    const out = {};
+    const slot = 15 * 60000;
+    const now = Date.now();
+    const names = ['Copy', 'Paste', 'Volume +4%', 'Next track', 'Switch keyboard language', 'Quick note'];
+    for (let d = 0; d < 9; d++) {
+      if (d === 4) continue; // a day off breaks the streak before it
+      for (let k = 0; k < 6; k++) {
+        const at = now - d * 864e5 - k * 47 * 60000;
+        const key = at - (at % slot);
+        const actions = {};
+        names.forEach((n, i) => { const c = (d * 7 + k * 3 + i * 5) % 6; if (c) actions[n] = c; });
+        out[key] = { gestures: Object.values(actions).reduce((a, b) => a + b, 0), focus_minutes: k === 2 ? 25 : 0, actions };
+      }
+    }
+    return out;
+  })();
+  const mockFocus = { running: false, started: 0, ends: 0, minutes: 0 };
+
   const handlers = {
     get_state: () => snapshot(),
     save_config: ({ config }) => {
@@ -455,6 +486,24 @@
       ];
     },
     restore_backup: () => snapshot(),
+    notes_list: () => mockNotes.slice().sort((a, b) => b.pinned - a.pinned || b.updated - a.updated),
+    note_save: ({ id, text }) => {
+      const now = Date.now();
+      const note = mockNotes.find((n) => n.id === id);
+      if (note && !text.trim()) { mockNotes.splice(mockNotes.indexOf(note), 1); return null; }
+      if (note) { note.text = text; note.updated = now; return note; }
+      if (!text.trim()) return null;
+      const fresh = { id: now, text, created: now, updated: now, pinned: false };
+      mockNotes.push(fresh);
+      return fresh;
+    },
+    note_delete: ({ id }) => { const i = mockNotes.findIndex((n) => n.id === id); if (i >= 0) mockNotes.splice(i, 1); },
+    note_pin: ({ id, pinned }) => { const n = mockNotes.find((x) => x.id === id); if (n) n.pinned = pinned; },
+    stats_get: () => mockStats,
+    stats_clear: () => { for (const k of Object.keys(mockStats)) delete mockStats[k]; },
+    focus_get: () => mockFocus,
+    focus_start: ({ minutes }) => { const now = Date.now(); Object.assign(mockFocus, { running: true, started: now, ends: now + minutes * 60000, minutes }); emit('pady://focus', mockFocus); },
+    focus_stop: () => { Object.assign(mockFocus, { running: false, started: 0, ends: 0, minutes: 0 }); emit('pady://focus', mockFocus); },
     translate_text: async ({ text }) => {
       await new Promise((r) => setTimeout(r, 600));
       if (!String(text || '').trim()) throw 'Type something to translate.';

@@ -189,6 +189,8 @@
     else if (store.page === 'about') renderAbout();
     else if (store.page === 'glyphs') renderGlyphs();
     else if (store.page === 'translator') renderTranslator();
+    else if (store.page === 'today') renderToday();
+    else if (store.page === 'notes') renderNotes();
     if (tour.open) tourOnState();
   }
 
@@ -319,7 +321,7 @@
   // Glyphs (recorded two-finger gestures) are saved for a later release:
   // switch this on to show their page again.
   const GLYPHS_READY = false;
-  let PAGES = ['gestures', 'glyphs', 'translator', 'live', 'settings', 'about'];
+  let PAGES = ['today', 'gestures', 'glyphs', 'translator', 'notes', 'live', 'settings', 'about'];
 
   /** A pre-release version (`1.0.0-beta`): a beta build, installed by hand. */
   const isBeta = () => /-/.test((store.app && store.app.version) || '');
@@ -377,6 +379,10 @@
     if (page === 'gestures') renderGestures(true);
     if (page === 'glyphs') renderGlyphs(true);
     if (page === 'translator') renderTranslator();
+    if (page === 'today') renderToday(true);
+    if (page === 'notes') renderNotes(true);
+    if (prev === 'today' && page !== 'today') stopTodayClock();
+    if (prev === 'notes' && page !== 'notes') flushNote();
     if (page === 'settings') renderSettings();
     if (page === 'about') renderAbout();
     if (page === 'live') { renderLive(); liveView.start(); }
@@ -1491,6 +1497,9 @@
         const to = (store.app.languages || []).find((l) => l.code === store.app.config.settings.translate_to);
         return aboutType('translate', `Select some text in any app, then do this gesture: the translation into ${to ? to.name : 'your language'} shows in a pop-up next to it, ready to copy or put in place of the original. Change the language on the Translator tab.`);
       }
+      case 'clipboard': return aboutType('clipboard', 'Shows the last things you copied next to the cursor; pick one to paste it. Turn the history on from the pop-up or the Today page. It’s kept in memory only, and passwords from password managers are skipped.');
+      case 'quick_note': return aboutType('note', 'Opens a small note by the cursor, with any selected text already in it. Closing it saves it to the Notes page.');
+      case 'focus': return aboutType('timer', `Starts a ${(store.app.config.settings.focus_minutes || 25)}-minute focus timer; a corner notice says when it’s done. Do the gesture again to see the time left, twice quickly to stop. The length is on the Today page.`);
       case 'lock': return aboutType('lock', 'Locks your session immediately, like pressing ' + (platform() === 'linux' ? 'Super+L.' : 'Win+L.'));
       case 'none': return aboutType('none', 'This gesture does nothing. Pick a preset or an action type above.');
       default: return null;
@@ -2440,6 +2449,7 @@
     anim_previews: false, anim_mirror: false, anim_celebrate: false, anim_language: true,
     anim_glow: true, glow_strength: 1, anim_speed: 1, notice_time: 1,
     translate_to: 'en', translate_engine: 'free', deepl_key: '', translate_email: '',
+    clipboard_history: false, focus_minutes: 25, keep_stats: true,
   };
   /** Is this animation on (its own switch and the master switch)? */
   const animates = (key) => {
@@ -2698,6 +2708,402 @@
     setUI.pinchHint.textContent = counts.length
       ? `Pinch with ${counts.join(' or ')} fingers. The chip lights up when Pady sees it.`
       : 'No pinch is set yet: give one a job on the Gestures page, then try it here.';
+  }
+
+  /* =====================================================================
+     The Today page: the day in numbers (counts only, kept on this
+     computer), the focus timer and the clipboard history switch.
+     ===================================================================== */
+
+  const todayUI = { built: false, stats: {}, focus: null, clock: 0, refetch: 0 };
+
+  /** Every gesture whose action is `type`, with the profile it's in. */
+  function gesturesFor(type) {
+    const cfg = store.app.config;
+    const out = (cfg.binding || []).filter((b) => b.action && b.action.type === type).map((b) => ({ trigger: b.trigger, profile: null }));
+    for (const p of cfg.profile || []) {
+      for (const b of p.binding || []) if (b.action && b.action.type === type) out.push({ trigger: b.trigger, profile: p.name });
+    }
+    return out;
+  }
+
+  /** "3-finger tap · In all apps" rows, or how to set one up. */
+  function gestureRows(type, icon, typeLabel) {
+    const found = gesturesFor(type);
+    const choose = h('button', { class: 'btn btn--sm' + (found.length ? '' : ' btn--primary'), type: 'button', onClick: () => route('gestures') },
+      ico(found.length ? 'gestures' : 'plus', 14), found.length ? 'Change on the Gestures page' : 'Choose a gesture');
+    return [
+      ...(found.length
+        ? found.map((g) => h('div', { class: 'row' },
+            h('span', { class: 'panel-icon' }, ico(icon, 16)),
+            h('div', { class: 'row-text' },
+              h('div', { class: 'row-title' }, M.triggerLabel(g.trigger)),
+              h('div', { class: 'row-sub' }, g.profile ? `In ${g.profile}` : 'In all apps'))))
+        : [h('div', { class: 'row' }, h('div', { class: 'row-text' },
+            h('div', { class: 'row-title' }, 'No gesture yet'),
+            h('div', { class: 'row-sub' }, `On the Gestures page, pick a gesture and choose ${typeLabel} (under Everyday).`)))]),
+      h('div', { class: 'row', style: { 'border-top': '0', 'padding-top': '4px' } }, choose),
+    ];
+  }
+
+  /** A setting saved right away, like the switches in Settings. */
+  function saveSetting(key, value) {
+    setUI.pending[key] = value;
+    clearTimeout(setUI.timer);
+    flushSettings();
+  }
+
+  const settingNow = (key) => (key in setUI.pending ? setUI.pending[key] : store.app.config.settings[key] ?? SETTING_DEFAULTS[key]);
+
+  function switchEl(key, labelId) {
+    const input = h('input', { type: 'checkbox', role: 'switch', 'aria-labelledby': labelId });
+    input.addEventListener('change', () => saveSetting(key, input.checked));
+    return { input, el: h('span', { class: 'switch' }, input, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' }))) };
+  }
+
+  function buildToday() {
+    const page = $('#page-today');
+    todayUI.tiles = h('div', { class: 'today-tiles' });
+    todayUI.week = h('div', { class: 'today-week', role: 'img' });
+    todayUI.top = h('div', { class: 'today-top' });
+    todayUI.statsSwitch = switchEl('keep_stats', 'keep-stats-title');
+    todayUI.clear = h('button', { class: 'btn btn--sm', type: 'button', onClick: clearStats }, ico('trash', 14), 'Clear');
+
+    todayUI.time = h('div', { class: 'focus-time', 'aria-live': 'off' });
+    todayUI.timeSub = h('div', { class: 'focus-sub' });
+    todayUI.bar = h('div', { class: 'focus-bar' }, h('i'));
+    todayUI.go = h('button', { class: 'btn btn--primary', type: 'button', onClick: toggleFocus });
+    todayUI.length = h('select', { class: 'select', 'aria-label': 'Focus length' },
+      ...[10, 15, 25, 30, 45, 60, 90].map((m) => h('option', { value: String(m) }, `${m} min`)));
+    todayUI.length.addEventListener('change', () => { saveSetting('focus_minutes', Number(todayUI.length.value)); paintFocus(); });
+    todayUI.focusGesture = h('div');
+
+    todayUI.clipSwitch = switchEl('clipboard_history', 'clip-history-title');
+    todayUI.clipGesture = h('div');
+
+    page.append(h('div', { class: 'settings-grid' },
+      h('div', { class: 'settings-col' },
+        trPanel('today', 'Today', 'Counted on this computer, never sent anywhere',
+          todayUI.tiles,
+          h('div', { class: 'today-label' }, 'Last 7 days'),
+          todayUI.week,
+          h('div', { class: 'today-label' }, 'Most used today'),
+          todayUI.top,
+          h('label', { class: 'row', style: { cursor: 'pointer' } },
+            h('div', { class: 'row-text' },
+              h('div', { class: 'row-title', id: 'keep-stats-title' }, 'Keep daily stats'),
+              h('div', { class: 'row-sub' }, 'How many gestures ran and which actions, for two months. Nothing you type or copy.')),
+            todayUI.statsSwitch.el),
+          h('div', { class: 'row', style: { 'border-top': '0', 'padding-top': '4px' } }, todayUI.clear))),
+      h('div', { class: 'settings-col' },
+        trPanel('timer', 'Focus', 'A timer for getting one thing done',
+          h('div', { class: 'focus-card' }, todayUI.time, todayUI.timeSub, todayUI.bar,
+            h('div', { class: 'focus-actions' }, todayUI.length, todayUI.go)),
+          h('div', { class: 'help', style: { margin: '0 0 6px' } }, 'Do the gesture to start. Again shows the time left; twice quickly stops it. A corner notice and a soft sound say when it’s done.'),
+          todayUI.focusGesture),
+        trPanel('clipboard', 'Clipboard history', 'Paste something you copied earlier',
+          h('label', { class: 'row', style: { cursor: 'pointer' } },
+            h('div', { class: 'row-text' },
+              h('div', { class: 'row-title', id: 'clip-history-title' }, 'Remember what I copy'),
+              h('div', { class: 'row-sub' }, store.app.platform === 'windows'
+                ? 'The last 25 texts you copy, kept in memory only: gone when Pady quits or this is switched off. Password managers’ copies are skipped.'
+                : 'Works on Windows for now.')),
+            todayUI.clipSwitch.el),
+          todayUI.clipGesture))));
+    if (store.app.platform !== 'windows') todayUI.clipSwitch.input.disabled = true;
+    todayUI.built = true;
+  }
+
+  function renderToday(entering) {
+    if (!todayUI.built) buildToday();
+    todayUI.statsSwitch.input.checked = settingNow('keep_stats') !== false;
+    todayUI.clipSwitch.input.checked = !!settingNow('clipboard_history');
+    todayUI.length.value = String(settingNow('focus_minutes') || 25);
+    todayUI.focusGesture.replaceChildren(...gestureRows('focus', 'timer', 'Focus timer'));
+    todayUI.clipGesture.replaceChildren(...gestureRows('clipboard', 'clipboard', 'Clipboard history'));
+    paintStats();
+    paintFocus();
+    if (entering) {
+      loadStats();
+      call('focus_get', null, { quiet: true }).then((f) => { todayUI.focus = f; paintFocus(); }).catch(() => {});
+    }
+  }
+
+  async function loadStats() {
+    try { todayUI.stats = (await call('stats_get', null, { quiet: true })) || {}; } catch (_) { todayUI.stats = {}; }
+    paintStats();
+  }
+
+  /** A gesture ran: the Today page counts it a moment later. */
+  function todayGestured() {
+    if (store.page !== 'today') return;
+    clearTimeout(todayUI.refetch);
+    todayUI.refetch = setTimeout(loadStats, 400);
+  }
+
+  const dayKey = (d) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+
+  /** The 15-minute slots added up into local days. */
+  function statsByDay() {
+    const days = new Map();
+    for (const [start, slot] of Object.entries(todayUI.stats || {})) {
+      const key = dayKey(new Date(Number(start)));
+      const day = days.get(key) || { gestures: 0, focus: 0, actions: {} };
+      day.gestures += slot.gestures || 0;
+      day.focus += slot.focus_minutes || 0;
+      for (const [name, n] of Object.entries(slot.actions || {})) day.actions[name] = (day.actions[name] || 0) + n;
+      days.set(key, day);
+    }
+    return days;
+  }
+
+  function paintStats() {
+    if (!todayUI.built) return;
+    const days = statsByDay();
+    const empty = { gestures: 0, focus: 0, actions: {} };
+    const at = (offset) => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - offset); return d; };
+    const today = days.get(dayKey(at(0))) || empty;
+    // Days in a row with something done, counting today only once it has.
+    let streak = 0;
+    for (let i = today.gestures || today.focus ? 0 : 1; i < 70; i++) {
+      const d = days.get(dayKey(at(i)));
+      if (!d || !(d.gestures || d.focus)) break;
+      streak++;
+    }
+    const tile = (value, unit, label) => h('div', { class: 'today-tile' },
+      h('div', { class: 'today-num' }, String(value), unit ? h('small', null, unit) : ''), h('div', { class: 'today-tile-label' }, label));
+    todayUI.tiles.replaceChildren(
+      tile(today.gestures, '', today.gestures === 1 ? 'gesture today' : 'gestures today'),
+      tile(today.focus, 'min', 'focused today'),
+      tile(streak, streak === 1 ? 'day' : 'days', 'streak'));
+
+    const week = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = at(i);
+      week.push({ label: i === 0 ? 'Today' : d.toLocaleDateString(undefined, { weekday: 'short' }), n: (days.get(dayKey(d)) || empty).gestures, today: i === 0 });
+    }
+    const max = Math.max(1, ...week.map((w) => w.n));
+    todayUI.week.setAttribute('aria-label', 'Gestures per day: ' + week.map((w) => `${w.label} ${w.n}`).join(', '));
+    todayUI.week.replaceChildren(...week.map((w) => h('div', { class: 'today-day' + (w.today ? ' is-today' : '') },
+      h('span', { class: 'today-day-n' }, w.n ? String(w.n) : ''),
+      h('span', { class: 'today-day-bar' }, h('i', { style: { height: `${Math.max(w.n ? 6 : 2, (w.n / max) * 100)}%` } })),
+      h('span', { class: 'today-day-label' }, w.label))));
+
+    const top = Object.entries(today.actions).sort((a, b) => b[1] - a[1]).slice(0, 4);
+    todayUI.top.replaceChildren(...(top.length
+      ? top.map(([name, n]) => h('div', { class: 'today-top-row' },
+          h('span', { class: 'today-top-name' }, name),
+          h('span', { class: 'today-top-bar' }, h('i', { style: { width: `${(n / top[0][1]) * 100}%` } })),
+          h('span', { class: 'today-top-n' }, `${n}×`)))
+      : [h('div', { class: 'help' }, settingNow('keep_stats') === false ? 'Daily stats are off.' : 'Nothing yet today. Do a gesture and it shows up here.')]));
+  }
+
+  async function clearStats() {
+    const ok = await confirmDialog({ title: 'Clear your stats?', text: 'Every count Pady has kept goes, including your streak.', confirm: 'Clear', danger: true });
+    if (!ok) return;
+    try { await call('stats_clear', null, { errorTitle: 'Couldn’t clear the stats' }); } catch (_) { return; }
+    todayUI.stats = {};
+    paintStats();
+  }
+
+  const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+  function paintFocus() {
+    if (!todayUI.built) return;
+    const f = todayUI.focus;
+    const running = !!(f && f.running);
+    const minutes = Number(settingNow('focus_minutes')) || 25;
+    if (running) {
+      const left = f.ends - Date.now();
+      todayUI.time.textContent = mmss(left);
+      todayUI.timeSub.textContent = `of ${f.minutes} min · ends at ${new Date(f.ends).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+      todayUI.bar.firstChild.style.width = `${Math.min(100, ((Date.now() - f.started) / (f.ends - f.started)) * 100)}%`;
+      if (left <= 0 && !todayUI.clockDone) {
+        todayUI.clockDone = true; // the backend says when it's over
+        setTimeout(() => call('focus_get', null, { quiet: true }).then((x) => { todayUI.focus = x; paintFocus(); }).catch(() => {}), 1500);
+      }
+    } else {
+      todayUI.clockDone = false;
+      todayUI.time.textContent = mmss(minutes * 60000);
+      todayUI.timeSub.textContent = 'Ready when you are';
+      todayUI.bar.firstChild.style.width = '0%';
+    }
+    todayUI.go.replaceChildren(ico(running ? 'stop' : 'play', 14), running ? 'Stop' : 'Start');
+    todayUI.go.className = running ? 'btn' : 'btn btn--primary';
+    todayUI.length.disabled = running;
+    todayUI.time.parentElement.classList.toggle('is-running', running);
+    clearInterval(todayUI.clock);
+    todayUI.clock = running && store.page === 'today' ? setInterval(paintFocus, 1000) : 0;
+  }
+
+  function stopTodayClock() {
+    clearInterval(todayUI.clock);
+    todayUI.clock = 0;
+  }
+
+  async function toggleFocus() {
+    const running = todayUI.focus && todayUI.focus.running;
+    try {
+      if (running) await call('focus_stop', null, { errorTitle: 'Couldn’t stop the timer' });
+      else await call('focus_start', { minutes: Number(todayUI.length.value) || 25 }, { errorTitle: 'Couldn’t start the timer' });
+      todayUI.focus = await call('focus_get', null, { quiet: true });
+    } catch (_) { /* toast shown */ }
+    paintFocus();
+  }
+
+  /* =====================================================================
+     The Notes page: everything the Quick note gesture saved, to read,
+     search, edit, pin and delete. Edits save as you type.
+     ===================================================================== */
+
+  const notesUI = { built: false, notes: [], open: null, timer: 0, saving: null, query: '' };
+
+  function buildNotes() {
+    const page = $('#page-notes');
+    notesUI.search = h('input', { class: 'input notes-search', type: 'search', placeholder: 'Search notes', 'aria-label': 'Search notes', spellcheck: 'false' });
+    notesUI.search.addEventListener('input', () => { notesUI.query = notesUI.search.value.trim().toLowerCase(); paintNoteList(); });
+    notesUI.gesture = h('div', { class: 'notes-gesture' });
+    notesUI.list = h('div', { class: 'notes-list', role: 'list' });
+    notesUI.editor = h('textarea', { class: 'input notes-editor', placeholder: 'Write something…', spellcheck: 'true', 'aria-label': 'Note' });
+    notesUI.editor.addEventListener('input', () => { clearTimeout(notesUI.timer); notesUI.timer = setTimeout(flushNote, 500); notesUI.status.textContent = ''; });
+    notesUI.status = h('span', { class: 'help notes-status', 'aria-live': 'polite' });
+    notesUI.meta = h('span', { class: 'help' });
+    notesUI.pin = h('button', { class: 'btn btn--sm', type: 'button', onClick: pinNote, title: 'Keep at the top' }, ico('pin', 14), 'Pin');
+    notesUI.copy = h('button', { class: 'btn btn--sm', type: 'button', onClick: copyNote, title: 'Copy the note' }, ico('copy', 14), 'Copy');
+    notesUI.del = h('button', { class: 'btn btn--sm', type: 'button', onClick: deleteNote, title: 'Delete the note' }, ico('trash', 14), 'Delete');
+    notesUI.pane = h('section', { class: 'panel notes-pane' },
+      h('div', { class: 'notes-toolbar' }, notesUI.meta, h('span', { style: { flex: '1' } }), notesUI.status, notesUI.pin, notesUI.copy, notesUI.del),
+      notesUI.editor);
+    page.append(
+      h('div', { class: 'notes-top' }, notesUI.search,
+        h('button', { class: 'btn btn--primary', type: 'button', onClick: newNote }, ico('plus', 14), 'New note'),
+        notesUI.gesture),
+      h('div', { class: 'notes-grid' }, notesUI.list, notesUI.pane));
+    notesUI.built = true;
+  }
+
+  function renderNotes(entering) {
+    if (!notesUI.built) buildNotes();
+    const found = gesturesFor('quick_note');
+    notesUI.gesture.replaceChildren(found.length
+      ? h('span', { class: 'help' }, ico('note', 13), ` Quick note: ${M.triggerLabel(found[0].trigger)}${found.length > 1 ? ` and ${found.length - 1} more` : ''}`)
+      : h('button', { class: 'btn btn--sm', type: 'button', onClick: () => route('gestures'), title: 'Pick a gesture and choose Quick note (under Everyday)' }, ico('plus', 14), 'Set a Quick note gesture'));
+    if (entering) loadNotes();
+  }
+
+  async function loadNotes() {
+    try { notesUI.notes = (await call('notes_list', null, { quiet: true })) || []; } catch (_) { notesUI.notes = []; }
+    // Keep the open note (and what's being typed in it).
+    if (notesUI.open != null && !notesUI.notes.some((n) => n.id === notesUI.open)) notesUI.open = null;
+    if (notesUI.open == null && notesUI.notes.length && document.activeElement !== notesUI.editor) openNote(notesUI.notes[0].id);
+    paintNoteList();
+    paintNotePane();
+  }
+
+  const noteTitle = (text) => (text.trim().split('\n')[0] || 'Empty note').slice(0, 80);
+  const noteWhen = (ms) => {
+    const d = new Date(ms), now = new Date();
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+  };
+
+  function paintNoteList() {
+    const q = notesUI.query;
+    const shown = notesUI.notes.filter((n) => !q || n.text.toLowerCase().includes(q));
+    if (!notesUI.notes.length) {
+      notesUI.list.replaceChildren(h('div', { class: 'empty notes-empty' },
+        h('div', { class: 'empty-icon' }, ico('note', 26)),
+        h('h3', null, 'No notes yet'),
+        h('p', null, 'Do your Quick note gesture in any app: a note opens by the cursor, with any selected text already in it. Or click New note.')));
+      return;
+    }
+    notesUI.list.replaceChildren(...(shown.length ? shown.map((n) => {
+      const rest = n.text.trim().split('\n').slice(1).join(' ').trim();
+      return h('button', {
+        class: 'note-item' + (n.id === notesUI.open ? ' is-open' : ''), type: 'button', role: 'listitem',
+        onClick: () => { flushNote(); openNote(n.id); paintNoteList(); paintNotePane(); notesUI.editor.focus(); },
+      },
+      h('span', { class: 'note-item-title' }, n.pinned ? ico('pin', 12) : '', noteTitle(n.text)),
+      rest ? h('span', { class: 'note-item-rest' }, rest.slice(0, 140)) : '',
+      h('span', { class: 'note-item-meta' }, noteWhen(n.updated), n.source ? ` · ${n.source}` : ''));
+    }) : [h('div', { class: 'help', style: { padding: '12px' } }, 'No note matches.')]));
+  }
+
+  function openNote(id) {
+    notesUI.open = id;
+    const n = notesUI.notes.find((x) => x.id === id);
+    notesUI.editor.value = n ? n.text : '';
+  }
+
+  function paintNotePane() {
+    const n = notesUI.notes.find((x) => x.id === notesUI.open);
+    notesUI.pane.hidden = !n && !notesUI.drafting;
+    notesUI.pin.hidden = notesUI.copy.hidden = notesUI.del.hidden = !n;
+    if (n) {
+      notesUI.pin.replaceChildren(ico('pin', 14), n.pinned ? 'Unpin' : 'Pin');
+      notesUI.meta.textContent = `Edited ${noteWhen(n.updated)}${n.source ? ` · from ${n.source}` : ''}`;
+    } else {
+      notesUI.meta.textContent = 'New note';
+    }
+  }
+
+  function newNote() {
+    flushNote();
+    notesUI.open = null;
+    notesUI.drafting = true;
+    notesUI.editor.value = '';
+    paintNoteList();
+    paintNotePane();
+    notesUI.editor.focus();
+  }
+
+  /** Save what's in the editor now (it also saves itself as you type). */
+  async function flushNote() {
+    clearTimeout(notesUI.timer);
+    if (!notesUI.built) return;
+    const text = notesUI.editor.value;
+    const id = notesUI.open;
+    const before = notesUI.notes.find((n) => n.id === id);
+    if (before ? before.text === text : !text.trim()) return;
+    try {
+      const saved = await call('note_save', { id, text }, { errorTitle: 'Couldn’t save the note' });
+      if (saved) {
+        const i = notesUI.notes.findIndex((n) => n.id === saved.id);
+        if (i >= 0) notesUI.notes[i] = saved; else notesUI.notes.unshift(saved);
+        notesUI.notes.sort((a, b) => b.pinned - a.pinned || b.updated - a.updated);
+        if (notesUI.open === id) notesUI.open = saved.id;
+        notesUI.drafting = false;
+      } else {
+        notesUI.notes = notesUI.notes.filter((n) => n.id !== id);
+        if (notesUI.open === id) notesUI.open = null;
+      }
+      notesUI.status.textContent = 'Saved';
+      if (store.page === 'notes') { paintNoteList(); paintNotePane(); }
+    } catch (_) { /* toast shown */ }
+  }
+
+  async function pinNote() {
+    const n = notesUI.notes.find((x) => x.id === notesUI.open);
+    if (!n) return;
+    try { await call('note_pin', { id: n.id, pinned: !n.pinned }, { errorTitle: 'Couldn’t pin the note' }); } catch (_) { return; }
+    loadNotes();
+  }
+
+  async function copyNote() {
+    try {
+      await navigator.clipboard.writeText(notesUI.editor.value);
+      toast({ title: 'Copied the note' });
+    } catch (e) { toast({ kind: 'error', title: 'Couldn’t copy', text: errText(e) }); }
+  }
+
+  async function deleteNote() {
+    const n = notesUI.notes.find((x) => x.id === notesUI.open);
+    if (!n) return;
+    const ok = await confirmDialog({ title: 'Delete this note?', text: `“${noteTitle(n.text)}” will be gone for good.`, confirm: 'Delete', danger: true });
+    if (!ok) return;
+    try { await call('note_delete', { id: n.id }, { errorTitle: 'Couldn’t delete the note' }); } catch (_) { return; }
+    notesUI.open = null;
+    loadNotes();
   }
 
   /* =====================================================================
@@ -3766,7 +4172,9 @@ function translatorSettingsPanel() {
     const on = (name, cb) => Promise.resolve(api.listen(name, cb)).catch((err) => console.error(`listen ${name} failed:`, err));
     on('pady://state', (e) => applyState(e.payload));
     on('pady://frame', (e) => onFrame(e.payload));
-    on('pady://gesture', (e) => onGesture(e.payload));
+    on('pady://gesture', (e) => { onGesture(e.payload); todayGestured(); });
+    on('pady://notes', () => { if (store.page === 'notes') loadNotes(); });
+    on('pady://focus', (e) => { todayUI.focus = e.payload; paintFocus(); });
     on('pady://update', (e) => announceUpdate(e.payload));
     on('pady://glyph-recorded', (e) => onGlyphRecorded(e.payload));
     on('pady://action-failed', (e) => {
@@ -3782,6 +4190,7 @@ function translatorSettingsPanel() {
   // The backend destroys this window when it's closed (and builds a new one
   // on open), so nothing may wait for later: send a debounced save right away.
   window.addEventListener('pagehide', flushPendingSettings);
+  window.addEventListener('pagehide', () => flushNote());
 
   window.addEventListener('hashchange', () => {
     const page = location.hash.replace('#', '');
@@ -3856,7 +4265,8 @@ function translatorSettingsPanel() {
       renderShell();
       $('#boot').remove();
       syncLive(); // tells the backend "no frames" unless a page below asks for them
-      route(PAGES.includes(initial) ? initial : 'gestures');
+      const first = state.open_page || initial;
+      route(PAGES.includes(first) ? first : state.config.settings.onboarded === false ? 'gestures' : 'today');
       // `=== false`: a backend without the field never shows the tutorial.
       if (state.config.settings.onboarded === false) openTutorial({ firstRun: true });
       if (state.config.settings.check_updates !== false && !isBeta()) checkUpdate(false);

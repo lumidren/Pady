@@ -126,6 +126,7 @@
     { id: 'media', label: 'Media' },
     { id: 'keyboard', label: 'Keyboard' },
     { id: 'web', label: 'Apps & web' },
+    { id: 'daily', label: 'Everyday' },
     { id: 'pointer', label: 'Pointer' },
   ];
 
@@ -141,6 +142,9 @@
     launch: { label: 'Launch app', icon: 'apps', group: 'web', make: () => ({ type: 'launch', program: '' }) },
     run: { label: 'Run command', icon: 'terminal', group: 'web', make: () => ({ type: 'run', command: '' }) },
     translate: { label: 'Translate', icon: 'translate', group: 'web', make: () => ({ type: 'translate' }) },
+    clipboard: { label: 'Clipboard history', icon: 'clipboard', group: 'daily', make: () => ({ type: 'clipboard' }) },
+    quick_note: { label: 'Quick note', icon: 'note', group: 'daily', make: () => ({ type: 'quick_note' }) },
+    focus: { label: 'Focus timer', icon: 'timer', group: 'daily', make: () => ({ type: 'focus' }) },
     drag: { label: 'Drag', icon: 'drag', group: 'pointer', make: () => ({ type: 'drag' }) },
     none: { label: 'Nothing', icon: 'none', group: null, make: () => ({ type: 'none' }) },
   };
@@ -285,6 +289,9 @@
       case 'run': return { icon: 'terminal', text: a.command };
       case 'drag': return { icon: 'drag', text: 'Click-and-drag' };
       case 'translate': return { icon: 'translate', text: 'Translate selected text' };
+      case 'clipboard': return { icon: 'clipboard', text: 'Clipboard history' };
+      case 'quick_note': return { icon: 'note', text: 'Quick note' };
+      case 'focus': return { icon: 'timer', text: 'Focus timer' };
       default: return { icon: t.icon, text: 'Nothing' };
     }
   };
@@ -370,6 +377,9 @@
       { id: 'language', label: 'Switch keyboard language', icon: 'keyboard', action: k('win+space') },
       { id: 'chrome', label: 'Open Chrome', icon: 'browser', action: { type: 'focus_or_launch', program: linux ? 'google-chrome' : 'chrome.exe' } },
       { id: 'youtube', label: 'Open YouTube', icon: 'youtube', action: { type: 'open_url', url: 'https://youtube.com', browser: 'chrome' } },
+      { id: 'clipboard', label: 'Clipboard history', icon: 'clipboard', action: { type: 'clipboard' } },
+      { id: 'quick-note', label: 'Quick note', icon: 'note', action: { type: 'quick_note' } },
+      { id: 'focus', label: 'Focus timer', icon: 'timer', action: { type: 'focus' } },
     ];
     // Zoom leads for pinches (the obvious use); elsewhere it sits after the media keys.
     return slot.kind === 'pinch' ? zoom.concat(common) : common.slice(0, 8).concat(zoom, common.slice(8));
