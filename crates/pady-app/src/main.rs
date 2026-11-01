@@ -17,8 +17,8 @@ mod translate;
 mod update;
 
 use crossbeam_channel::Sender;
-use focus::{focus_get, focus_start, focus_stop};
-use notes::{note_delete, note_pin, note_save, notes_list};
+use focus::{focus_get, focus_history, focus_history_clear, focus_start, focus_stop};
+use notes::{note_color, note_delete, note_pin, note_save, notes_list};
 use pady_actions::Conflict;
 use pady_core::engine::Observer;
 use pady_core::{
@@ -596,7 +596,7 @@ fn observer(
         EngineEvent::Gesture { gesture, trigger, action, profile } => {
             if let (Some(action), true) = (&action, settings.get().keep_stats) {
                 if let Some(stats) = app.try_state::<stats::Stats>() {
-                    stats.gesture(action);
+                    stats.gesture(action, trigger.as_deref());
                 }
             }
             if let Some(toasts) = &toasts {
@@ -920,7 +920,6 @@ fn main() {
         .manage(popup::Popup::default())
         .manage(quick::Quick::default())
         .manage(quick::Clips::default())
-        .manage(focus::Focus::default())
         .invoke_handler(tauri::generate_handler![
             get_state,
             save_config,
@@ -939,11 +938,14 @@ fn main() {
             note_save,
             note_delete,
             note_pin,
+            note_color,
             stats_get,
             stats_clear,
             focus_get,
             focus_start,
             focus_stop,
+            focus_history,
+            focus_history_clear,
             set_autostart,
             test_action,
             set_live,
@@ -963,6 +965,7 @@ fn main() {
             let live = Arc::new(AtomicBool::new(false));
             app.manage(notes::Notes::load(&config_path));
             app.manage(stats::Stats::load(&config_path));
+            app.manage(focus::Focus::load(&config_path));
 
             // A native pill on Windows: no WebView kept alive just to show levels.
             let native_overlay = pady_overlay::Overlay::spawn();

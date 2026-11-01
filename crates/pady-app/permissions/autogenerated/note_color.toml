@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-note-color"
+description = "Enables the note_color command without any pre-configured scope."
+commands.allow = ["note_color"]
+
+[[permission]]
+identifier = "deny-note-color"
+description = "Denies the note_color command without any pre-configured scope."
+commands.deny = ["note_color"]

@@ -1,4 +1,4 @@
-//! The Today page's numbers: how many gestures ran and how long you focused,
+//! The Stats page's numbers: how many gestures ran and how long you focused,
 //! kept in `stats.json` next to the config. Counts and action names only,
 //! never what was typed, copied or where, and never sent anywhere.
 //!
@@ -33,6 +33,9 @@ pub struct Slot {
     /// How often each action ran ("Copy", "Volume +4%").
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub actions: BTreeMap<String, u32>,
+    /// How often each gesture ran, by its config name (`swipe:3:up`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub triggers: BTreeMap<String, u32>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -66,14 +69,17 @@ impl Stats {
         self.dirty.store(true, Ordering::Relaxed);
     }
 
-    pub fn gesture(&self, action: &str) {
-        self.gesture_at(wall_ms(), action);
+    pub fn gesture(&self, action: &str, trigger: Option<&str>) {
+        self.gesture_at(wall_ms(), action, trigger);
     }
 
-    fn gesture_at(&self, at: u64, action: &str) {
+    fn gesture_at(&self, at: u64, action: &str, trigger: Option<&str>) {
         self.slot(at, |s| {
             s.gestures += 1;
             *s.actions.entry(action.to_string()).or_default() += 1;
+            if let Some(trigger) = trigger {
+                *s.triggers.entry(trigger.to_string()).or_default() += 1;
+            }
         });
     }
 
@@ -147,16 +153,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let stats = Stats::load(&dir.join("config.toml"));
         let t = 1_000 * SLOT_MS;
-        stats.gesture_at(t + 1, "Copy");
-        stats.gesture_at(t + SLOT_MS - 1, "Copy");
-        stats.gesture_at(t + SLOT_MS, "Paste");
+        stats.gesture_at(t + 1, "Copy", Some("tap:3"));
+        stats.gesture_at(t + SLOT_MS - 1, "Copy", Some("tap:3"));
+        stats.gesture_at(t + SLOT_MS, "Paste", None);
         let slots = stats.snapshot();
         assert_eq!(slots.len(), 2);
         assert_eq!(slots[&t].gestures, 2);
         assert_eq!(slots[&t].actions["Copy"], 2);
+        assert_eq!(slots[&t].triggers["tap:3"], 2);
+        assert!(slots[&(t + SLOT_MS)].triggers.is_empty());
         assert_eq!(slots[&(t + SLOT_MS)].actions["Paste"], 1);
         // Two months later the old slots are gone.
-        stats.gesture_at(t + KEEP_MS + 2 * SLOT_MS, "Copy");
+        stats.gesture_at(t + KEEP_MS + 2 * SLOT_MS, "Copy", None);
         assert_eq!(stats.snapshot().len(), 1);
         // Saved and read back.
         stats.save();

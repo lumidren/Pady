@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-focus-history-clear"
+description = "Enables the focus_history_clear command without any pre-configured scope."
+commands.allow = ["focus_history_clear"]
+
+[[permission]]
+identifier = "deny-focus-history-clear"
+description = "Denies the focus_history_clear command without any pre-configured scope."
+commands.deny = ["focus_history_clear"]

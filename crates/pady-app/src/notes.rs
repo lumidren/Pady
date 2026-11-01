@@ -9,6 +9,8 @@ use tauri::{AppHandle, Emitter, State};
 
 /// A note longer than this is cut (a paste of a whole book, by mistake).
 const MAX_CHARS: usize = 100_000;
+/// The colours a note can have (the page draws them).
+pub const COLORS: &[&str] = &["yellow", "orange", "red", "pink", "purple", "blue", "teal", "green", "gray"];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Note {
@@ -22,6 +24,9 @@ pub struct Note {
     pub source: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub pinned: bool,
+    /// One of [`COLORS`], or none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -77,7 +82,7 @@ impl Notes {
             None => {
                 // Unique even for two notes in the same millisecond.
                 let id = notes.iter().map(|n| n.id + 1).max().unwrap_or(0).max(now);
-                let note = Note { id, text, created: now, updated: now, source, pinned: false };
+                let note = Note { id, text, created: now, updated: now, source, pinned: false, color: None };
                 notes.push(note.clone());
                 Some(note)
             }
@@ -96,6 +101,15 @@ impl Notes {
         let mut notes = lock(&self.notes);
         if let Some(note) = notes.iter_mut().find(|n| n.id == id) {
             note.pinned = pinned;
+        }
+        self.write(&notes)
+    }
+
+    pub fn color(&self, id: u64, color: Option<String>) -> Result<(), String> {
+        let color = color.filter(|c| COLORS.contains(&c.as_str()));
+        let mut notes = lock(&self.notes);
+        if let Some(note) = notes.iter_mut().find(|n| n.id == id) {
+            note.color = color;
         }
         self.write(&notes)
     }
@@ -154,6 +168,11 @@ pub fn note_pin(notes: State<Notes>, id: u64, pinned: bool) -> Result<(), String
     notes.pin(id, pinned)
 }
 
+#[tauri::command]
+pub fn note_color(notes: State<Notes>, id: u64, color: Option<String>) -> Result<(), String> {
+    notes.color(id, color)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +190,8 @@ mod tests {
         let b = notes.save(None, "eggs", None).unwrap().unwrap();
         assert_ne!(a.id, b.id);
         notes.pin(a.id, true).unwrap();
+        notes.color(a.id, Some("blue".into())).unwrap();
+        notes.color(b.id, Some("plaid".into())).unwrap();
         assert_eq!(notes.list().iter().map(|n| n.text.as_str()).collect::<Vec<_>>(), ["milk", "eggs"]);
         notes.save(Some(b.id), "eggs and bread", None).unwrap();
         // It survives a restart.
@@ -178,6 +199,8 @@ mod tests {
         let list = again.list();
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].source.as_deref(), Some("chrome.exe"));
+        assert_eq!(list[0].color.as_deref(), Some("blue"));
+        assert_eq!(list[1].color, None);
         assert_eq!(list[1].text, "eggs and bread");
         // Emptied, a note goes away; an empty new note is never made.
         assert_eq!(again.save(Some(a.id), "  ", None).unwrap(), None);

@@ -105,9 +105,17 @@ pub struct Settings {
     pub clipboard_history: bool,
     /// How long a focus timer runs, in minutes.
     pub focus_minutes: u32,
-    /// Count gestures and focus time per day for the Today page (counts
+    /// Count gestures and focus time per day for the Stats page (counts
     /// only, kept on this computer).
     pub keep_stats: bool,
+    /// Minutes of focus a day to aim for (0: no goal).
+    pub focus_goal: u32,
+    /// How long a break after a focus timer runs, in minutes.
+    pub break_minutes: u32,
+    /// Start the break by itself when a focus timer finishes.
+    pub focus_auto_break: bool,
+    /// A soft sound when a focus timer or a break ends.
+    pub focus_sound: bool,
 }
 
 impl Default for Settings {
@@ -154,6 +162,10 @@ impl Default for Settings {
             clipboard_history: false,
             focus_minutes: 25,
             keep_stats: true,
+            focus_goal: 120,
+            break_minutes: 5,
+            focus_auto_break: false,
+            focus_sound: true,
         }
     }
 }
@@ -184,6 +196,8 @@ impl Settings {
         self.anim_speed = fit(self.anim_speed, 0.25, 4.0, d.anim_speed);
         self.notice_time = fit(self.notice_time, 0.25, 5.0, d.notice_time);
         self.focus_minutes = self.focus_minutes.clamp(1, 240);
+        self.focus_goal = self.focus_goal.min(1_440);
+        self.break_minutes = self.break_minutes.clamp(1, 60);
         self.translate_to = match crate::languages::by_code(&self.translate_to) {
             Some(lang) => lang.code.into(),
             None => d.translate_to,
