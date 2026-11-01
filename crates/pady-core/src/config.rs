@@ -100,6 +100,14 @@ pub struct Settings {
     /// one its daily limit goes from 5,000 to 50,000 characters.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub translate_email: String,
+    /// Remember the text you copy (in memory only, never on disk) for the
+    /// Clipboard history action. Off until switched on.
+    pub clipboard_history: bool,
+    /// How long a focus timer runs, in minutes.
+    pub focus_minutes: u32,
+    /// Count gestures and focus time per day for the Today page (counts
+    /// only, kept on this computer).
+    pub keep_stats: bool,
 }
 
 impl Default for Settings {
@@ -143,6 +151,9 @@ impl Default for Settings {
             translate_engine: "free".into(),
             deepl_key: String::new(),
             translate_email: String::new(),
+            clipboard_history: false,
+            focus_minutes: 25,
+            keep_stats: true,
         }
     }
 }
@@ -172,6 +183,7 @@ impl Settings {
         self.glow_strength = fit(self.glow_strength, 0.0, 2.0, d.glow_strength);
         self.anim_speed = fit(self.anim_speed, 0.25, 4.0, d.anim_speed);
         self.notice_time = fit(self.notice_time, 0.25, 5.0, d.notice_time);
+        self.focus_minutes = self.focus_minutes.clamp(1, 240);
         self.translate_to = match crate::languages::by_code(&self.translate_to) {
             Some(lang) => lang.code.into(),
             None => d.translate_to,

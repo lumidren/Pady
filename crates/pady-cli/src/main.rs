@@ -240,7 +240,7 @@ fn watch(run_actions: bool) -> CliResult {
         EngineEvent::SwipeProgress { .. }
         | EngineEvent::SwipeEnded { .. }
         | EngineEvent::GlyphRecorded { .. }
-        | EngineEvent::Translate => {}
+        | EngineEvent::AppAction(_) => {}
     });
 
     let shared = Arc::new(SharedConfig::new(cfg));

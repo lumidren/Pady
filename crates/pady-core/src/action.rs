@@ -44,6 +44,13 @@ pub enum Action {
     /// Translate the selected text into `translate_to` and show it in a
     /// pop-up. The app does this itself (it needs the network and a window).
     Translate,
+    /// Show the last things you copied, to paste one. The app does this
+    /// itself, and only keeps a history while that's switched on.
+    Clipboard,
+    /// Open a small note to jot something down; selected text goes in it.
+    QuickNote,
+    /// Start a focus timer, or say how long is left (twice in a row stops it).
+    Focus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,6 +102,12 @@ impl Action {
         }
     }
 
+    /// Actions the app runs itself: they need a window, the network or its
+    /// own state, which the engine and the executor have none of.
+    pub fn is_app_action(&self) -> bool {
+        matches!(self, Action::Translate | Action::Clipboard | Action::QuickNote | Action::Focus)
+    }
+
     pub fn is_none(&self) -> bool {
         matches!(self, Action::None)
     }
@@ -118,6 +131,9 @@ impl Action {
             Action::Lock => "Lock screen".into(),
             Action::Drag => "Drag (hold left button)".into(),
             Action::Translate => "Translate selected text".into(),
+            Action::Clipboard => "Clipboard history".into(),
+            Action::QuickNote => "Quick note".into(),
+            Action::Focus => "Focus timer".into(),
         }
     }
 }
@@ -143,6 +159,12 @@ mod tests {
         assert_eq!(w.action, Action::Lock);
         let w: Wrap = toml::from_str(r#"action = { type = "translate" }"#).unwrap();
         assert_eq!(w.action, Action::Translate);
+        let w: Wrap = toml::from_str(r#"action = { type = "quick_note" }"#).unwrap();
+        assert_eq!(w.action, Action::QuickNote);
+        let w: Wrap = toml::from_str(r#"action = { type = "clipboard" }"#).unwrap();
+        assert_eq!(w.action, Action::Clipboard);
+        let w: Wrap = toml::from_str(r#"action = { type = "focus" }"#).unwrap();
+        assert_eq!(w.action, Action::Focus);
     }
 
     #[test]

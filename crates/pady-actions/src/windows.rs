@@ -105,7 +105,13 @@ impl Executor for WindowsExecutor {
             return self.change_brightness(*step).map(Some);
         }
         match action {
-            Action::None | Action::Drag | Action::Translate | Action::Brightness { .. } => Ok(()),
+            Action::None
+            | Action::Drag
+            | Action::Translate
+            | Action::Clipboard
+            | Action::QuickNote
+            | Action::Focus
+            | Action::Brightness { .. } => Ok(()),
             Action::Volume { step } => change_volume(*step),
             Action::Mute => tap_vk(VK_VOLUME_MUTE),
             Action::Keys { combo } => {
