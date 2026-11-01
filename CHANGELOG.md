@@ -6,10 +6,11 @@ Pady for every day: notes, a clipboard history, a focus timer and your day in nu
 
 ### Added
 
-- **Today page.** How many gestures you did today, minutes focused, your streak, a 7-day chart and your most-used actions. Counts only, kept on this computer for two months and never sent anywhere; switch it off or clear it on the page.
-- **Notes.** A new **Quick note** action opens a small note by the cursor, with any selected text already in it; closing it saves it. The new Notes tab lists every note to search, edit, pin, copy and delete. Saved in `notes.json` next to your settings.
-- **Clipboard history.** A new action shows the last 25 texts you copied by the cursor: click one, press Enter or 1–9 to paste it, or search. Off until you switch it on; kept in memory only, and copies a password manager marks as private are skipped (Windows for now).
-- **Focus timer.** A new action starts a focus timer (25 minutes unless you change it on the Today page); doing it again says the time left, twice quickly stops it. A corner notice and a soft sound say when it's done.
+- **Stats tab.** Your gestures in numbers: today, the last 7 or 30 days, or everything. Totals, focus time, your streak, a chart per day or per hour, your most used gestures and actions, your busiest hours and weekdays. Counts only, kept on this computer for two months and never sent anywhere; switch it off or clear it on the tab.
+- **Focus tab.** A big timer with a label for what you're working on, any length from 1 to 240 minutes, short breaks (started by hand or by themselves), a daily goal, this week's focus time and a history of your past timers. The sound can be switched off.
+- **Notes.** A new **Quick note** action opens a small note by the cursor, with any selected text already in it; closing it saves it. The new Notes tab lists every note to search, edit, pin, copy, duplicate and delete. Give notes a colour, #tags to filter by, lists and - [ ] checkboxes (tick them while reading), **bold** and *italics*; sort by date, title or colour; and choose a comfortable, compact or card list, the font (sans, serif or mono) and the text size. Saved in `notes.json` next to your settings.
+- **Clipboard history.** A new action shows the last 25 texts you copied by the cursor: click one, press Enter or 1–9 to paste it, or search. Off until you switch it on (in Settings or from the pop-up); kept in memory only, and copies a password manager marks as private are skipped (Windows for now).
+- **Focus timer.** A new action starts a focus timer (25 minutes unless you change it on the Focus tab); doing it again says the time left, twice quickly stops it. A corner notice and a soft sound say when it's done.
 - **Translator.** Select text in any app and do your gesture: the translation pops up next to it, with Copy and Replace (puts the translation in place of the text). It detects the language by itself and leaves your clipboard as it was. The new Translator tab picks the language, the service (free MyMemory, or DeepL with your own key) and has a box to try it. Online for now.
 
 ## 1.0.1 (2026-10-31)
