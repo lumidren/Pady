@@ -1,12 +1,23 @@
 # Changelog
 
+## Unreleased
+
+Pady for every day: notes, a clipboard history, a focus timer and your day in numbers.
+
+### Added
+
+- **Today page.** How many gestures you did today, minutes focused, your streak, a 7-day chart and your most-used actions. Counts only, kept on this computer for two months and never sent anywhere; switch it off or clear it on the page.
+- **Notes.** A new **Quick note** action opens a small note by the cursor, with any selected text already in it; closing it saves it. The new Notes tab lists every note to search, edit, pin, copy and delete. Saved in `notes.json` next to your settings.
+- **Clipboard history.** A new action shows the last 25 texts you copied by the cursor: click one, press Enter or 1–9 to paste it, or search. Off until you switch it on; kept in memory only, and copies a password manager marks as private are skipped (Windows for now).
+- **Focus timer.** A new action starts a focus timer (25 minutes unless you change it on the Today page); doing it again says the time left, twice quickly stops it. A corner notice and a soft sound say when it's done.
+- **Translator.** Select text in any app and do your gesture: the translation pops up next to it, with Copy and Replace (puts the translation in place of the text). It detects the language by itself and leaves your clipboard as it was. The new Translator tab picks the language, the service (free MyMemory, or DeepL with your own key) and has a box to try it. Online for now.
+
 ## 1.0.1 (2026-10-31)
 
 Faster, calmer, and safer with your settings.
 
 ### Added
 
-- **Translator.** Select text in any app and do your gesture: the translation pops up next to it, with Copy and Replace (puts the translation in place of the text). It detects the language by itself and leaves your clipboard as it was. The new Translator tab picks the language, the service (free MyMemory, or DeepL with your own key) and has a box to try it. Online for now.
 - **Switch keyboard language** is a new action for any gesture. The corner pill names the language you switched to.
 - **Settings backups.** Pady keeps a copy of your settings before every change (the newest 50), and **Settings › Restore a backup** brings one back.
 
