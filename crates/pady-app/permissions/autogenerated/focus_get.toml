@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-focus-get"
+description = "Enables the focus_get command without any pre-configured scope."
+commands.allow = ["focus_get"]
+
+[[permission]]
+identifier = "deny-focus-get"
+description = "Denies the focus_get command without any pre-configured scope."
+commands.deny = ["focus_get"]

@@ -7,12 +7,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod feedback;
+mod focus;
+mod notes;
 mod popup;
+mod quick;
 mod responsive;
+mod stats;
 mod translate;
 mod update;
 
 use crossbeam_channel::Sender;
+use focus::{focus_get, focus_start, focus_stop};
+use notes::{note_delete, note_pin, note_save, notes_list};
 use pady_actions::Conflict;
 use pady_core::engine::Observer;
 use pady_core::{
@@ -20,8 +26,10 @@ use pady_core::{
 };
 use pady_input::{DeviceInfo, InputHandle};
 use popup::{translate_act, translate_layout, translate_ready};
+use quick::{quick_act, quick_layout, quick_ready};
 use serde::Serialize;
 use serde_json::json;
+use stats::{stats_clear, stats_get};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -69,6 +77,10 @@ struct AppState {
     presets: &'static [Preset],
     /// What the translator can translate into, for Settings.
     languages: &'static [pady_core::languages::Language],
+    /// The page to open on (once, when a gesture asked for the Notes tab
+    /// before the window existed).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    open_page: Option<String>,
 }
 
 impl Pady {
@@ -102,6 +114,7 @@ impl Pady {
             config,
             devices,
             input_error,
+            open_page: None,
         }
     }
 
@@ -114,6 +127,7 @@ impl Pady {
         apply_look(&config.settings);
         self.config.set(config);
         self.sync_tray();
+        sync_history(app);
         let state = self.snapshot();
         let _ = app.emit("pady://state", &state);
         Ok(state)
@@ -146,7 +160,40 @@ fn modified(path: &Path) -> Option<SystemTime> {
 
 #[tauri::command]
 fn get_state(pady: State<Pady>) -> AppState {
-    pady.snapshot()
+    let mut state = pady.snapshot();
+    state.open_page = lock(&OPEN_PAGE).take();
+    state
+}
+
+static OPEN_PAGE: Mutex<Option<String>> = Mutex::new(None);
+
+/// Open the Pady window on one of its pages.
+pub(crate) fn show_page(app: &AppHandle, page: &str) {
+    match app.get_webview_window("main") {
+        Some(window) => {
+            let _ = window.eval(format!("location.hash = {}", json!(page)));
+        }
+        None => *lock(&OPEN_PAGE) = Some(page.to_string()),
+    }
+    show_main(app);
+}
+
+/// Keep the clipboard history while it's switched on, and forget it the
+/// moment it's switched off.
+fn sync_history(app: &AppHandle) {
+    static ON: AtomicBool = AtomicBool::new(false);
+    let Some(pady) = app.try_state::<Pady>() else { return };
+    let on = pady.config.get().settings.clipboard_history;
+    if ON.swap(on, Ordering::SeqCst) == on {
+        return;
+    }
+    if !on {
+        app.state::<quick::Clips>().clear();
+    }
+    if let Some(toasts) = &pady.toasts {
+        let handle = app.clone();
+        toasts.watch_history(on, move || quick::copied(&handle));
+    }
 }
 
 #[tauri::command]
@@ -547,6 +594,11 @@ fn observer(
             }
         }
         EngineEvent::Gesture { gesture, trigger, action, profile } => {
+            if let (Some(action), true) = (&action, settings.get().keep_stats) {
+                if let Some(stats) = app.try_state::<stats::Stats>() {
+                    stats.gesture(action);
+                }
+            }
             if let Some(toasts) = &toasts {
                 if action.is_some() {
                     toasts.language_may_change();
@@ -571,7 +623,13 @@ fn observer(
         EngineEvent::ActionFailed { action, error } => {
             let _ = app.emit("pady://action-failed", json!({ "action": action, "error": error }));
         }
-        EngineEvent::Translate => popup::start(app.clone()),
+        EngineEvent::AppAction(action) => match action {
+            Action::Translate => popup::start(app.clone()),
+            Action::Clipboard => quick::clipboard(app.clone()),
+            Action::QuickNote => quick::note(app.clone()),
+            Action::Focus => focus::poke(&app),
+            _ => {}
+        },
         EngineEvent::GlyphRecorded { points, problem } => {
             let message = problem.map(NotAGlyph::message);
             let _ = app.emit("pady://glyph-recorded", json!({ "points": points, "problem": message }));
@@ -694,6 +752,7 @@ fn spawn_watcher(app: AppHandle) {
                         toasts.watch_clipboard(wanted);
                     }
                 }
+                sync_history(&app);
                 let wanted = language_notice_wanted(&pady.config.get().settings);
                 if wanted != language_notice {
                     language_notice = wanted;
@@ -859,6 +918,9 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(update::Updates::default())
         .manage(popup::Popup::default())
+        .manage(quick::Quick::default())
+        .manage(quick::Clips::default())
+        .manage(focus::Focus::default())
         .invoke_handler(tauri::generate_handler![
             get_state,
             save_config,
@@ -870,6 +932,18 @@ fn main() {
             translate_ready,
             translate_layout,
             translate_act,
+            quick_ready,
+            quick_layout,
+            quick_act,
+            notes_list,
+            note_save,
+            note_delete,
+            note_pin,
+            stats_get,
+            stats_clear,
+            focus_get,
+            focus_start,
+            focus_stop,
             set_autostart,
             test_action,
             set_live,
@@ -887,6 +961,8 @@ fn main() {
             let config_path = Config::default_path()?;
             let config = Arc::new(SharedConfig::new(load_config(&config_path)));
             let live = Arc::new(AtomicBool::new(false));
+            app.manage(notes::Notes::load(&config_path));
+            app.manage(stats::Stats::load(&config_path));
 
             // A native pill on Windows: no WebView kept alive just to show levels.
             let native_overlay = pady_overlay::Overlay::spawn();
@@ -928,8 +1004,9 @@ fn main() {
             // a fast page load would otherwise call get_state before `manage` ran.
             // The settings window waits until it's opened (see show_main).
             // So does the translation pop-up (see popup.rs).
-            let wanted =
-                |label: &str| !matches!(label, "main" | "translate") && (label != "overlay" || web_overlay_needed);
+            let wanted = |label: &str| {
+                !matches!(label, "main" | "translate" | "quick") && (label != "overlay" || web_overlay_needed)
+            };
             for window in app.config().app.windows.iter().filter(|w| wanted(&w.label)) {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), window)?.build()?;
             }
@@ -937,6 +1014,8 @@ fn main() {
             let toggle = build_tray(app.handle())?;
             *lock(&app.state::<Pady>().tray_toggle) = Some(toggle);
             app.state::<Pady>().sync_tray();
+            sync_history(app.handle());
+            stats::Stats::spawn_saver(app.handle().clone());
             spawn_watcher(app.handle().clone());
             update::spawn_checks(app.handle().clone());
             enable_autostart_once(app.handle());
@@ -962,6 +1041,9 @@ fn main() {
                 // Quitting mid-drag must not leave the mouse button pressed system-wide.
                 if let Some(pady) = app.try_state::<Pady>() {
                     pady.engine.release_mouse(Duration::from_millis(300));
+                }
+                if let Some(stats) = app.try_state::<stats::Stats>() {
+                    stats.save();
                 }
                 log::info!("Pady exiting");
             }
@@ -995,6 +1077,8 @@ mod tests {
 
     /// The translation pop-up's own commands; no other window may call them.
     const POPUP_COMMANDS: &[&str] = &["translate_ready", "translate_layout", "translate_act"];
+    /// The quick pop-up's (clipboard history, quick note).
+    const QUICK_COMMANDS: &[&str] = &["quick_ready", "quick_layout", "quick_act"];
 
     /// A command missing from build.rs or a window's capability fails at
     /// runtime ("not allowed"), so the lists must agree. The main window gets
@@ -1006,13 +1090,20 @@ mod tests {
         let main_window = include_str!("../capabilities/default.json");
         let overlay = include_str!("../capabilities/overlay.json");
         let popup = include_str!("../capabilities/translate.json");
+        let quick = include_str!("../capabilities/quick.json");
         assert!(!handlers.is_empty());
         assert_eq!(handlers, declared, "build.rs COMMANDS must match generate_handler!");
         for command in handlers {
             let permission = format!("\"allow-{}\"", command.replace('_', "-"));
             let for_popup = POPUP_COMMANDS.contains(&command);
-            assert_eq!(main_window.contains(&permission), !for_popup, "{permission} in capabilities/default.json");
+            let for_quick = QUICK_COMMANDS.contains(&command);
+            assert_eq!(
+                main_window.contains(&permission),
+                !for_popup && !for_quick,
+                "{permission} in capabilities/default.json"
+            );
             assert_eq!(popup.contains(&permission), for_popup, "{permission} in capabilities/translate.json");
+            assert_eq!(quick.contains(&permission), for_quick, "{permission} in capabilities/quick.json");
             assert!(!overlay.contains(&permission), "the overlay must not get {permission}");
         }
     }
@@ -1027,6 +1118,13 @@ mod tests {
         let mut expected = vec!["core:event:allow-listen".to_string(), "core:event:allow-unlisten".to_string()];
         expected.extend(POPUP_COMMANDS.iter().map(|c| format!("allow-{}", c.replace('_', "-"))));
         assert_eq!(popup["permissions"], serde_json::json!(expected));
+
+        let quick = json(include_str!("../capabilities/quick.json"));
+        assert_eq!(quick["windows"], serde_json::json!(["quick"]));
+        assert!(quick.get("webviews").is_none() && quick.get("remote").is_none());
+        let mut expected = vec!["core:event:allow-listen".to_string(), "core:event:allow-unlisten".to_string()];
+        expected.extend(QUICK_COMMANDS.iter().map(|c| format!("allow-{}", c.replace('_', "-"))));
+        assert_eq!(quick["permissions"], serde_json::json!(expected));
     }
 
     fn json(text: &str) -> serde_json::Value {

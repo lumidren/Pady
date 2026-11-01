@@ -1,0 +1,114 @@
+/* =========================================================================
+   Pady — quick pop-up (clipboard history, quick note). Builds on
+   translate.css: the same card, header, buttons and colours.
+   ========================================================================= */
+
+body { width: 380px; }
+
+.quick-body { padding: 8px 8px 2px; }
+
+/* ---- Clipboard history ---- */
+
+.search {
+  width: 100%;
+  height: 32px;
+  margin: 0 0 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--btn);
+  color: var(--text);
+  font: 13px var(--font);
+  outline: none;
+}
+.search:focus { border-color: var(--accent); }
+.search::placeholder { color: var(--text-3); }
+
+.clips {
+  display: grid;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  list-style: none;
+  padding: 0;
+}
+
+.clip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  font: 13px/1.4 var(--font);
+  text-align: left;
+  cursor: pointer;
+}
+.clip:hover, .clip.is-active { background: var(--btn-hover); }
+.clip.is-active { box-shadow: inset 0 0 0 1px var(--accent); }
+
+.clip-key {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 5px;
+  background: var(--btn);
+  color: var(--text-3);
+  font: 600 11px/18px var(--font);
+  text-align: center;
+}
+
+.clip-text {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.clip-age { flex: none; font-size: 11px; color: var(--text-3); margin-top: 2px; }
+
+.empty {
+  padding: 18px 10px 14px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.empty strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 4px; }
+.empty .btn { margin-top: 12px; }
+
+.hint { font-size: 11px; color: var(--text-3); }
+
+/* ---- Quick note ---- */
+
+.note-text {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  max-height: 300px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--btn);
+  color: var(--text);
+  font: 14px/1.5 var(--font);
+  resize: none;
+  outline: none;
+  user-select: text;
+  scrollbar-width: thin;
+}
+.note-text:focus { border-color: var(--accent); }
+.note-text::placeholder { color: var(--text-3); }
+
+.source { display: block; padding: 6px 4px 0; font-size: 11px; color: var(--text-3); }
+
+.btn--ghost { background: transparent; color: var(--text-2); }

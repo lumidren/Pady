@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick",
+  "description": "The quick pop-up (clipboard history, quick note) listens for what to show and calls its own three commands, nothing else.",
+  "windows": [
+    "quick"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-quick-ready",
+    "allow-quick-layout",
+    "allow-quick-act"
+  ]
+}

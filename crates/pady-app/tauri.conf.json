@@ -39,6 +39,21 @@
         "create": false
       },
       {
+        "label": "quick",
+        "url": "quick.html",
+        "title": "Pady",
+        "width": 360,
+        "height": 240,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "visible": false,
+        "create": false
+      },
+      {
         "label": "translate",
         "url": "translate.html",
         "title": "Pady translation",

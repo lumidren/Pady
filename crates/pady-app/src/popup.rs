@@ -14,7 +14,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 const LABEL: &str = "translate";
 /// A closed pop-up's WebView is kept this long for the next translation.
@@ -123,7 +123,7 @@ fn notify(app: &AppHandle, text: String) {
     popup.send(app);
 }
 
-fn cursor(app: &AppHandle) -> (f64, f64) {
+pub(crate) fn cursor(app: &AppHandle) -> (f64, f64) {
     app.cursor_position().map(|p| (p.x, p.y)).unwrap_or((200.0, 200.0))
 }
 
@@ -209,9 +209,28 @@ pub fn translate_ready(popup: tauri::State<Popup>) -> Option<Payload> {
 #[tauri::command]
 pub fn translate_layout(app: AppHandle, popup: tauri::State<Popup>, width: f64, height: f64) {
     let Some(window) = app.get_webview_window(LABEL) else { return };
-    let Some(mut anchor) = lock(&popup.job).as_ref().map(|j| j.anchor) else { return };
-    // Dragged somewhere: keep its top-left there and only fit it on screen.
-    let kept = popup.moved.load(Ordering::SeqCst).then(|| window.outer_position().ok()).flatten();
+    let Some(anchor) = lock(&popup.job).as_ref().map(|j| j.anchor) else { return };
+    place(&app, &window, anchor, popup.moved.load(Ordering::SeqCst), width, height);
+    if !popup.shown.swap(true, Ordering::SeqCst) {
+        popup.closings.fetch_add(1, Ordering::SeqCst); // cancel a pending destroy
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Size a pop-up for its content (CSS pixels) and put it below and to the
+/// right of `anchor` (the cursor), or above it if there's no room below.
+/// `moved`: the user dragged it, so it stays where they put it and is only
+/// kept on screen.
+pub(crate) fn place(
+    app: &AppHandle,
+    window: &WebviewWindow,
+    mut anchor: (f64, f64),
+    moved: bool,
+    width: f64,
+    height: f64,
+) {
+    let kept = moved.then(|| window.outer_position().ok()).flatten();
     if let Some(at) = kept {
         anchor = (at.x as f64, at.y as f64);
     }
@@ -236,11 +255,6 @@ pub fn translate_layout(app: AppHandle, popup: tauri::State<Popup>, width: f64, 
     y = y.min(bottom - h - 8.0).max(top + 8.0);
     let _ = window.set_size(PhysicalSize::new(w as u32, h as u32));
     let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
-    if !popup.shown.swap(true, Ordering::SeqCst) {
-        popup.closings.fetch_add(1, Ordering::SeqCst); // cancel a pending destroy
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
 }
 
 /// A button in the pop-up: `copy`, `replace`, `retry` or `close`; or `drag`,
@@ -303,18 +317,18 @@ fn replace(app: &AppHandle, target: isize, text: &str) {
 }
 
 #[cfg(windows)]
-fn foreground() -> isize {
+pub(crate) fn foreground() -> isize {
     use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
     unsafe { GetForegroundWindow() }.0 as isize
 }
 
 #[cfg(not(windows))]
-fn foreground() -> isize {
+pub(crate) fn foreground() -> isize {
     0
 }
 
 #[cfg(windows)]
-fn focus(target: isize) {
+pub(crate) fn focus(target: isize) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{IsWindow, SetForegroundWindow};
     let hwnd = HWND(target as *mut std::ffi::c_void);
@@ -324,4 +338,4 @@ fn focus(target: isize) {
 }
 
 #[cfg(not(windows))]
-fn focus(_target: isize) {}
+pub(crate) fn focus(_target: isize) {}
