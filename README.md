@@ -63,14 +63,14 @@
 
 | | Feature | Where it is |
 |---|---|---|
-| ✅ | 33 gestures, a dozen kinds of action, per-app profiles, five starter presets, three-finger drag | **v1.0.0** (released 2026-10-29) |
+| ✅ | 33 gestures, a dozen kinds of action, per-app profiles, five starter presets, three-finger drag | **v1.0.0** (released 2026-11-03) |
 | ✅ | Copy and paste with a three-finger pinch, corner notices, swipe glow, show touches | **v1.0.0** |
 | ✅ | Auto-update, first-run tutorial, `pady-cli`, Linux packages that set up touchpad access | **v1.0.0** |
-| ✅ | **Switch keyboard language** as an action, without Windows' pop-up, with the language named in a corner notice | **v1.0.1** (released 2026-10-31) |
-| ✅ | **Calmer defaults**: corner notices on, moving animations off, and a separate Notices section in Settings | **v1.0.1** |
-| ✅ | **Config backups**: a copy before every change, and **Restore** in Settings | **v1.0.1** |
-| ✅ | **Faster gestures**: a 0.1 ms full-screen check, quicker brightness, 250 ms taps, lighter recognition | **v1.0.1** |
-| ✅ | **Beta builds** for trying new things early (they never update themselves) | **v1.0.1** |
+| ✅ | **Switch keyboard language** as an action, without Windows' pop-up, with the language named in a corner notice | **v1.0.0** |
+| ✅ | **Calmer defaults**: corner notices on, moving animations off, and a separate Notices section in Settings | **v1.0.0** |
+| ✅ | **Config backups**: a copy before every change, and **Restore** in Settings | **v1.0.0** |
+| ✅ | **Faster gestures**: a 0.1 ms full-screen check, quicker brightness, 250 ms taps, lighter recognition | **v1.0.0** |
+| ✅ | **Beta builds** for trying new things early (they never update themselves) | **v1.0.0** |
 | 🧪 | **Glyphs**: draw your own two-finger shapes (a circle, a V, a check mark) and bind them like any gesture | Coming soon. Built, but shown only in beta builds for now |
 | 🧪 | **Translator**: select text, do a gesture, and a pop-up shows the translation (free MyMemory or DeepL, 38 languages) | Coming soon. Being built on the `translator` branch |
 
@@ -100,7 +100,7 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
-Download from the [latest release](https://github.com/lumidren/Pady/releases/latest). Sizes are for v1.0.1.
+Download from the [latest release](https://github.com/lumidren/Pady/releases/latest). Sizes are for v1.0.0.
 
 | System | File | Size | What happens |
 |---|---|---|---|
@@ -169,7 +169,7 @@ A few rules keep them apart:
 | Run a command | Anything your shell can run (`cmd /C` on Windows, `sh -c` on Linux). | `{ type = "run", command = "…" }` |
 | Lock the screen | Locks your session. | `{ type = "lock" }` |
 | Drag | Three-finger drag style: holds the left button while the fingers move. For drag gestures. | `{ type = "drag" }` |
-| Switch keyboard language *(since 1.0.1)* | Presses Windows' language hotkey (Left Alt+Shift, or Ctrl+Shift if set), which switches without Windows' pop-up, falling back to Win+Space; a corner notice names the language, like "Arabic" or "English". | `{ type = "keys", combo = "win+space" }` |
+| Switch keyboard language *(since 1.0.0)* | Presses Windows' language hotkey (Left Alt+Shift, or Ctrl+Shift if set), which switches without Windows' pop-up, falling back to Win+Space; a corner notice names the language, like "Arabic" or "English". | `{ type = "keys", combo = "win+space" }` |
 | Nothing | Switches a gesture off, for example inside one app. | `{ type = "none" }` |
 
 The gesture editor also has one-click choices for common jobs: zoom in and out, show desktop, task view (overview on Linux), next and previous desktop, screenshot, close window, open Chrome, open YouTube. They are shortcuts or actions from the table, picked to suit Windows or Linux.
@@ -230,14 +230,14 @@ On Windows, Pady draws its own small notices. They never take focus or clicks.
 | Pinch steps | On | Counts each zoom step while you pinch. |
 | Gestures paused | On | Says when a gesture was skipped because a full-screen game is in front. |
 | Keyboard language | On | Names the language when you switch it. |
-| Screenshot | Off *(since 1.0.1)* | The screenshot tool already shows itself. |
+| Screenshot | Off *(since 1.0.0)* | The screenshot tool already shows itself. |
 | Level pill | Off on Windows, on on Linux | The volume or brightness level while you scrub. Windows has its own volume slider. |
 | Swipe glow | Off | A soft glow at the screen edge a swipe is heading for, flashing when it fires. |
 | Gesture hints | Off | Names each gesture and what it did, while you learn. |
 | Show touches | Off | Glowing fingertips on a small touchpad in the corner, for recording tutorials. |
 | Previews, live touchpad, celebrations | Off | Animations inside the Pady window. |
 
-These are the calmer defaults since v1.0.1. In v1.0.0 the notices and the moving animations share one **Animations** switch. Glow, glow strength, animation speed and how long notices stay can all be adjusted, and a new default never changes a setting you've already saved.
+These are the calmer defaults since v1.0.0. Glow, glow strength, animation speed and how long notices stay can all be adjusted, and a new default never changes a setting you've already saved.
 
 ## Configuration
 
@@ -324,7 +324,7 @@ The animation and notice switches (`animations`, `anim_*`, `glow_strength`, `ani
 
 ### Backups
 
-*Since 1.0.1.* Before Pady changes your config, it keeps a copy in a `backups` folder next to it (`config-<time>.toml`), so a slip in the app, a bad import or a broken update can always be undone. **Settings › Backups** lists the copies with how many gestures, profiles and glyphs each holds, and **Restore** brings one back. The current config is copied first, so a restore can itself be undone.
+*Since 1.0.0.* Before Pady changes your config, it keeps a copy in a `backups` folder next to it (`config-<time>.toml`), so a slip in the app, a bad import or a broken update can always be undone. **Settings › Backups** lists the copies with how many gestures, profiles and glyphs each holds, and **Restore** brings one back. The current config is copied first, so a restore can itself be undone.
 
 - One copy each time Pady starts, and before every save.
 - Identical copies are skipped. While you're busy changing things, only the state from before the burst is kept (at most one copy per two minutes), so a dozen toggles don't push real history out.
@@ -414,7 +414,7 @@ No. Macs already have rich trackpad gestures, and Pady is built on the Windows P
 | Single taps feel slow | A double or triple tap is bound for that finger count, so single taps wait to tell them apart. Shorten **Double-tap speed** or unbind the multi-tap. |
 | Gestures stop in a game | `pause_in_fullscreen` is on. That's on purpose; turn it off in Settings if you want gestures there. |
 | Gestures stopped after sleep | Pady checks its touchpad listener every two seconds and replaces it after sleep or if it stops. If it still doesn't recover, quit and reopen Pady and [report a bug](https://github.com/lumidren/Pady/issues/new/choose) with the log. |
-| A hand edit went wrong | Restore a copy from **Settings › Backups** *(since 1.0.1)*, or run `pady-cli config reset`. |
+| A hand edit went wrong | Restore a copy from **Settings › Backups** *(since 1.0.0)*, or run `pady-cli config reset`. |
 
 For bug reports, include the output of `pady-cli doctor` and the log (see [Configuration](#configuration)). The app's **About** page has *Report a bug*, *Suggest a feature* and *Share feedback* buttons that fill in your Pady version.
 
@@ -655,7 +655,7 @@ Writes are atomic (a temporary file, then a rename), so a crash never leaves hal
 | A brightness step on Windows | about 4.5 ms, the first one 8 ms (it connects to WMI at startup) | `time_actions` |
 | Swipe glow and touches | about 0.2 ms of work per frame, paced by the display | The glow is drawn once; each frame only moves it and changes its opacity |
 | Timers for holds, double taps, drag release | 1 ms precision while one is pending (Windows' default tick is ~15.6 ms) | Requested only while needed, then given back |
-| Download | 5.6 MB Windows setup, 5.4 MB .deb | v1.0.1 release files |
+| Download | 5.6 MB Windows setup, 5.4 MB .deb | v1.0.0 release files |
 
 To measure on your own machine:
 

@@ -1,11 +1,13 @@
 # Changelog
 
-## 1.0.1 (2026-10-31)
+## 1.0.0 (2026-11-03)
 
-Faster, calmer, and safer with your settings.
+The first stable release: faster, calmer, and safer with your settings.
 
 ### Added
 
+- **Keyboard language notice.** Switch your keyboard language (Win+Space or Alt+Shift) and a corner notice names it, like "Arabic" or "English". It has its own switch under Settings › Animations (Windows).
+- **More animation options.** A Glow switch for every glow (notices, the swipe glow and the app's own highlights), glow strength, animation speed and how long notices stay.
 - **Switch keyboard language** is a new action for any gesture. The corner pill names the language you switched to.
 - **Settings backups.** Pady keeps a copy of your settings before every change (the newest 50), and **Settings › Restore a backup** brings one back.
 
@@ -26,19 +28,6 @@ Faster, calmer, and safer with your settings.
 
 ### Fixed
 
-- The keyboard language notice now names the language in every app, Pady's own window included.
-
-## 1.0.0 (2026-10-29)
-
-The first stable release.
-
-### Added
-
-- **Keyboard language notice.** Switch your keyboard language (Win+Space or Alt+Shift) and a corner notice names it, like "Arabic" or "English". It has its own switch under Settings › Animations (Windows).
-- **More animation options.** A Glow switch for every glow (notices, the swipe glow and the app's own highlights), glow strength, animation speed and how long notices stay.
-
-### Fixed
-
 - A touchpad that reports a broken finger position for a moment no longer fires a swipe, pinch or drag, and a swipe keeps working after one.
 - Pausing Pady now stops the very next tap or hold too.
 - On Windows, apps launched with arguments containing backslashes or quotes get exactly the arguments you wrote.
@@ -47,6 +36,7 @@ The first stable release.
 - The Test button keeps volume and brightness steps in range, like saved gestures.
 - Smaller fixes for touches at absurd positions, very long sessions, and strokes too broken to become a glyph.
 - The website's live demo no longer shows a warning on load or an old version number, and always loads matching files after an update.
+- The keyboard language notice now names the language in every app, Pady's own window included.
 
 ## 0.6.1 (2026-10-29)
 
