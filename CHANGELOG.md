@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.0.0-beta - 2026-11-03 (public beta)
 
 Pady for every day: notes, a clipboard history, a focus timer and your day in numbers.
 
