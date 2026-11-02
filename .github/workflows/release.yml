@@ -13,6 +13,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # A tag like v2.0.0-beta: a pre-release that never becomes "Latest", so
+  # installed copies are not offered it. WiX can't version an MSI "-beta".
+  BETA: ${{ contains(github.ref_name, '-') }}
   TAURI_CLI: "@tauri-apps/cli@2.12.4"
 
 jobs:
@@ -75,7 +78,9 @@ jobs:
         working-directory: crates/pady-app
         shell: bash
         run: |
-          args=(build --bundles "${{ matrix.bundles }}")
+          bundles="${{ matrix.bundles }}"
+          if [ "$BETA" = "true" ]; then bundles="${bundles/,msi/}"; fi
+          args=(build --bundles "$bundles")
           if [ -n "${TAURI_SIGNING_CONFIG:-}" ]; then args+=(--config "$TAURI_SIGNING_CONFIG"); fi
           if [ "$HAS_UPDATER_KEY" = "true" ]; then args+=(--config '{"bundle":{"createUpdaterArtifacts":true}}'); fi
           npx --yes "$TAURI_CLI" "${args[@]}"
@@ -153,6 +158,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
+          prerelease: ${{ env.BETA == 'true' }}
+          make_latest: ${{ env.BETA != 'true' }}
           generate_release_notes: true
           files: dist/*
 
@@ -161,7 +168,7 @@ jobs:
   update-manifest:
     name: Update manifest
     needs: bundle
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
