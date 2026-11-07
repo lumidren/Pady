@@ -221,7 +221,7 @@
   function checkAction(a) {
     if (!a || typeof a !== 'object') throw 'invalid type: expected internally tagged enum Action';
     switch (a.type) {
-      case 'none': case 'mute': case 'lock': case 'drag': case 'translate': case 'clipboard': case 'quick_note': case 'focus': return;
+      case 'none': case 'mute': case 'lock': case 'drag': case 'translate': case 'clipboard': case 'quick_note': case 'focus': case 'app_switcher': return;
       case 'keys': return checkCombo(a.combo);
       case 'volume': case 'brightness':
         if (!Number.isInteger(a.step)) throw `${a.type} step must be a whole number`;
@@ -360,6 +360,7 @@
       case 'clipboard': return 'Clipboard history';
       case 'quick_note': return 'Quick note';
       case 'focus': return 'Focus timer';
+      case 'app_switcher': return 'App switcher';
       default: return 'Nothing';
     }
   }

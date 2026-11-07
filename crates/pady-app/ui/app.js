@@ -1258,8 +1258,8 @@
       ed.autofocusField = false;
       if (fields) ed.body.append(h('section', { class: 'drawer-section fields' }, fields));
 
-      // Repeat toggle (swipes and pinches)
-      if (continuous) {
+      // Repeat toggle (swipes and pinches). The app switcher always follows the slide.
+      if (continuous && ed.draft.type !== 'app_switcher') {
         const pinch = ed.slot.kind === 'pinch';
         const step = fmtNum(store.app.config.settings.swipe_step_mm, 1);
         const input = h('input', { type: 'checkbox', role: 'switch', checked: ed.repeat, 'aria-describedby': 'repeat-sub', onChange: (e) => { ed.repeat = e.target.checked; refreshEditor(); } });
@@ -1501,6 +1501,9 @@
         return aboutType('translate', `Select some text in any app, then do this gesture: the translation into ${to ? to.name : 'your language'} shows in a pop-up next to it, ready to copy or put in place of the original. Change the language on the Translator tab.`);
       }
       case 'clipboard': return aboutType('clipboard', 'Shows the last things you copied next to the cursor; pick one to paste it. Turn the history on from the pop-up or in Settings. It’s kept in memory only, and passwords from password managers are skipped.');
+      case 'app_switcher': return aboutType('switch', ed.slot.kind === 'swipe'
+        ? 'Shows every open app, like Alt+Tab. Keep sliding to move along the apps, slide back to go back, and lift your fingers to switch to the one picked.'
+        : 'Switches to the app you used last, like pressing Alt+Tab once. On a swipe it shows every open app and you slide to pick one.');
       case 'quick_note': return aboutType('note', 'Opens a small note by the cursor, with any selected text already in it. Closing it saves it to the Notes page.');
       case 'focus': return aboutType('timer', `Starts a ${(store.app.config.settings.focus_minutes || 25)}-minute focus timer; a corner notice says when it’s done. Do the gesture again to see the time left, twice quickly to stop. The length, breaks and a daily goal are on the Focus page.`);
       case 'lock': return aboutType('lock', 'Locks your session immediately, like pressing ' + (platform() === 'linux' ? 'Super+L.' : 'Win+L.'));
