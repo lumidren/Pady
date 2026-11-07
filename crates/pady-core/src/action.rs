@@ -51,6 +51,10 @@ pub enum Action {
     QuickNote,
     /// Start a focus timer, or say how long is left (twice in a row stops it).
     Focus,
+    /// The app switcher (Alt+Tab). On a swipe it stays open while the fingers
+    /// keep sliding: each step picks the next app, sliding back the previous
+    /// one, and lifting switches to it. On any other gesture, one Alt+Tab.
+    AppSwitcher,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,6 +138,7 @@ impl Action {
             Action::Clipboard => "Clipboard history".into(),
             Action::QuickNote => "Quick note".into(),
             Action::Focus => "Focus timer".into(),
+            Action::AppSwitcher => "App switcher".into(),
         }
     }
 }
@@ -165,6 +170,8 @@ mod tests {
         assert_eq!(w.action, Action::Clipboard);
         let w: Wrap = toml::from_str(r#"action = { type = "focus" }"#).unwrap();
         assert_eq!(w.action, Action::Focus);
+        let w: Wrap = toml::from_str(r#"action = { type = "app_switcher" }"#).unwrap();
+        assert_eq!(w.action, Action::AppSwitcher);
     }
 
     #[test]
