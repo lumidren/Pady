@@ -8,7 +8,9 @@
 //!   `chrome.exe` works without a full path.
 
 use crate::Conflict;
-use pady_core::{Action, ActionError, Config, Direction, Executor, Key, KeyCombo, Level, MediaKey, Trigger};
+use pady_core::{
+    Action, ActionError, Config, Direction, Executor, Key, KeyCombo, Level, MediaKey, SwitcherStep, Trigger,
+};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::mem::size_of;
@@ -52,6 +54,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// Whether a drag holds the left button right now, so a crash can let go
 /// (see `release_held_button`).
 static BUTTON_HELD: AtomicBool = AtomicBool::new(false);
+/// Whether the app switcher holds Alt down right now, for the same reason.
+static ALT_HELD: AtomicBool = AtomicBool::new(false);
 
 /// The shell's last full-screen answer (it takes 17–50 ms to give one): the
 /// window it was for, the answer, and when.
@@ -64,6 +68,9 @@ static FULLSCREEN_REFRESHING: AtomicBool = AtomicBool::new(false);
 pub fn release_held_button() {
     if BUTTON_HELD.swap(false, Ordering::SeqCst) {
         let _ = send(&[mouse_input(0, 0, MOUSEEVENTF_LEFTUP)]);
+    }
+    if ALT_HELD.swap(false, Ordering::SeqCst) {
+        let _ = send(&[key_input(VK_LMENU, true)]);
     }
 }
 
@@ -106,6 +113,7 @@ impl Executor for WindowsExecutor {
         }
         match action {
             Action::None | Action::Drag | Action::Brightness { .. } => Ok(()),
+            Action::AppSwitcher => send_combo(&"alt+tab".parse::<KeyCombo>()?),
             Action::Volume { step } => change_volume(*step),
             Action::Mute => tap_vk(VK_VOLUME_MUTE),
             Action::Keys { combo } => {
@@ -180,6 +188,24 @@ impl Executor for WindowsExecutor {
 
     fn mouse_move(&mut self, dx: i32, dy: i32) -> Result<(), ActionError> {
         send(&[mouse_input(dx, dy, MOUSEEVENTF_MOVE)])
+    }
+
+    /// Windows' own Alt+Tab switcher, with Alt held between steps.
+    fn switcher(&mut self, step: SwitcherStep) -> Result<(), ActionError> {
+        let tab = [key_input(VK_TAB, false), key_input(VK_TAB, true)];
+        match step {
+            SwitcherStep::Open => {
+                send(&[key_input(VK_LMENU, false), tab[0], tab[1]])?;
+                ALT_HELD.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+            SwitcherStep::Next => send(&tab),
+            SwitcherStep::Previous => send(&[key_input(VK_LSHIFT, false), tab[0], tab[1], key_input(VK_LSHIFT, true)]),
+            SwitcherStep::Close => {
+                ALT_HELD.store(false, Ordering::SeqCst);
+                send(&[key_input(VK_LMENU, true)])
+            }
+        }
     }
 }
 

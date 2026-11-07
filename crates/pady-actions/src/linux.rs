@@ -9,7 +9,9 @@
 use crate::Conflict;
 use evdev::uinput::{VirtualDevice, VirtualDeviceBuilder};
 use evdev::{AttributeSet, EventType, InputEvent, Key as EvKey, RelativeAxisType};
-use pady_core::{Action, ActionError, Config, Executor, Key, KeyCombo, Level, MediaKey, Modifiers, Trigger};
+use pady_core::{
+    Action, ActionError, Config, Executor, Key, KeyCombo, Level, MediaKey, Modifiers, SwitcherStep, Trigger,
+};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -205,6 +207,7 @@ impl Executor for LinuxExecutor {
             Action::Media { key } => return self.media(*key),
             // Drag is driven through mouse_button / mouse_move.
             Action::None | Action::Drag => Ok(()),
+            Action::AppSwitcher => self.send_combo(&"alt+tab".parse::<KeyCombo>().map_err(|e| format!("{e}"))?),
             Action::Keys { combo } => {
                 let parsed: KeyCombo = combo.parse().map_err(|e| format!("invalid shortcut `{combo}`: {e}"))?;
                 self.send_combo(&parsed)
@@ -241,6 +244,20 @@ impl Executor for LinuxExecutor {
             events.push(InputEvent::new(EventType::RELATIVE, RelativeAxisType::REL_Y.0, dy));
         }
         dev.emit(&events).map_err(Into::into)
+    }
+
+    /// The desktop's Alt+Tab switcher, with Alt held between steps. Needs the
+    /// virtual keyboard: the command-line fallbacks can't hold a key.
+    fn switcher(&mut self, step: SwitcherStep) -> Result<(), ActionError> {
+        let (alt, shift, tab) = (EvKey::KEY_LEFTALT, EvKey::KEY_LEFTSHIFT, EvKey::KEY_TAB);
+        let seq: &[(EvKey, bool)] = match step {
+            SwitcherStep::Open => &[(alt, true), (tab, true), (tab, false)],
+            SwitcherStep::Next => &[(tab, true), (tab, false)],
+            SwitcherStep::Previous => &[(shift, true), (tab, true), (tab, false), (shift, false)],
+            SwitcherStep::Close => &[(alt, false)],
+        };
+        let dev = self.device()?;
+        emit_keys(dev, seq).map_err(Into::into)
     }
 }
 
