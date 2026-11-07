@@ -11,9 +11,9 @@
 use crate::action::Action;
 use crate::config::{Config, Resolution, SharedConfig};
 use crate::frame::{now_ms, TouchFrame};
-use crate::gesture::Gesture;
+use crate::gesture::{Direction, Gesture};
 use crate::glyphs::{self, Matcher, NotAGlyph, StrokeTracker};
-use crate::recognizer::{Recognizer, SwipeProgress};
+use crate::recognizer::{Recognizer, SwipeProgress, GLIDE_DIVISOR};
 use crate::trigger::Trigger;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use serde::Serialize;
@@ -68,7 +68,25 @@ pub trait Executor {
     fn fullscreen_game(&mut self) -> bool {
         false
     }
+    /// Open the app switcher and keep it open (Alt held, then Tab), move
+    /// through it, or let go of Alt to switch.
+    fn switcher(&mut self, step: SwitcherStep) -> Result<(), ActionError> {
+        let _ = step;
+        Err("the app switcher isn't available here".into())
+    }
 }
+
+/// One move of the app switcher held open by a swipe ([`Action::AppSwitcher`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SwitcherStep {
+    Open,
+    Next,
+    Previous,
+    Close,
+}
+
+/// How far the fingers slide to move the app switcher by one app.
+const SWITCHER_STEP_MM: f32 = 12.0;
 
 /// Executor that only logs; used by `pady monitor` and tests.
 #[derive(Default)]
@@ -86,6 +104,10 @@ impl Executor for LogExecutor {
     fn mouse_move(&mut self, _dx: i32, _dy: i32) -> Result<(), ActionError> {
         Ok(())
     }
+    fn switcher(&mut self, step: SwitcherStep) -> Result<(), ActionError> {
+        log::info!("would move the app switcher: {step:?}");
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -99,8 +121,11 @@ pub enum Job {
     },
     MouseButton(bool),
     MouseMove(i32, i32),
-    /// Let go of the mouse button if a drag is holding it (on quit).
+    /// Let go of the mouse button if a drag is holding it, and of the app
+    /// switcher if a swipe holds it open (on quit).
     ReleaseMouse(Ack),
+    /// The fingers of a swipe that fired have lifted (or changed in number).
+    SwipeDone,
 }
 
 /// Lets the sender of a [`Job`] wait until the action thread has handled it.
@@ -279,6 +304,18 @@ struct ActionLoop {
     drag_suppressed: bool,
     /// Were gestures paused for a full-screen game last time we looked?
     was_paused: bool,
+    /// The app switcher a swipe holds open, until its fingers lift.
+    switcher: Option<Switcher>,
+}
+
+/// An app switcher held open by a swipe: its fingers and first direction,
+/// the steps not yet turned into a move, and how many make one.
+#[derive(Clone, Copy, Debug)]
+struct Switcher {
+    fingers: u8,
+    direction: Direction,
+    pending: i32,
+    every: i32,
 }
 
 impl ActionLoop {
@@ -292,6 +329,7 @@ impl ActionLoop {
             button_down: false,
             drag_suppressed: false,
             was_paused: false,
+            switcher: None,
         }
     }
 
@@ -355,14 +393,30 @@ impl ActionLoop {
                         self.button_down = false;
                         self.report("Mouse button", result);
                     }
+                    self.close_switcher();
                     let _ = done.send(());
                 }
+                Job::SwipeDone => self.close_switcher(),
             }
         }
     }
 
     fn fire(&mut self, gesture: Gesture, trigger: Trigger) {
         self.refresh_config();
+        if let (Some(open), Gesture::Swipe { fingers, direction, step }) = (self.switcher.as_mut(), gesture) {
+            if fingers == open.fingers && step > 0 {
+                // Steps of the swipe holding the switcher open move through it,
+                // whatever the other direction is bound to.
+                open.pending += if direction == open.direction { 1 } else { -1 };
+                if open.pending.abs() >= open.every {
+                    let next = open.pending > 0;
+                    open.pending = 0;
+                    let result = self.exec.switcher(if next { SwitcherStep::Next } else { SwitcherStep::Previous });
+                    self.report("App switcher", result);
+                }
+                return;
+            }
+        }
         if self.paused() {
             log::debug!("{trigger} ignored: a full-screen game is running");
             (self.observer)(EngineEvent::Paused { trigger: trigger.to_string() });
@@ -391,8 +445,28 @@ impl ActionLoop {
             action: action.as_ref().map(Action::label),
             profile,
         });
-        if let Some(action) = action {
-            self.execute(&action);
+        match (action, gesture) {
+            (Some(Action::AppSwitcher), Gesture::Swipe { fingers, direction, step: 0 }) => {
+                self.close_switcher();
+                let size = self.config.settings.swipe_step_mm.max(1.0) / if glides { GLIDE_DIVISOR } else { 1.0 };
+                let every = (SWITCHER_STEP_MM / size).round().max(1.0) as i32;
+                let result = self.exec.switcher(SwitcherStep::Open);
+                if result.is_ok() {
+                    self.switcher = Some(Switcher { fingers, direction, pending: 0, every });
+                }
+                self.report("App switcher", result);
+            }
+            (Some(action), _) => self.execute(&action),
+            (None, _) => {}
+        }
+    }
+
+    /// Let go of the app switcher a swipe holds open: it switches to the app
+    /// it shows.
+    fn close_switcher(&mut self) {
+        if self.switcher.take().is_some() {
+            let result = self.exec.switcher(SwitcherStep::Close);
+            self.report("App switcher", result);
         }
     }
 
@@ -460,6 +534,8 @@ struct EngineLoop {
     matcher: Matcher,
     /// The next stroke is being recorded rather than matched.
     recording: Arc<AtomicBool>,
+    /// A swipe had fired and its fingers were still down, as of the last dispatch.
+    swiping: bool,
 }
 
 impl EngineLoop {
@@ -486,6 +562,7 @@ impl EngineLoop {
             strokes: StrokeTracker::default(),
             matcher,
             recording,
+            swiping: false,
         }
     }
 
@@ -608,6 +685,12 @@ impl EngineLoop {
         for g in gestures {
             self.handle(g, t);
         }
+        // After the swipe's last steps: something may hold the app switcher open.
+        let swiping = self.recognizer.is_swiping();
+        if self.swiping && !swiping {
+            let _ = self.jobs.send(Job::SwipeDone);
+        }
+        self.swiping = swiping;
     }
 
     fn handle(&mut self, gesture: Gesture, t: u64) {
@@ -680,6 +763,11 @@ mod tests {
         fn fullscreen_game(&mut self) -> bool {
             self.fullscreen
         }
+        /// Noted as a shortcut named after the step, to keep one list in order.
+        fn switcher(&mut self, step: SwitcherStep) -> Result<(), ActionError> {
+            self.jobs.lock().unwrap().push(Job::Run(Action::Keys { combo: format!("{step:?}") }));
+            Ok(())
+        }
     }
 
     fn frame(t: u64, n: u32, x: f32, y: f32) -> TouchFrame {
@@ -742,6 +830,45 @@ mod tests {
         assert_eq!(jobs, vec![Job::Run(Action::Volume { step: 2 }); 8]);
         let levels: Vec<_> = events.iter().filter(|e| matches!(e, EngineEvent::Level(_))).collect();
         assert_eq!(levels.len(), 8, "every volume change reports its level for the overlay");
+    }
+
+    #[test]
+    fn app_switcher_stays_open_while_sliding_and_switches_on_lift() {
+        let mut cfg = Config::default();
+        cfg.bindings.clear();
+        cfg.set_binding(Trigger::Swipe(3, Direction::Right), Action::AppSwitcher, false);
+        cfg.set_binding(Trigger::Swipe(3, Direction::Left), Action::Lock, false);
+        let step = cfg.settings.swipe_step_mm;
+        let thr = cfg.settings.swipe_threshold_mm;
+        let (jobs, _) = run_engine(
+            cfg,
+            vec![
+                frame(0, 3, 0.0, 0.0),
+                frame(10, 3, thr, 0.0),
+                // Four steps on: two apps along (one per 12 mm, here two 7 mm steps).
+                frame(20, 3, thr + 4.0 * step + 0.1, 0.0),
+                // Two steps back: one app back, and Left's own binding stays quiet.
+                frame(30, 3, thr + 1.9 * step, 0.0),
+                frame(40, 0, 0.0, 0.0),
+            ],
+        );
+        let moves: Vec<String> = jobs
+            .iter()
+            .map(|j| match j {
+                Job::Run(Action::Keys { combo }) => combo.clone(),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(moves, ["Open", "Next", "Next", "Previous", "Close"]);
+    }
+
+    #[test]
+    fn app_switcher_on_a_tap_is_one_alt_tab() {
+        let mut cfg = Config::default();
+        cfg.bindings.clear();
+        cfg.set_binding(Trigger::Tap(3), Action::AppSwitcher, false);
+        let (jobs, _) = run_engine(cfg, tap3());
+        assert_eq!(jobs, vec![Job::Run(Action::AppSwitcher)]);
     }
 
     #[test]

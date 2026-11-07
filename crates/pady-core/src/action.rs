@@ -41,6 +41,10 @@ pub enum Action {
     Lock,
     /// Hold the left mouse button while the fingers move (drag triggers only).
     Drag,
+    /// The app switcher (Alt+Tab). On a swipe it stays open while the fingers
+    /// keep sliding: each step picks the next app, sliding back the previous
+    /// one, and lifting switches to it. On any other gesture, one Alt+Tab.
+    AppSwitcher,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,6 +118,7 @@ impl Action {
             Action::Run { command } => format!("Run `{command}`"),
             Action::Lock => "Lock screen".into(),
             Action::Drag => "Drag (hold left button)".into(),
+            Action::AppSwitcher => "App switcher".into(),
         }
     }
 }
@@ -137,6 +142,8 @@ mod tests {
         assert_eq!(w.action, Action::Media { key: MediaKey::PlayPause });
         let w: Wrap = toml::from_str(r#"action = { type = "lock" }"#).unwrap();
         assert_eq!(w.action, Action::Lock);
+        let w: Wrap = toml::from_str(r#"action = { type = "app_switcher" }"#).unwrap();
+        assert_eq!(w.action, Action::AppSwitcher);
     }
 
     #[test]

@@ -165,6 +165,11 @@ impl Recognizer {
         matches!(self.phase, Phase::Dragging { .. })
     }
 
+    /// A swipe has fired and its fingers are still on the pad.
+    pub fn is_swiping(&self) -> bool {
+        matches!(self.phase, Phase::Swiping { .. })
+    }
+
     /// How far a swipe that hasn't fired yet has come. `None` while nothing
     /// is heading for one: too few fingers, a drag, a pinch, or resting fingers.
     pub fn swipe_progress(&self) -> Option<SwipeProgress> {
