@@ -1247,8 +1247,8 @@
       ed.autofocusField = false;
       if (fields) ed.body.append(h('section', { class: 'drawer-section fields' }, fields));
 
-      // Repeat toggle (swipes and pinches)
-      if (continuous) {
+      // Repeat toggle (swipes and pinches). The app switcher always follows the slide.
+      if (continuous && ed.draft.type !== 'app_switcher') {
         const pinch = ed.slot.kind === 'pinch';
         const step = fmtNum(store.app.config.settings.swipe_step_mm, 1);
         const input = h('input', { type: 'checkbox', role: 'switch', checked: ed.repeat, 'aria-describedby': 'repeat-sub', onChange: (e) => { ed.repeat = e.target.checked; refreshEditor(); } });
@@ -1485,6 +1485,9 @@
       }
 
       case 'mute': return aboutType('mute', 'Toggles mute on the default output device.');
+      case 'app_switcher': return aboutType('switch', ed.slot.kind === 'swipe'
+        ? 'Shows every open app, like Alt+Tab. Keep your fingers down and slide sideways to pick one: right for the next app, left to go back. Lift your fingers to switch to it.'
+        : 'Switches to the app you used last, like pressing Alt+Tab once. On a swipe it shows every open app and you slide to pick one.');
       case 'lock': return aboutType('lock', 'Locks your session immediately, like pressing ' + (platform() === 'linux' ? 'Super+L.' : 'Win+L.'));
       case 'none': return aboutType('none', 'This gesture does nothing. Pick a preset or an action type above.');
       default: return null;

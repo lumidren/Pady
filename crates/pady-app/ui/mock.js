@@ -216,7 +216,7 @@
   function checkAction(a) {
     if (!a || typeof a !== 'object') throw 'invalid type: expected internally tagged enum Action';
     switch (a.type) {
-      case 'none': case 'mute': case 'lock': case 'drag': return;
+      case 'none': case 'mute': case 'lock': case 'drag': case 'app_switcher': return;
       case 'keys': return checkCombo(a.combo);
       case 'volume': case 'brightness':
         if (!Number.isInteger(a.step)) throw `${a.type} step must be a whole number`;
@@ -351,6 +351,7 @@
       case 'run': return `Run \`${a.command}\``;
       case 'lock': return 'Lock screen';
       case 'drag': return 'Drag (hold left button)';
+      case 'app_switcher': return 'App switcher';
       default: return 'Nothing';
     }
   }

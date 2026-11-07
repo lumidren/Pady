@@ -138,6 +138,7 @@
     keys: { label: 'Shortcut', icon: 'keyboard', group: 'keyboard', make: () => ({ type: 'keys', combo: '' }) },
     open_url: { label: 'Open link', icon: 'globe', group: 'web', make: () => ({ type: 'open_url', url: '' }) },
     focus_or_launch: { label: 'Switch to app', icon: 'switch', group: 'web', make: () => ({ type: 'focus_or_launch', program: '' }) },
+    app_switcher: { label: 'App switcher', icon: 'switch', group: 'web', make: () => ({ type: 'app_switcher' }) },
     launch: { label: 'Launch app', icon: 'apps', group: 'web', make: () => ({ type: 'launch', program: '' }) },
     run: { label: 'Run command', icon: 'terminal', group: 'web', make: () => ({ type: 'run', command: '' }) },
     drag: { label: 'Drag', icon: 'drag', group: 'pointer', make: () => ({ type: 'drag' }) },
@@ -281,6 +282,7 @@
       case 'open_url': return { icon: /youtube\./i.test(a.url) ? 'youtube' : 'globe', text: `Open ${prettyUrl(a.url)}${a.browser ? ' in ' + browserName(a.browser) : ''}` };
       case 'launch': return { icon: 'apps', text: `Launch ${programName(a.program)}` };
       case 'focus_or_launch': return { icon: 'switch', text: `Switch to ${programName(a.program)}` };
+      case 'app_switcher': return { icon: 'switch', text: 'App switcher' };
       case 'run': return { icon: 'terminal', text: a.command };
       case 'drag': return { icon: 'drag', text: 'Click-and-drag' };
       default: return { icon: t.icon, text: 'Nothing' };
@@ -360,6 +362,7 @@
       { id: 'mute', label: 'Mute', icon: 'mute', action: { type: 'mute' } },
       { id: 'desktop', label: 'Show desktop', icon: 'desktop', action: k(linux ? 'win+d' : 'win+d') },
       { id: 'taskview', label: linux ? 'Overview' : 'Task view', icon: 'taskview', action: k(linux ? 'win' : 'win+tab') },
+      { id: 'switcher', label: 'App switcher', icon: 'switch', action: { type: 'app_switcher' } },
       { id: 'desk-next', label: 'Next desktop', icon: 'desk-next', action: k(linux ? 'win+pagedown' : 'win+ctrl+right') },
       { id: 'desk-prev', label: 'Previous desktop', icon: 'desk-prev', action: k(linux ? 'win+pageup' : 'win+ctrl+left') },
       { id: 'shot', label: 'Screenshot', icon: 'screenshot', action: k(linux ? 'printscreen' : 'win+shift+s') },
