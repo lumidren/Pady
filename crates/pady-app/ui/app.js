@@ -1502,7 +1502,7 @@
       }
       case 'clipboard': return aboutType('clipboard', 'Shows the last things you copied next to the cursor; pick one to paste it. Turn the history on from the pop-up or in Settings. It’s kept in memory only, and passwords from password managers are skipped.');
       case 'app_switcher': return aboutType('switch', ed.slot.kind === 'swipe'
-        ? 'Shows every open app, like Alt+Tab. Keep sliding to move along the apps, slide back to go back, and lift your fingers to switch to the one picked.'
+        ? 'Shows every open app, like Alt+Tab. Keep your fingers down and slide sideways to pick one: right for the next app, left to go back. Lift your fingers to switch to it.'
         : 'Switches to the app you used last, like pressing Alt+Tab once. On a swipe it shows every open app and you slide to pick one.');
       case 'quick_note': return aboutType('note', 'Opens a small note by the cursor, with any selected text already in it. Closing it saves it to the Notes page.');
       case 'focus': return aboutType('timer', `Starts a ${(store.app.config.settings.focus_minutes || 25)}-minute focus timer; a corner notice says when it’s done. Do the gesture again to see the time left, twice quickly to stop. The length, breaks and a daily goal are on the Focus page.`);
