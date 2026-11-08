@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 (2026-11-09)
+
+Pick any open app with one slide.
 
 ### Added
 
