@@ -71,6 +71,7 @@
 | ✅ | **Config backups**: a copy before every change, and **Restore** in Settings | **v1.0.0** |
 | ✅ | **Faster gestures**: a 0.1 ms full-screen check, quicker brightness, 250 ms taps, lighter recognition | **v1.0.0** |
 | ✅ | **Beta builds** for trying new things early (they never update themselves) | **v1.0.0** |
+| ✅ | **App switcher**: swipe to show every open app, slide sideways to pick one, lift to switch | **v1.1.0** (released 2026-11-09) |
 | 🧪 | **Glyphs**: draw your own two-finger shapes (a circle, a V, a check mark) and bind them like any gesture | Coming soon. Built, but shown only in beta builds for now |
 | 🧪 | **Translator**: select text, do a gesture, and a pop-up shows the translation (free MyMemory or DeepL, 38 languages) | Coming soon. Being built on the `translator` branch |
 
@@ -100,7 +101,7 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
-Download from the [latest release](https://github.com/lumidren/Pady/releases/latest). Sizes are for v1.0.0.
+Download from the [latest release](https://github.com/lumidren/Pady/releases/latest). Sizes are for v1.1.0.
 
 | System | File | Size | What happens |
 |---|---|---|---|
@@ -655,7 +656,7 @@ Writes are atomic (a temporary file, then a rename), so a crash never leaves hal
 | A brightness step on Windows | about 4.5 ms, the first one 8 ms (it connects to WMI at startup) | `time_actions` |
 | Swipe glow and touches | about 0.2 ms of work per frame, paced by the display | The glow is drawn once; each frame only moves it and changes its opacity |
 | Timers for holds, double taps, drag release | 1 ms precision while one is pending (Windows' default tick is ~15.6 ms) | Requested only while needed, then given back |
-| Download | 5.6 MB Windows setup, 5.4 MB .deb | v1.0.0 release files |
+| Download | 5.6 MB Windows setup, 5.4 MB .deb | v1.1.0 release files |
 
 To measure on your own machine:
 
