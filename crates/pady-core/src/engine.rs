@@ -689,6 +689,12 @@ impl EngineLoop {
         }
     }
 
+    /// Is this swipe the app switcher, for every app or in some profile?
+    fn opens_switcher(&self, trigger: Trigger) -> bool {
+        let is = |b: &crate::config::Binding| b.trigger == trigger && b.action == Action::AppSwitcher;
+        self.config.bindings.iter().any(is) || self.config.profiles.iter().flat_map(|p| &p.bindings).any(is)
+    }
+
     fn dispatch(&mut self, gestures: Vec<Gesture>, t: u64) {
         for g in gestures {
             self.handle(g, t);
@@ -726,6 +732,9 @@ impl EngineLoop {
             }
             _ => {
                 if let Some(trigger) = Trigger::from_gesture(&gesture) {
+                    if matches!(gesture, Gesture::Swipe { step: 0, .. }) && self.opens_switcher(trigger) {
+                        self.recognizer.hold_swipe();
+                    }
                     let _ = self.jobs.send(Job::Fire { gesture, trigger });
                 }
             }
@@ -868,6 +877,35 @@ mod tests {
             })
             .collect();
         assert_eq!(moves, ["Open", "Next", "Next", "Previous", "Close"]);
+    }
+
+    #[test]
+    fn app_switcher_survives_a_finger_flickering_and_switches_only_when_all_lift() {
+        let mut cfg = Config::default();
+        cfg.bindings.clear();
+        cfg.set_binding(Trigger::Swipe(3, Direction::Right), Action::AppSwitcher, false);
+        let step = cfg.settings.swipe_step_mm;
+        let thr = cfg.settings.swipe_threshold_mm;
+        let (jobs, _) = run_engine(
+            cfg,
+            vec![
+                frame(0, 3, 0.0, 0.0),
+                frame(10, 3, thr, 0.0),
+                // The pad loses a finger for a moment, then finds it again.
+                frame(20, 2, thr + 1.0 * step, 0.0),
+                frame(30, 3, thr + 2.0 * step + 0.1, 0.0),
+                frame(40, 3, thr + 4.0 * step + 0.1, 0.0),
+                frame(50, 0, 0.0, 0.0),
+            ],
+        );
+        let moves: Vec<String> = jobs
+            .iter()
+            .map(|j| match j {
+                Job::Run(Action::Keys { combo }) => combo.clone(),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(moves, ["Open", "Next", "Next", "Close"]);
     }
 
     #[test]

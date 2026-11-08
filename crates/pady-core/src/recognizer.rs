@@ -129,6 +129,8 @@ pub struct Recognizer {
     span: f32,
     anchor_time: u64,
     pending_tap: Option<PendingTap>,
+    /// The swipe in progress lasts until every finger lifts (see [`Recognizer::hold_swipe`]).
+    held: bool,
 }
 
 impl Recognizer {
@@ -148,6 +150,7 @@ impl Recognizer {
             span: 0.0,
             anchor_time: 0,
             pending_tap: None,
+            held: false,
         }
     }
 
@@ -168,6 +171,13 @@ impl Recognizer {
     /// A swipe has fired and its fingers are still on the pad.
     pub fn is_swiping(&self) -> bool {
         matches!(self.phase, Phase::Swiping { .. })
+    }
+
+    /// Keep the swipe that just fired going until every finger lifts, even
+    /// if the pad loses or finds a finger on the way (it often does with
+    /// three or four sliding): something is held open while it lasts.
+    pub fn hold_swipe(&mut self) {
+        self.held = self.is_swiping();
     }
 
     /// How far a swipe that hasn't fired yet has come. `None` while nothing
@@ -196,6 +206,7 @@ impl Recognizer {
     pub fn reset(&mut self) -> Vec<Gesture> {
         let out = if self.is_dragging() { vec![Gesture::DragEnd] } else { Vec::new() };
         self.pending_tap = None;
+        self.held = false;
         self.phase = Phase::Idle;
         self.prev.clear();
         self.origins.clear();
@@ -260,7 +271,7 @@ impl Recognizer {
                 self.check_hold(t, &mut out);
             }
             Phase::Swiping { axis, mut progress, mut step } => {
-                if n != self.fingers {
+                if n != self.fingers && !self.held {
                     // Fingers lifting one by one at the end of a swipe.
                     self.phase = Phase::Consumed;
                 } else {
@@ -389,6 +400,7 @@ impl Recognizer {
     }
 
     fn begin_session(&mut self, t: u64, n: u8) {
+        self.held = false;
         self.phase = Phase::Pending;
         self.session_start = t;
         self.max_fingers = n;
