@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **App switcher.** A new action that shows every open app, like Alt+Tab. On a swipe it stays open until you lift your fingers: slide sideways to pick an app (each 12 mm to the right moves to the next one, to the left goes back), then lift to switch to it. A finger the touchpad loses for a moment doesn't close it. On a tap or hold it's one Alt+Tab, back to the app you used last.
+
 ## 1.0.0 (2026-11-03)
 
 The first stable release: faster, calmer, and safer with your settings.
