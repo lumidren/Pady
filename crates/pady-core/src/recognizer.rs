@@ -175,9 +175,15 @@ impl Recognizer {
 
     /// Keep the swipe that just fired going until every finger lifts, even
     /// if the pad loses or finds a finger on the way (it often does with
-    /// three or four sliding): something is held open while it lasts.
+    /// three or four sliding): something is held open while it lasts. From
+    /// here on it steps sideways, whichever way it went: what it holds open
+    /// (the app switcher) is a row.
     pub fn hold_swipe(&mut self) {
-        self.held = self.is_swiping();
+        self.held = false;
+        if let Phase::Swiping { step, .. } = self.phase {
+            self.held = true;
+            self.phase = Phase::Swiping { axis: Axis::Horizontal, progress: 0.0, step };
+        }
     }
 
     /// How far a swipe that hasn't fired yet has come. `None` while nothing
