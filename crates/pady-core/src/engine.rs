@@ -312,12 +312,13 @@ struct ActionLoop {
     switcher: Option<Switcher>,
 }
 
-/// An app switcher held open by a swipe: its fingers and first direction,
-/// the steps not yet turned into a move, and how many make one.
+/// An app switcher held open by a swipe: its fingers, the sideways direction
+/// that moves to the next app, the steps not yet turned into a move, and how
+/// many make one.
 #[derive(Clone, Copy, Debug)]
 struct Switcher {
     fingers: u8,
-    direction: Direction,
+    forward: Direction,
     pending: i32,
     every: i32,
 }
@@ -411,7 +412,7 @@ impl ActionLoop {
             if fingers == open.fingers && step > 0 {
                 // Steps of the swipe holding the switcher open move through it,
                 // whatever the other direction is bound to.
-                open.pending += if direction == open.direction { 1 } else { -1 };
+                open.pending += if direction == open.forward { 1 } else { -1 };
                 if open.pending.abs() >= open.every {
                     let next = open.pending > 0;
                     open.pending = 0;
@@ -456,7 +457,10 @@ impl ActionLoop {
                 let every = (SWITCHER_STEP_MM / size).round().max(1.0) as i32;
                 let result = self.exec.switcher(SwitcherStep::Open);
                 if result.is_ok() {
-                    self.switcher = Some(Switcher { fingers, direction, pending: 0, every });
+                    // Opened sideways, going on the same way moves along; opened
+                    // up or down, sliding right does.
+                    let forward = if matches!(direction, Direction::Left) { Direction::Left } else { Direction::Right };
+                    self.switcher = Some(Switcher { fingers, forward, pending: 0, every });
                 }
                 self.report("App switcher", result);
             }
@@ -906,6 +910,34 @@ mod tests {
             })
             .collect();
         assert_eq!(moves, ["Open", "Next", "Next", "Close"]);
+    }
+
+    #[test]
+    fn app_switcher_opened_upwards_moves_with_sideways_sliding() {
+        let mut cfg = Config::default();
+        cfg.bindings.clear();
+        cfg.set_binding(Trigger::Swipe(4, Direction::Up), Action::AppSwitcher, false);
+        let step = cfg.settings.swipe_step_mm;
+        let thr = cfg.settings.swipe_threshold_mm;
+        let (jobs, _) = run_engine(
+            cfg,
+            vec![
+                frame(0, 4, 0.0, 0.0),
+                frame(10, 4, 0.0, -thr),
+                // Sideways once it's open: right moves along, left goes back.
+                frame(20, 4, 4.0 * step + 0.1, -thr),
+                frame(30, 4, 1.9 * step, -thr),
+                frame(40, 0, 0.0, 0.0),
+            ],
+        );
+        let moves: Vec<String> = jobs
+            .iter()
+            .map(|j| match j {
+                Job::Run(Action::Keys { combo }) => combo.clone(),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(moves, ["Open", "Next", "Next", "Previous", "Close"]);
     }
 
     #[test]
