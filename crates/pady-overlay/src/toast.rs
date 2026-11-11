@@ -400,26 +400,59 @@ fn foreground_layout() -> Option<(isize, isize)> {
 /// time was switched (even if something else was briefly in front). It also
 /// remembers the layout last in front, so with one language for all apps
 /// (Windows' default) moving to an app that just caught up says nothing.
+///
+/// Two things are never a switch: a window that has only just come to the
+/// front (Windows hands it the current language a moment later, so a look in
+/// between sees its old one), and a change while nobody touches the keyboard,
+/// mouse or touchpad (an app setting its own language).
 #[derive(Debug, Default)]
 struct LanguageWatch {
     windows: Vec<(isize, isize)>,
     in_front: Option<isize>,
+    /// The place in front, and when it came there (ms, `GetTickCount`).
+    front: Option<(isize, u32)>,
 }
 
 impl LanguageWatch {
     /// Windows remembered at most; the oldest are forgotten.
     const REMEMBER: usize = 64;
+    /// A window just come to the front is still catching up for this long.
+    const SETTLE_MS: u32 = 300;
+    /// A switch is made by hand: some input came within this long.
+    const INPUT_WITHIN_MS: u32 = 1_500;
 
-    /// `layout` is now in front, in `window`: the layout to name, if it's a switch.
-    fn see(&mut self, window: isize, layout: isize) -> Option<isize> {
+    /// `layout` is now in front, in `window`, at `now`, `idle_ms` after the
+    /// last input: the layout to name, if it's a switch.
+    fn see(&mut self, window: isize, layout: isize, now: u32, idle_ms: u32) -> Option<isize> {
+        let settled = match self.front {
+            Some((place, since)) if place == window => now.wrapping_sub(since) >= Self::SETTLE_MS,
+            _ => {
+                self.front = Some((window, now));
+                false
+            }
+        };
         let before = self.windows.iter().position(|w| w.0 == window).map(|i| self.windows.remove(i).1);
         self.windows.push((window, layout));
         if self.windows.len() > Self::REMEMBER {
             self.windows.remove(0);
         }
-        let switched = before.is_some_and(|b| b != layout) && self.in_front != Some(layout);
-        self.in_front = Some(layout);
+        let switched =
+            before.is_some_and(|b| b != layout) && self.in_front != Some(layout) && idle_ms <= Self::INPUT_WITHIN_MS;
+        // What a window shows while catching up isn't the language in front.
+        if settled || switched || self.in_front.is_none() {
+            self.in_front = Some(layout);
+        }
         switched.then_some(layout)
+    }
+}
+
+/// Milliseconds now and since the last keyboard, mouse or touchpad input.
+fn input_clock() -> (u32, u32) {
+    unsafe {
+        let now = GetTickCount();
+        let mut info = LASTINPUTINFO { cbSize: size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+        let idle = if GetLastInputInfo(&mut info).as_bool() { now.wrapping_sub(info.dwTime) } else { 0 };
+        (now, idle)
     }
 }
 
@@ -553,7 +586,8 @@ impl Toaster {
     /// Names the keyboard language when you switch it.
     fn check_language(&mut self) {
         let Some((window, layout)) = foreground_layout() else { return };
-        if let Some(layout) = self.language.see(window, layout) {
+        let (now, idle) = input_clock();
+        if let Some(layout) = self.language.see(window, layout, now, idle) {
             self.show(Notice::Text { text: language_name(layout), icon: Icon::Keyboard });
         }
     }
@@ -873,71 +907,111 @@ mod tests {
         }
     }
 
+    const EN: isize = 0x0409_0409;
+    const AR: isize = 0x0C01_0C01;
+
+    /// The language watch looked at every 100 ms, as the timer does, with
+    /// someone at the keyboard unless `idle` says otherwise.
+    struct Looks {
+        w: LanguageWatch,
+        now: u32,
+        idle: u32,
+    }
+
+    impl Looks {
+        fn new() -> Self {
+            Looks { w: LanguageWatch::default(), now: 1_000, idle: 0 }
+        }
+        fn see(&mut self, place: isize, layout: isize) -> Option<isize> {
+            self.now += 100;
+            self.w.see(place, layout, self.now, self.idle)
+        }
+        /// The same place looked at long enough to have settled.
+        fn stay(&mut self, place: isize, layout: isize) -> Option<isize> {
+            (0..4).fold(None, |seen, _| seen.or(self.see(place, layout)))
+        }
+    }
+
     #[test]
     fn a_language_switch_is_named_once() {
-        const EN: isize = 0x0409_0409;
-        const AR: isize = 0x0C01_0C01;
-        let mut w = LanguageWatch::default();
-        assert_eq!(w.see(1, EN), None, "first look: nothing to compare with");
-        assert_eq!(w.see(1, EN), None);
-        assert_eq!(w.see(1, AR), Some(AR), "switched in the same window");
-        assert_eq!(w.see(1, AR), None, "said once");
+        let mut l = Looks::new();
+        assert_eq!(l.stay(1, EN), None, "first look: nothing to compare with");
+        assert_eq!(l.see(1, AR), Some(AR), "switched in the same window");
+        assert_eq!(l.stay(1, AR), None, "said once");
         // One language for all apps: another app catches up when it comes to the front.
-        assert_eq!(w.see(2, AR), None, "a new window");
-        assert_eq!(w.see(1, EN), Some(EN), "switched back");
-        assert_eq!(w.see(2, EN), None, "window 2 caught up: not a switch of its own");
+        assert_eq!(l.stay(2, AR), None, "a new window");
+        assert_eq!(l.stay(1, EN), Some(EN), "switched back");
+        assert_eq!(l.stay(2, EN), None, "window 2 caught up: not a switch of its own");
+    }
+
+    #[test]
+    fn a_window_catching_up_after_coming_to_the_front_is_not_a_switch() {
+        let mut l = Looks::new();
+        l.stay(1, EN);
+        l.stay(2, EN);
+        assert_eq!(l.see(2, AR), Some(AR), "switched in window 2");
+        // Back in window 1: the first look still sees its old language, then
+        // Windows hands it the current one.
+        assert_eq!(l.see(1, EN), None);
+        assert_eq!(l.stay(1, AR), None, "window 1 caught up: not a switch");
+    }
+
+    #[test]
+    fn a_change_with_nobody_at_the_keyboard_is_not_a_switch() {
+        let mut l = Looks::new();
+        l.stay(1, EN);
+        l.idle = 10_000;
+        assert_eq!(l.stay(1, AR), None, "an app set its own language");
+        l.idle = 0;
+        assert_eq!(l.see(1, EN), Some(EN), "switched by hand");
     }
 
     #[test]
     fn a_switch_made_while_something_else_was_in_front_is_named() {
-        const EN: isize = 0x0409_0409;
-        const AR: isize = 0x0C01_0C01;
-        let mut w = LanguageWatch::default();
-        w.see(1, EN);
+        let mut l = Looks::new();
+        l.stay(1, EN);
         // The taskbar's language menu, say, is in front for a moment.
-        assert_eq!(w.see(99, EN), None);
-        assert_eq!(w.see(1, AR), Some(AR));
+        assert_eq!(l.stay(99, EN), None);
+        assert_eq!(l.see(1, AR), Some(AR));
     }
 
     #[test]
     fn apps_keeping_their_own_language_are_not_switches() {
-        const EN: isize = 0x0409_0409;
-        const AR: isize = 0x0C01_0C01;
-        let mut w = LanguageWatch::default();
+        let mut l = Looks::new();
         // Windows set to keep a language per app: one app in Arabic, one in English.
-        w.see(1, AR);
-        w.see(2, EN);
+        l.stay(1, AR);
+        l.stay(2, EN);
         for _ in 0..3 {
-            assert_eq!(w.see(1, AR), None);
-            assert_eq!(w.see(2, EN), None);
+            assert_eq!(l.stay(1, AR), None);
+            assert_eq!(l.stay(2, EN), None);
+            assert_eq!(l.see(1, AR), None, "even a quick look back");
+            assert_eq!(l.see(2, EN), None);
         }
-        assert_eq!(w.see(2, AR), Some(AR), "a real switch in app 2");
+        assert_eq!(l.stay(2, AR), Some(AR), "a real switch in app 2");
     }
 
     #[test]
     fn focus_moving_inside_a_window_is_not_a_switch() {
-        const EN: isize = 0x0409_0409;
-        const AR: isize = 0x0C01_0C01;
-        let mut w = LanguageWatch::default();
+        let mut l = Looks::new();
         // A browser window: its address bar (one thread) in English, the page's
         // own process in Arabic. Clicking back and forth says nothing.
         let (bar, page) = ((100 * 31) ^ 7, (100 * 31) ^ 8);
-        w.see(bar, EN);
-        w.see(page, AR);
+        l.stay(bar, EN);
+        l.stay(page, AR);
         for _ in 0..3 {
-            assert_eq!(w.see(bar, EN), None);
-            assert_eq!(w.see(page, AR), None);
+            assert_eq!(l.stay(bar, EN), None);
+            assert_eq!(l.stay(page, AR), None);
         }
-        assert_eq!(w.see(page, EN), Some(EN), "a real switch in the page");
+        assert_eq!(l.see(page, EN), Some(EN), "a real switch in the page");
     }
 
     #[test]
     fn the_language_watch_forgets_old_windows() {
-        let mut w = LanguageWatch::default();
+        let mut l = Looks::new();
         for window in 0..1_000 {
-            w.see(window, 0x0409_0409);
+            l.see(window, EN);
         }
-        assert_eq!(w.windows.len(), LanguageWatch::REMEMBER);
+        assert_eq!(l.w.windows.len(), LanguageWatch::REMEMBER);
     }
 
     #[test]
