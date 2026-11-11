@@ -983,7 +983,7 @@ mod tests {
         let mut w = LanguageWatch::default();
         // A browser window: its address bar (one thread) in English, the page's
         // own process in Arabic. Clicking back and forth says nothing.
-        let (bar, page) = (100 * 31 ^ 7, 100 * 31 ^ 8);
+        let (bar, page) = ((100 * 31) ^ 7, (100 * 31) ^ 8);
         w.see(bar, EN);
         w.see(page, AR);
         for _ in 0..3 {
