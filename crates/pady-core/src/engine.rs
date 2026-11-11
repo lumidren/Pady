@@ -1412,7 +1412,7 @@ mod tests {
     /// Random, often broken, frames and two-finger strokes, while the test
     /// thread swaps the config, toggles glyph recording and full-screen
     /// games at random, unsynchronised with the engine.
-    fn soak(seed: u64, frames: usize, change: impl Fn(&mut crate::Rng, &mut Config)) -> SoakRun {
+    fn soak(seed: u64, frames: usize, end_with_drag: bool, change: impl Fn(&mut crate::Rng, &mut Config)) -> SoakRun {
         let mut rng = crate::Rng::new(seed);
         let (buttons, runs) = (Arc::new(Mutex::new(Vec::new())), Arc::new(AtomicUsize::new(0)));
         let fullscreen = Arc::new(AtomicBool::new(false));
@@ -1476,6 +1476,24 @@ mod tests {
         // However far behind the engine is, at least one stroke is recorded.
         engine.record_glyph(true);
         sent += vee_frames(now_ms()).into_iter().map(|f| tx.send(f).unwrap()).count();
+        if end_with_drag {
+            // Whether the random part dragged depends on how far behind the
+            // engine was when the config changed: finish with one plain drag.
+            shared.update(|c| {
+                c.settings.enabled = true;
+                c.settings.pause_in_fullscreen = false;
+                c.settings.drag_release_ms = 0;
+                c.set_binding(Trigger::Drag(3), Action::Drag, false);
+            });
+            let t0 = now_ms() + 1_000;
+            let drag = [
+                frame(t0, 3, 0.0, 0.0),
+                frame(t0 + 10, 3, 10.0, 0.0),
+                frame(t0 + 20, 3, 20.0, 0.0),
+                frame(t0 + 30, 0, 0.0, 0.0),
+            ];
+            sent += drag.into_iter().map(|f| tx.send(f).unwrap()).count();
+        }
         drop(tx);
         engine.join();
         let buttons = buttons.lock().unwrap().clone();
@@ -1505,7 +1523,7 @@ mod tests {
     #[test]
     fn soak_config_swaps_mid_drag_never_leave_the_button_held() {
         for seed in [1, 2, 3] {
-            let run = soak(seed, 20_000, |rng, c| {
+            let run = soak(seed, 20_000, true, |rng, c| {
                 c.settings.enabled = rng.below(4) != 0;
                 c.settings.drag_release_ms = [0, 50, 350, 5_000][rng.below(4) as usize];
                 c.settings.pause_in_fullscreen = rng.below(2) == 0;
@@ -1521,7 +1539,7 @@ mod tests {
 
     #[test]
     fn soak_while_paused_never_acts() {
-        let run = soak(4, 20_000, |rng, c| {
+        let run = soak(4, 20_000, false, |rng, c| {
             c.settings.enabled = false;
             c.settings.drag_release_ms = [0, 350][rng.below(2) as usize];
             c.set_binding(Trigger::Tap(3), Action::Mute, false);
