@@ -169,6 +169,7 @@ A few rules keep them apart:
 | Switch to an app | Brings it to the front, minimises it if it's already in front, and launches it if it isn't running. | `{ type = "focus_or_launch", program = "chrome.exe" }` |
 | Run a command | Anything your shell can run (`cmd /C` on Windows, `sh -c` on Linux). | `{ type = "run", command = "…" }` |
 | Lock the screen | Locks your session. | `{ type = "lock" }` |
+| App switcher *(since 1.1.0)* | On a swipe: shows every open app (Alt+Tab), stays open while your fingers are down, slide sideways to pick one, lift to switch. On a tap or hold: one Alt+Tab, back to the last app. | `{ type = "app_switcher" }` |
 | Drag | Three-finger drag style: holds the left button while the fingers move. For drag gestures. | `{ type = "drag" }` |
 | Switch keyboard language *(since 1.0.0)* | Presses Windows' language hotkey (Left Alt+Shift, or Ctrl+Shift if set), which switches without Windows' pop-up, falling back to Win+Space; a corner notice names the language, like "Arabic" or "English". | `{ type = "keys", combo = "win+space" }` |
 | Nothing | Switches a gesture off, for example inside one app. | `{ type = "none" }` |
