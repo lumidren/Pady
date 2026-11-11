@@ -15,8 +15,13 @@
 //! consecutive frames, so a finger landing or lifting never looks like a jump.
 //!
 //! Taps are counted across sessions: when a double or triple tap is bound
-//! for a finger count, a tap waits up to `multi_tap_ms` for the next one
-//! before it is reported. With no multi-tap bound, taps fire immediately.
+//! for a finger count, a tap waits for the next one before it is reported.
+//! The wait learns how quickly this person taps again: once a few double
+//! taps have been seen it shrinks to just past the slowest recent gap
+//! (never below [`MIN_TAP_WINDOW_MS`], never above `multi_tap_ms`). With no
+//! multi-tap bound, taps fire immediately.
+
+use std::collections::VecDeque;
 
 use crate::frame::{Contact, TouchFrame};
 use crate::gesture::{Direction, Gesture, PinchDirection};
@@ -39,7 +44,7 @@ pub struct RecognizerSettings {
     /// for when one is, so a sloppy swipe can never be mistaken for one.
     pub pinch_fingers: [bool; 6],
     /// A tap starting within this long of the previous one's lift counts
-    /// towards a double or triple tap.
+    /// towards a double or triple tap: the longest the wait ever gets.
     pub multi_tap_ms: u64,
     /// Indexed by finger count: the most taps in a row that are bound (1–3).
     pub multi_tap_fingers: [u8; 6],
@@ -47,6 +52,15 @@ pub struct RecognizerSettings {
     /// they repeat every [`GLIDE_DIVISOR`]th of `swipe_step_mm` and glide.
     pub glide_fingers: [bool; 6],
 }
+
+/// The shortest a tap ever waits for the next one, however fast the taps.
+pub const MIN_TAP_WINDOW_MS: u64 = 150;
+
+/// Gaps between taps the wait learns from: the most recent this many.
+const TAP_GAPS_KEPT: usize = 8;
+
+/// Gaps seen before the wait starts to shrink.
+const TAP_GAPS_NEEDED: usize = 3;
 
 /// Gliding swipes repeat this many times as often as other swipes.
 pub const GLIDE_DIVISOR: f32 = 3.5;
@@ -129,6 +143,10 @@ pub struct Recognizer {
     span: f32,
     anchor_time: u64,
     pending_tap: Option<PendingTap>,
+    /// The last tap to finish, for measuring how soon the next one lands.
+    last_tap: Option<(u8, u64)>,
+    /// Recent gaps between a tap's lift and the next tap landing.
+    tap_gaps: VecDeque<u64>,
     /// The swipe in progress lasts until every finger lifts (see [`Recognizer::hold_swipe`]).
     held: bool,
 }
@@ -150,6 +168,8 @@ impl Recognizer {
             span: 0.0,
             anchor_time: 0,
             pending_tap: None,
+            last_tap: None,
+            tap_gaps: VecDeque::with_capacity(TAP_GAPS_KEPT),
             held: false,
         }
     }
@@ -162,6 +182,20 @@ impl Recognizer {
     /// button is never left stuck.
     pub fn set_settings(&mut self, settings: RecognizerSettings) {
         self.settings = settings;
+    }
+
+    /// How long a tap waits for the next one to land. Starts at
+    /// `multi_tap_ms`; once a few gaps between taps have been seen, it is
+    /// the slowest recent gap with a margin, so taps fire about as soon as a
+    /// second one can no longer be coming.
+    pub fn tap_window(&self) -> u64 {
+        let most = self.settings.multi_tap_ms;
+        match self.tap_gaps.iter().max() {
+            Some(&slowest) if self.tap_gaps.len() >= TAP_GAPS_NEEDED => {
+                (slowest + slowest / 4 + 40).max(MIN_TAP_WINDOW_MS).min(most)
+            }
+            _ => most,
+        }
     }
 
     pub fn is_dragging(&self) -> bool {
@@ -212,6 +246,7 @@ impl Recognizer {
     pub fn reset(&mut self) -> Vec<Gesture> {
         let out = if self.is_dragging() { vec![Gesture::DragEnd] } else { Vec::new() };
         self.pending_tap = None;
+        self.last_tap = None;
         self.held = false;
         self.phase = Phase::Idle;
         self.prev.clear();
@@ -328,7 +363,7 @@ impl Recognizer {
     pub fn tick(&mut self, now_ms: u64) -> Vec<Gesture> {
         let mut out = Vec::new();
         if let Some(p) = self.pending_tap {
-            let expired = now_ms.saturating_sub(p.lifted_at) > self.settings.multi_tap_ms;
+            let expired = now_ms.saturating_sub(p.lifted_at) > self.tap_window();
             if expired && !self.next_tap_underway(p) {
                 self.flush_tap(&mut out);
             }
@@ -361,30 +396,31 @@ impl Recognizer {
             Phase::Dragging { lifted_at: Some(at) } => Some(at.saturating_add(s.drag_release_ms)),
             _ => None,
         };
+        let window = self.tap_window();
         let tap = self
             .pending_tap
             .filter(|&p| !self.next_tap_underway(p))
-            .map(|p| p.lifted_at.saturating_add(s.multi_tap_ms).saturating_add(1));
+            .map(|p| p.lifted_at.saturating_add(window).saturating_add(1));
         timer.into_iter().chain(tap).min()
     }
 
     /// Fingers came down soon enough to be the next tap of a series, so a
     /// pending tap must wait for this session to finish.
     fn next_tap_underway(&self, p: PendingTap) -> bool {
-        self.phase != Phase::Idle && self.session_start.saturating_sub(p.lifted_at) <= self.settings.multi_tap_ms
+        self.phase != Phase::Idle && self.session_start.saturating_sub(p.lifted_at) <= self.tap_window()
     }
 
     /// A tap just finished: report it now, or hold it back while a double or
     /// triple tap is still possible.
     fn count_tap(&mut self, fingers: u8, lifted_at: u64, out: &mut Vec<Gesture>) {
         let most = self.settings.multi_tap_fingers.get(fingers as usize).copied().unwrap_or(1).clamp(1, 3);
+        if most > 1 {
+            self.learn_tap_gap(fingers);
+        }
+        self.last_tap = Some((fingers, lifted_at));
+        let window = self.tap_window();
         let count = match self.pending_tap {
-            Some(p)
-                if p.fingers == fingers
-                    && self.session_start.saturating_sub(p.lifted_at) <= self.settings.multi_tap_ms =>
-            {
-                p.count + 1
-            }
+            Some(p) if p.fingers == fingers && self.session_start.saturating_sub(p.lifted_at) <= window => p.count + 1,
             _ => {
                 self.flush_tap(out);
                 1
@@ -396,6 +432,21 @@ impl Recognizer {
         } else {
             self.pending_tap = Some(PendingTap { fingers, count, lifted_at });
         }
+    }
+
+    /// This tap landed soon after the last one with as many fingers: remember
+    /// the gap. A gap a little past the current wait counts too (the two taps
+    /// came out single), so a slower double tap widens the wait again.
+    fn learn_tap_gap(&mut self, fingers: u8) {
+        let Some((last_fingers, lifted_at)) = self.last_tap else { return };
+        let gap = self.session_start.saturating_sub(lifted_at);
+        if last_fingers != fingers || self.session_start < lifted_at || gap > self.settings.multi_tap_ms {
+            return;
+        }
+        if self.tap_gaps.len() == TAP_GAPS_KEPT {
+            self.tap_gaps.pop_front();
+        }
+        self.tap_gaps.push_back(gap);
     }
 
     /// Report a held-back tap (before anything that happens after it).
@@ -524,6 +575,9 @@ impl Recognizer {
         let quick = t.saturating_sub(self.session_start) <= s.tap_max_ms;
         if !self.fired && quick && self.max_fingers >= s.min_fingers && self.max_wander <= s.tap_slop_mm {
             self.count_tap(self.max_fingers, t, out);
+        } else {
+            // Something else happened since: the next tap starts a new series.
+            self.last_tap = None;
         }
         self.end_session();
     }
@@ -1146,6 +1200,68 @@ mod tests {
         tap(&mut s, 0);
         tap(&mut s, 100);
         assert_eq!(s.out, vec![Gesture::Tap { fingers: 3 }, Gesture::Tap { fingers: 3 }]);
+    }
+
+    #[test]
+    fn the_tap_wait_learns_how_fast_you_double_tap() {
+        let mut s = Script::new(multi_tap_settings(2));
+        assert_eq!(s.rec.tap_window(), 300, "until it has seen you tap");
+        for start in [0, 1_000, 2_000] {
+            tap(&mut s, start);
+            tap(&mut s, start + 130); // lifted at +50, next lands 80 ms later
+        }
+        assert_eq!(s.out, vec![Gesture::DoubleTap { fingers: 3 }; 3]);
+        assert_eq!(s.rec.tap_window(), MIN_TAP_WINDOW_MS, "quick tapper: the shortest wait");
+
+        s.out.clear();
+        tap(&mut s, 5_000);
+        s.tick(5_050 + MIN_TAP_WINDOW_MS);
+        assert!(s.out.is_empty(), "still inside the learned wait");
+        s.tick(5_051 + MIN_TAP_WINDOW_MS);
+        assert_eq!(s.out, vec![Gesture::Tap { fingers: 3 }], "a single tap fires after 150 ms, not 300");
+    }
+
+    #[test]
+    fn a_slower_double_tap_widens_the_wait_again() {
+        let mut s = Script::new(multi_tap_settings(2));
+        for start in [0, 1_000, 2_000] {
+            tap(&mut s, start);
+            tap(&mut s, start + 130);
+        }
+        s.out.clear();
+        // 200 ms between taps: past the 150 ms wait, so these come out single...
+        tap(&mut s, 5_000);
+        s.tick(5_210); // the engine's timer fires the first tap before the second lands
+        tap(&mut s, 5_250);
+        s.tick(6_000);
+        assert_eq!(s.out, vec![Gesture::Tap { fingers: 3 }; 2]);
+        // ...but the wait now covers a 200 ms gap.
+        assert_eq!(s.rec.tap_window(), 200 + 50 + 40);
+        s.out.clear();
+        tap(&mut s, 8_000);
+        tap(&mut s, 8_250);
+        assert_eq!(s.out, vec![Gesture::DoubleTap { fingers: 3 }]);
+    }
+
+    #[test]
+    fn the_tap_wait_never_passes_the_setting() {
+        let mut s = Script::new(multi_tap_settings(2));
+        for start in [0, 1_000, 2_000] {
+            tap(&mut s, start);
+            tap(&mut s, start + 330); // 280 ms gaps
+        }
+        assert_eq!(s.rec.tap_window(), 300);
+    }
+
+    #[test]
+    fn a_swipe_between_taps_is_not_a_gap() {
+        let mut s = Script::new(multi_tap_settings(2));
+        tap(&mut s, 0);
+        s.frame(100, 3, 0.0, 0.0).frame(110, 3, 0.0, -12.0).lift(120);
+        tap(&mut s, 140);
+        tap(&mut s, 1_000);
+        tap(&mut s, 2_000);
+        assert_eq!(s.rec.tap_window(), 300, "no gaps learned from taps that were far apart or split by a swipe");
     }
 
     #[test]
