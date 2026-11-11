@@ -411,11 +411,12 @@ impl ClipboardChange {
     }
 }
 
-/// The window in front and its keyboard layout (an HKL), if there is one.
-/// The window in front and the keyboard layout of whatever has the keyboard
-/// in it. That's often not the window's own thread: in a window that hosts a
-/// browser view (Pady's own, many apps), typing goes to the view's process,
-/// and only its layout changes when the language is switched.
+/// Where the keyboard is (the window in front and the thread with the focus
+/// in it) and that thread's keyboard layout (an HKL). The thread is often not
+/// the window's own: in a window that hosts a browser view (Pady's own, many
+/// apps), typing goes to the view's process, and only its layout changes when
+/// the language is switched. Parts of one window can have different layouts,
+/// so focus moving between them must not look like a switch.
 fn foreground_layout() -> Option<(isize, isize)> {
     unsafe {
         let front = GetForegroundWindow();
@@ -431,12 +432,14 @@ fn foreground_layout() -> Option<(isize, isize)> {
             }
         }
         let layout = GetKeyboardLayout(thread);
-        (thread != 0 && !layout.is_invalid()).then_some((front.0 as isize, layout.0 as isize))
+        let place = (front.0 as isize).wrapping_mul(31) ^ thread as isize;
+        (thread != 0 && !layout.is_invalid()).then_some((place, layout.0 as isize))
     }
 }
 
 /// Decides when a keyboard layout seen in front is a switch worth naming.
-/// It remembers each window's layout: a window whose layout differs from last
+/// It remembers the layout of each place the keyboard has been (a window and
+/// the thread with the focus in it): a place whose layout differs from last
 /// time was switched (even if something else was briefly in front). It also
 /// remembers the layout last in front, so with one language for all apps
 /// (Windows' default) moving to an app that just caught up says nothing.
@@ -971,6 +974,23 @@ mod tests {
             assert_eq!(w.see(2, EN), None);
         }
         assert_eq!(w.see(2, AR), Some(AR), "a real switch in app 2");
+    }
+
+    #[test]
+    fn focus_moving_inside_a_window_is_not_a_switch() {
+        const EN: isize = 0x0409_0409;
+        const AR: isize = 0x0C01_0C01;
+        let mut w = LanguageWatch::default();
+        // A browser window: its address bar (one thread) in English, the page's
+        // own process in Arabic. Clicking back and forth says nothing.
+        let (bar, page) = (100 * 31 ^ 7, 100 * 31 ^ 8);
+        w.see(bar, EN);
+        w.see(page, AR);
+        for _ in 0..3 {
+            assert_eq!(w.see(bar, EN), None);
+            assert_eq!(w.see(page, AR), None);
+        }
+        assert_eq!(w.see(page, EN), Some(EN), "a real switch in the page");
     }
 
     #[test]
