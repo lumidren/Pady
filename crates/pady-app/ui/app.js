@@ -3656,6 +3656,7 @@
       // Everything comes from get_state: the window is rebuilt from scratch each time it opens.
       const state = await call('get_state', null, { errorTitle: 'Couldn’t load Pady’s state' });
       store.app = state;
+      M.setGlyphs(state.config); // the cards draw saved glyphs from here
       syncGlyphsPage();
       renderShell();
       $('#boot').remove();
