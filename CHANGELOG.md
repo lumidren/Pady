@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.1 (2026-11-12)
+
+Faster gestures and a quieter language notice.
+
+### Performance
+
+- **Actions go out first.** Pady used to update its stats, notices and window before running a gesture's action; now the action runs first and the rest follows. On a test where that work takes 5 ms, a gesture reached its action in 0.07 ms instead of 5.5 ms.
+- **Taps learn your pace.** When a finger count has a double or triple tap too, a single tap waits for a possible second one. That wait now learns how quickly you tap again: after a few double taps it shrinks to just past your slowest recent gap (150 ms at the least, never more than Settings › Double-tap speed). A slower double tap that came out as two single taps widens it again.
+- **App profiles cost less per gesture.** The app in front is remembered while its window stays in front, instead of being looked up for every gesture and every volume or brightness step.
+
+### Fixed
+
+- **The keyboard language notice no longer shows up by itself.** Clicking between apps, or between parts of one window (a browser's address bar and its page), could look like a language switch, and so could an app setting its own language while nobody was typing. Only a real switch is named now.
+
 ## 1.1.0 (2026-11-09)
 
 Pick any open app with one slide.
