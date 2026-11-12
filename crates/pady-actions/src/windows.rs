@@ -833,8 +833,26 @@ fn ask_shell_fullscreen(hwnd: isize) -> bool {
 /// Executable of the window in front, e.g. `chrome.exe`. Needs no COM, so
 /// any thread may call it.
 pub fn foreground_app() -> Option<String> {
+    // Opening the process to read its name is the slow part, and with app
+    // profiles it is asked for every gesture (every step of a volume glide),
+    // so the last answer is kept for as long as the same window of the same
+    // process is in front.
+    static LAST: Mutex<Option<(isize, u32, String)>> = Mutex::new(None);
     let hwnd = unsafe { GetForegroundWindow() };
-    (!hwnd.0.is_null()).then(|| process_exe(hwnd)).flatten()
+    if hwnd.0.is_null() {
+        return None;
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((window, process, name)) = last.as_ref() {
+        if *window == hwnd.0 as isize && *process == pid && pid != 0 {
+            return Some(name.clone());
+        }
+    }
+    let name = process_exe(hwnd)?;
+    *last = Some((hwnd.0 as isize, pid, name.clone()));
+    Some(name)
 }
 
 /// Windows can keep reporting a full-screen Direct3D app after waking from
