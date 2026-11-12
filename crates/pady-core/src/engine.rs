@@ -444,15 +444,23 @@ impl ActionLoop {
         let glides = matches!(gesture, Gesture::Swipe { fingers, .. }
             if self.config.glide_fingers().get(fingers as usize).copied().unwrap_or(false));
         let action = action.map(|a| if glides && a.is_level() { a.glide_step() } else { a });
-        (self.observer)(EngineEvent::Gesture {
+        // What the app hears about (stats, notices, the window) waits until the
+        // action has gone out: it never adds to a gesture's delay.
+        let heard = EngineEvent::Gesture {
             gesture,
             trigger: Some(trigger.to_string()),
             action: action.as_ref().map(Action::label),
             profile,
-        });
+        };
+        self.run_action(action, gesture);
+        (self.observer)(heard);
+    }
+
+    fn run_action(&mut self, action: Option<Action>, gesture: Gesture) {
         match (action, gesture) {
             (Some(Action::AppSwitcher), Gesture::Swipe { fingers, direction, step: 0 }) => {
                 self.close_switcher();
+                let glides = self.config.glide_fingers().get(fingers as usize).copied().unwrap_or(false);
                 let size = self.config.settings.swipe_step_mm.max(1.0) / if glides { GLIDE_DIVISOR } else { 1.0 };
                 let every = (SWITCHER_STEP_MM / size).round().max(1.0) as i32;
                 let result = self.exec.switcher(SwitcherStep::Open);
@@ -639,9 +647,12 @@ impl EngineLoop {
         // through, so a stroke never carries over from before.
         let strokes_wanted = !self.matcher.is_empty() || self.recording.load(Ordering::Relaxed);
         let stroke = if strokes_wanted || frame.contacts.is_empty() { self.strokes.update(&frame) } else { None };
-        (self.observer)(EngineEvent::Frame(frame));
-        self.report_progress(&gestures);
+        // Gestures go to the action thread first; drawing (touches, the swipe
+        // glow) happens while their actions run.
+        let fired = gestures.iter().any(|g| matches!(g, Gesture::Swipe { step: 0, .. }));
         self.dispatch(gestures, t);
+        (self.observer)(EngineEvent::Frame(frame));
+        self.report_progress(fired);
         if let Some(path) = stroke {
             self.on_stroke(&path, t);
         }
@@ -669,7 +680,7 @@ impl EngineLoop {
     }
 
     /// Tells observers how far a swipe has come, and when it fires or is let go.
-    fn report_progress(&mut self, gestures: &[Gesture]) {
+    fn report_progress(&mut self, fired: bool) {
         let now = if self.config.settings.enabled { self.recognizer.swipe_progress() } else { None };
         match (self.progress, now) {
             (_, Some(p)) => {
@@ -685,7 +696,6 @@ impl EngineLoop {
                 }
             }
             (Some(_), None) => {
-                let fired = gestures.iter().any(|g| matches!(g, Gesture::Swipe { step: 0, .. }));
                 (self.observer)(EngineEvent::SwipeEnded { fired });
                 self.progress = None;
             }
@@ -825,6 +835,93 @@ mod tests {
 
     fn tap3() -> Vec<TouchFrame> {
         vec![frame(0, 3, 0.0, 0.0), frame(60, 0, 0.0, 0.0)]
+    }
+
+    #[test]
+    fn the_action_goes_out_before_the_app_hears_of_the_gesture() {
+        let mut cfg = Config::default();
+        cfg.bindings.clear();
+        cfg.set_binding(Trigger::Tap(3), Action::Keys { combo: "ctrl+c".into() }, false);
+        let jobs = Arc::new(Mutex::new(Vec::new()));
+        let ran_first = Arc::new(Mutex::new(Vec::new()));
+        let (rec, seen, log) = (jobs.clone(), jobs.clone(), ran_first.clone());
+        let (tx, rx) = unbounded();
+        let engine = Engine::spawn(
+            Arc::new(SharedConfig::new(cfg)),
+            rx,
+            move || Box::new(Recorder { jobs: rec, app: None, fullscreen: false }),
+            Arc::new(move |e| {
+                if let EngineEvent::Gesture { .. } = e {
+                    log.lock().unwrap().push(!seen.lock().unwrap().is_empty());
+                }
+            }),
+        );
+        for f in tap3() {
+            tx.send(f).unwrap();
+        }
+        drop(tx);
+        engine.join();
+        assert_eq!(*ran_first.lock().unwrap(), vec![true], "the keys were sent before the app was told");
+    }
+
+    /// How long from the frame that completes a gesture to its action
+    /// running, with an app that takes 5 ms over each gesture it hears of:
+    /// `cargo test -p pady-core --release gesture_latency -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn gesture_latency() {
+        use std::time::Instant;
+        struct Clock(Arc<Mutex<Vec<Instant>>>);
+        impl Executor for Clock {
+            fn run(&mut self, _: &Action) -> Result<Option<Level>, ActionError> {
+                self.0.lock().unwrap().push(Instant::now());
+                Ok(None)
+            }
+            fn mouse_button(&mut self, _: bool) -> Result<(), ActionError> {
+                Ok(())
+            }
+            fn mouse_move(&mut self, _: i32, _: i32) -> Result<(), ActionError> {
+                Ok(())
+            }
+            fn foreground_app(&mut self) -> Option<String> {
+                None
+            }
+        }
+        let mut cfg = Config::default();
+        cfg.bindings.clear();
+        cfg.set_binding(Trigger::Swipe(3, Direction::Up), Action::Keys { combo: "ctrl+c".into() }, false);
+        let ran = Arc::new(Mutex::new(Vec::new()));
+        let clock = ran.clone();
+        let (tx, rx) = unbounded();
+        let engine = Engine::spawn(
+            Arc::new(SharedConfig::new(cfg)),
+            rx,
+            move || Box::new(Clock(clock)),
+            Arc::new(|e| {
+                if let EngineEvent::Gesture { .. } = e {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }),
+        );
+        let mut waits = Vec::new();
+        for i in 0..200u64 {
+            let t = 10_000 + i * 1_000;
+            tx.send(frame(t, 3, 0.0, 0.0)).unwrap();
+            tx.send(frame(t + 10, 3, 0.0, -5.0)).unwrap();
+            std::thread::sleep(Duration::from_millis(2));
+            let sent = Instant::now();
+            tx.send(frame(t + 20, 3, 0.0, -12.0)).unwrap(); // past the threshold: fires
+            while ran.lock().unwrap().len() <= i as usize {
+                std::hint::spin_loop();
+            }
+            waits.push(ran.lock().unwrap()[i as usize] - sent);
+            tx.send(frame(t + 30, 0, 0.0, 0.0)).unwrap();
+            std::thread::sleep(Duration::from_millis(8));
+        }
+        drop(tx);
+        engine.join();
+        waits.sort();
+        println!("gesture to action: median {:?}, slowest {:?}", waits[100], waits[199]);
     }
 
     #[test]
