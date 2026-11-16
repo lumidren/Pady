@@ -1,0 +1,12 @@
+# Build settings for every `cargo` and `tauri build` run in this repository.
+
+# Control Flow Guard for the Windows programs. Windows then checks each
+# indirect call (a function pointer, a callback, a trait object) against the
+# list of real function starts and stops the program if it points anywhere
+# else, so a memory bug in the code that talks to Windows directly can't be
+# turned into a jump to an attacker's choice of address. Rust leaves it off
+# unless asked; address space layout randomization and data execution
+# prevention are on by default. security/tests/binary_hardening.rs checks
+# the result.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "control-flow-guard"]
