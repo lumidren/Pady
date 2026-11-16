@@ -2701,6 +2701,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pady-security"
+version = "1.1.1"
+dependencies = [
+ "crossbeam-channel",
+ "log",
+ "pady-actions",
+ "pady-core",
+ "pady-input",
+ "serde_json",
+ "toml 0.8.23",
+ "windows 0.58.0",
+]
+
+[[package]]
 name = "pango"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
