@@ -112,6 +112,17 @@ impl Action {
         }
     }
 
+    /// `times` of this level change in one: `volume +2%` three times is
+    /// `volume +6%`. Other actions come back unchanged.
+    pub fn times(&self, times: u32) -> Action {
+        let sum = |step: i32| (i64::from(step) * i64::from(times)).clamp(-100, 100) as i32;
+        match *self {
+            Action::Volume { step } => Action::Volume { step: sum(step) },
+            Action::Brightness { step } => Action::Brightness { step: sum(step) },
+            ref other => other.clone(),
+        }
+    }
+
     pub fn is_none(&self) -> bool {
         matches!(self, Action::None)
     }
@@ -230,6 +241,15 @@ mod tests {
             assert_eq!(plain.log_label(), plain.label());
             assert_eq!(plain.redact("some error"), "some error");
         }
+    }
+
+    #[test]
+    fn level_changes_add_up_and_stay_in_range() {
+        assert_eq!(Action::Volume { step: 2 }.times(3), Action::Volume { step: 6 });
+        assert_eq!(Action::Brightness { step: -2 }.times(10), Action::Brightness { step: -20 });
+        assert_eq!(Action::Volume { step: 2 }.times(8_000), Action::Volume { step: 100 });
+        assert_eq!(Action::Volume { step: -100 }.times(u32::MAX), Action::Volume { step: -100 });
+        assert_eq!(Action::Mute.times(5), Action::Mute);
     }
 
     #[test]

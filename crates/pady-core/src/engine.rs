@@ -17,6 +17,7 @@ use crate::recognizer::{Recognizer, SwipeProgress, GLIDE_DIVISOR};
 use crate::trigger::Trigger;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use serde::Serialize;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -358,10 +359,25 @@ impl ActionLoop {
     }
 
     fn run(mut self, jobs: Receiver<Job>) {
-        for job in jobs {
+        // Jobs that arrived while the last one ran. When there are any, this
+        // thread is behind, and the repeat steps of one swipe waiting in a
+        // row are taken together (see `take_repeats`).
+        let mut waiting: VecDeque<Job> = VecDeque::new();
+        loop {
+            let job = match waiting.pop_front() {
+                Some(job) => job,
+                None => match jobs.recv() {
+                    Ok(job) => job,
+                    Err(_) => break,
+                },
+            };
+            waiting.extend(jobs.try_iter());
             match job {
                 Job::Run(action) => self.execute(&action),
-                Job::Fire { gesture, trigger } => self.fire(gesture, trigger),
+                Job::Fire { gesture, trigger } => {
+                    let times = 1 + take_repeats(&mut waiting, gesture, trigger);
+                    self.fire(gesture, trigger, times)
+                }
                 Job::MouseButton(true) => {
                     self.refresh_config();
                     if self.paused() {
@@ -402,18 +418,23 @@ impl ActionLoop {
         }
     }
 
-    fn fire(&mut self, gesture: Gesture, trigger: Trigger) {
+    /// A gesture fired `times` in a row (more than once only for the repeat
+    /// steps of a swipe or pinch that queued up while this thread was busy).
+    fn fire(&mut self, gesture: Gesture, trigger: Trigger, times: u32) {
         self.refresh_config();
-        if let (Some(open), Gesture::Swipe { fingers, direction, step }) = (self.switcher.as_mut(), gesture) {
-            if fingers == open.fingers && step > 0 {
+        if let (Some(_), Gesture::Swipe { fingers, direction, step }) = (self.switcher, gesture) {
+            if self.switcher.is_some_and(|open| fingers == open.fingers) && step > 0 {
                 // Steps of the swipe holding the switcher open move through it,
                 // whatever the other direction is bound to.
-                open.pending += if direction == open.forward { 1 } else { -1 };
-                if open.pending.abs() >= open.every {
-                    let next = open.pending > 0;
-                    open.pending = 0;
-                    let result = self.exec.switcher(if next { SwitcherStep::Next } else { SwitcherStep::Previous });
-                    self.report("App switcher", result);
+                for _ in 0..times {
+                    let Some(open) = self.switcher.as_mut() else { break };
+                    open.pending += if direction == open.forward { 1 } else { -1 };
+                    if open.pending.abs() >= open.every {
+                        let next = open.pending > 0;
+                        open.pending = 0;
+                        let result = self.exec.switcher(if next { SwitcherStep::Next } else { SwitcherStep::Previous });
+                        self.report("App switcher", result);
+                    }
                 }
                 return;
             }
@@ -440,6 +461,15 @@ impl ActionLoop {
         let glides = matches!(gesture, Gesture::Swipe { fingers, .. }
             if self.config.glide_fingers().get(fingers as usize).copied().unwrap_or(false));
         let action = action.map(|a| if glides && a.is_level() { a.glide_step() } else { a });
+        // Several steps of a level (volume, brightness) at once are one
+        // change of their sum: ten "+2%" that queued up behind a slow step
+        // are a single "+20%", not ten more slow steps that keep the level
+        // moving after the fingers have lifted. Anything else runs once per
+        // step, as it always did.
+        let (action, runs) = match action {
+            Some(level) if times > 1 && level.is_level() => (Some(level.times(times)), 1),
+            other => (other, times),
+        };
         // What the app hears about (stats, notices, the window) waits until the
         // action has gone out: it never adds to a gesture's delay.
         let heard = EngineEvent::Gesture {
@@ -448,6 +478,9 @@ impl ActionLoop {
             action: action.as_ref().map(Action::label),
             profile,
         };
+        for _ in 1..runs {
+            self.run_action(action.clone(), gesture);
+        }
         self.run_action(action, gesture);
         (self.observer)(heard);
     }
@@ -502,6 +535,22 @@ impl ActionLoop {
             (self.observer)(EngineEvent::ActionFailed { action: label.to_string(), error: e.to_string() });
         }
     }
+}
+
+/// Takes the repeat steps of the same swipe or pinch that wait at the front
+/// of the queue, returning how many there were. Only steps in a row are
+/// taken, so nothing overtakes anything else.
+fn take_repeats(waiting: &mut VecDeque<Job>, gesture: Gesture, trigger: Trigger) -> u32 {
+    let is_step = |g: &Gesture| matches!(g, Gesture::Swipe { step, .. } | Gesture::Pinch { step, .. } if *step > 0);
+    if !is_step(&gesture) {
+        return 0;
+    }
+    let mut taken = 0;
+    while matches!(waiting.front(), Some(Job::Fire { gesture: g, trigger: t }) if *t == trigger && is_step(g)) {
+        waiting.pop_front();
+        taken += 1;
+    }
+    taken
 }
 
 /// Converts finger travel (mm) to cursor pixels, keeping sub-pixel remainders
@@ -942,10 +991,45 @@ mod tests {
                 frame(50, 0, 0.0, 0.0),
             ],
         );
-        // Volume swipes glide: 2% every step_mm / 3.5 (14.1 mm = 7 steps after the first).
-        assert_eq!(jobs, vec![Job::Run(Action::Volume { step: 2 }); 8]);
+        // Volume swipes glide: 2% every step_mm / 3.5 (14.1 mm = 7 steps after
+        // the first), so +16% in all. Steps that queue up while an earlier one
+        // runs are taken together, so how many changes that is depends on timing.
+        let steps: Vec<i32> = jobs
+            .iter()
+            .map(|j| match j {
+                Job::Run(Action::Volume { step }) => *step,
+                other => panic!("not a volume change: {other:?}"),
+            })
+            .collect();
+        assert_eq!(steps.iter().sum::<i32>(), 16, "{steps:?}");
+        assert_eq!(steps[0], 2, "the swipe firing is one step by itself");
+        assert!(steps.iter().all(|s| *s > 0 && s % 2 == 0), "{steps:?}");
         let levels: Vec<_> = events.iter().filter(|e| matches!(e, EngineEvent::Level(_))).collect();
-        assert_eq!(levels.len(), 8, "every volume change reports its level for the overlay");
+        assert_eq!(levels.len(), steps.len(), "every volume change reports its level for the overlay");
+    }
+
+    #[test]
+    fn queued_repeat_steps_are_taken_together_only_in_a_row() {
+        let up = Trigger::Swipe(3, Direction::Up);
+        let step =
+            |n| Job::Fire { gesture: Gesture::Swipe { fingers: 3, direction: Direction::Up, step: n }, trigger: up };
+        let first = Gesture::Swipe { fingers: 3, direction: Direction::Up, step: 0 };
+        let later = Gesture::Swipe { fingers: 3, direction: Direction::Up, step: 1 };
+
+        let mut waiting: VecDeque<Job> = [step(2), step(3), Job::SwipeDone, step(4)].into();
+        assert_eq!(take_repeats(&mut waiting, first, up), 0, "the swipe firing is never merged");
+        assert_eq!(take_repeats(&mut waiting, later, up), 2, "the two steps in a row");
+        assert_eq!(waiting.len(), 2, "what comes after something else keeps its place");
+
+        // Another swipe's steps, a new swipe (step 0) and other jobs are left alone.
+        let down = Trigger::Swipe(3, Direction::Down);
+        let mut waiting: VecDeque<Job> = [Job::Fire { gesture: later, trigger: down }, step(2)].into();
+        assert_eq!(take_repeats(&mut waiting, later, up), 0);
+        let mut waiting: VecDeque<Job> = [step(0), step(1)].into();
+        assert_eq!(take_repeats(&mut waiting, later, up), 0);
+        let tap = Gesture::Tap { fingers: 3 };
+        let mut waiting: VecDeque<Job> = [Job::Fire { gesture: tap, trigger: Trigger::Tap(3) }].into();
+        assert_eq!(take_repeats(&mut waiting, tap, Trigger::Tap(3)), 0, "taps are never merged");
     }
 
     #[test]
