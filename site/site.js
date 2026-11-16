@@ -1,3 +1,12 @@
+// What GitHub's API says about the latest release is data, never markup: it
+// is put on the page as text, and a link from it is used only if it points
+// at this project's releases (anything else, a `javascript:` address
+// included, becomes a link to the releases page).
+const RELEASES = 'https://github.com/lumidren/Pady/releases/';
+function safeLink(url) {
+  return typeof url === 'string' && url.startsWith(RELEASES) ? url : RELEASES;
+}
+
 // Points the download buttons at the right file of the latest release for
 // this visitor's system. Without the GitHub API (offline, rate limited) the
 // buttons keep their link to the releases page.
@@ -9,7 +18,13 @@
   const linuxFlavor = /Fedora|Red Hat|openSUSE|SUSE/i.test(ua) ? 'rpm' : 'deb';
 
   const mb = (bytes) => (bytes / 1048576).toFixed(1) + ' MB';
-  const link = (asset, text) => `<a href="${asset.browser_download_url}">${text}</a>`;
+  const link = (url, text) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.textContent = text;
+    return a;
+  };
+  const fileLink = (asset, text) => link(safeLink(asset.browser_download_url), text);
 
   fetch(`https://api.github.com/repos/${REPO}/releases/latest`)
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
@@ -25,21 +40,23 @@
       const which = Object.keys(files).find((k) => files[k] === main);
 
       if (main) {
-        for (const id of ['dl-main', 'dl-final']) document.getElementById(id).href = main.browser_download_url;
+        for (const id of ['dl-main', 'dl-final']) document.getElementById(id).href = safeLink(main.browser_download_url);
         document.getElementById('dl-label').textContent = `Download for ${label[which]}`;
         document.getElementById('dl-meta').textContent = `${version} · ${mb(main.size)}`;
       } else {
         document.getElementById('dl-meta').textContent = `${version} · for Windows and Linux`;
       }
       const others = [
-        files.setup && files.setup !== main && link(files.setup, 'Windows'),
-        files.msi && link(files.msi, 'Windows MSI'),
-        files.deb && files.deb !== main && link(files.deb, '.deb'),
-        files.rpm && files.rpm !== main && link(files.rpm, '.rpm'),
-        files.appimage && files.appimage !== main && link(files.appimage, 'AppImage'),
+        files.setup && files.setup !== main && fileLink(files.setup, 'Windows'),
+        files.msi && fileLink(files.msi, 'Windows MSI'),
+        files.deb && files.deb !== main && fileLink(files.deb, '.deb'),
+        files.rpm && files.rpm !== main && fileLink(files.rpm, '.rpm'),
+        files.appimage && files.appimage !== main && fileLink(files.appimage, 'AppImage'),
       ].filter(Boolean);
-      document.getElementById('dl-others').innerHTML =
-        'Also for ' + others.join(' · ') + ` · <a href="${release.html_url}">release notes</a>`;
+      const notes = link(safeLink(release.html_url), 'release notes');
+      const line = document.getElementById('dl-others');
+      line.replaceChildren('Also for ');
+      [...others, notes].forEach((a, i) => line.append(i ? ' · ' : '', a));
     })
     .catch(() => {});
 })();
@@ -75,12 +92,17 @@
       for (const a of document.querySelectorAll('.dl-file[data-asset]')) {
         const asset = release.assets.find((x) => patterns[a.dataset.asset].test(x.name));
         if (!asset) continue;
-        a.href = asset.browser_download_url;
+        a.href = safeLink(asset.browser_download_url);
         if (a.classList.contains('btn')) {
           const size = (asset.size / 1048576).toFixed(1) + ' MB';
-          const small = a.querySelector('small');
-          if (small) small.textContent += ' · ' + size;
-          else a.insertAdjacentHTML('beforeend', `<small>${asset.name} · ${size}</small>`);
+          let small = a.querySelector('small');
+          if (small) {
+            small.textContent += ' · ' + size;
+          } else {
+            small = document.createElement('small');
+            small.textContent = `${asset.name} · ${size}`;
+            a.append(small);
+          }
         }
       }
       document.getElementById('dl-version').textContent =
