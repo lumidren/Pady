@@ -173,10 +173,10 @@ The three runs at 200 profiles measured 65, 75 and 126 µs after, and 303 and 29
 
 ## The regression gate
 
-CI runs `security/tests/perf_regression.rs` on every push and fails when:
+`security/tests/perf_regression.rs` runs in CI on every push, and on the reference machine before a release. It fails when:
 
 - heap allocations per 1,000 frames, for any kind of gesture, are more than 20% over `security/perf-baseline.json` (pointing, scrolling, taps and the profile lookup must stay at exactly zero);
-- time per frame is more than 50% over the baseline on CI, or 20% on the machine the baseline was recorded on. Time is measured relative to a fixed piece of arithmetic timed in the same run, so a slower machine doesn't fail; but different processor models still shift that ratio by up to about 20% with no code change (measured on GitHub's runners), which is why CI's limit is wider.
+- on the machine the baseline was recorded on: time per frame is more than 20% over the baseline. Time is measured relative to a fixed piece of arithmetic timed in the same run. CI prints these timings but doesn't fail on them: GitHub's machines differ in processor and operating system, and the same code measured from 13% under to 64% over the baseline there, so any limit that never failed at random would catch nothing. The check is part of the release steps instead (`RELEASING.md`).
 
 | Baseline (after) | Allocations per 1,000 frames | Time per frame, in yardsticks |
 |---|---|---|

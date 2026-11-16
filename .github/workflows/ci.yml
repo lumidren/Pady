@@ -40,10 +40,11 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
-      # Fails if allocations per frame are over 20% worse than
-      # security/perf-baseline.json, or time per frame (relative to a
-      # yardstick timed in the same run) over 50% worse: these machines'
-      # processors vary too much for a tighter time limit.
+      # Fails if allocations per frame (counted exactly) are over 20% worse
+      # than security/perf-baseline.json. Time per frame is printed but not
+      # enforced here: these machines' processors differ too much from the
+      # one the baseline was recorded on. Run the same command there before
+      # a release (RELEASING.md).
       - name: Performance regression check
         run: cargo test --release -p pady-security --test perf_regression -- --nocapture
       - name: Check that every script parses

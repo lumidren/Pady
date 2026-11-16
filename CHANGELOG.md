@@ -29,7 +29,7 @@ Safer and steadier: the fixes from a security and performance assessment of 1.1.
 
 - **Volume and brightness stop when your fingers do.** Steps of a repeating swipe that queue up behind a slow one now run as a single change of their sum. With a 5 ms step, a fast 400 mm swipe went from 195 calls over 1.07 s to 2 calls in 11 ms. A slow swipe still moves step by step.
 - **Profile lookup is 4 times faster** (75 µs instead of 303 µs with 200 profiles) and allocates nothing.
-- **CI fails when performance slips**: allocations per frame more than 20% over a recorded baseline, or time per frame more than 50% over it (20% on the machine the baseline was recorded on; CI's processors vary too much for less). Load, spike and 30-minute soak results are in [docs/benchmarks.md](docs/benchmarks.md).
+- **A performance gate**: CI fails when allocations per frame are more than 20% over a recorded baseline. Time per frame is held to 20% on the machine the baseline was recorded on, as a step before each release. Load, spike and 30-minute soak results are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## 1.1.1 (2026-11-12)
 

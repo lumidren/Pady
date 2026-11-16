@@ -1,5 +1,9 @@
 # Releasing Pady
 
+0. On the machine `security/perf-baseline.json` was recorded on, check that nothing got slower. CI checks allocations on every push, but only this run holds time per frame to the 20% limit:
+   ```bash
+   cargo test --release -p pady-security --test perf_regression -- --nocapture
+   ```
 1. Update `version` in the root `Cargo.toml`. The app, the installers and the CLI all read it from there.
 2. Move the **Unreleased** notes in `CHANGELOG.md` under the new version.
 3. Commit, then tag and push:

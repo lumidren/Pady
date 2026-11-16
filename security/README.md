@@ -26,7 +26,7 @@ That's the whole suite: under a minute. Tests only touch throwaway folders under
 | `tests/updater_config.rs` | The updater's endpoints, key and checks | sound; kept that way |
 | `tests/privacy.rs` | Reading the clipboard or keyboard; new network code | sound; kept that way |
 | `tests/leaks.rs` | Handle and memory leaks over 20,000 rounds and a million frames | sound; kept that way |
-| `tests/perf_regression.rs` | Allocations per frame over 20% worse than `perf-baseline.json`, or time per frame over 50% (20% on the reference machine) | see `docs/benchmarks.md` |
+| `tests/perf_regression.rs` | Allocations per frame over 20% worse than `perf-baseline.json` (everywhere), or time per frame over 20% (on the reference machine) | see `docs/benchmarks.md` |
 
 The findings are written up in [REPORT.md](REPORT.md), and what the tests defend against in [THREAT-MODEL.md](THREAT-MODEL.md).
 
@@ -44,7 +44,7 @@ PADY_SOAK_MINUTES=30 cargo bench -p pady-security     # plus a 30-minute soak
 `tests/perf_regression.rs` compares against `perf-baseline.json`:
 
 - heap allocations per 1,000 frames, counted exactly (in every build);
-- time per frame relative to a fixed piece of arithmetic timed in the same run (release builds only). The limit is 20% on the machine the baseline was recorded on and 50% on CI, whose processors shift that ratio by themselves.
+- time per frame relative to a fixed piece of arithmetic timed in the same run (release builds only). The 20% limit is enforced on the machine the baseline was recorded on. CI prints the timings without enforcing them: on GitHub's machines the same code measured from 13% under to 64% over the baseline. Run it locally before a release (`RELEASING.md`).
 
 After a deliberate change to these numbers, record a new baseline on a quiet machine and commit it:
 
