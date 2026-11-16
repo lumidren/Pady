@@ -14,7 +14,11 @@
 //! * **Time per frame**, relative to a fixed piece of arithmetic timed in the
 //!   same run. The ratio, not the nanoseconds, is compared, so a slower
 //!   machine doesn't fail the test. Only in release builds: unoptimised
-//!   timings say little about what ships.
+//!   timings say little about what ships. On the machine the baseline was
+//!   recorded on the limit is 20% too. On CI's shared machines it is 50%:
+//!   different processor models shift the ratio by themselves (one GitHub
+//!   runner measured scrolling 22% over the baseline with no code change),
+//!   so a tighter limit there fails builds at random.
 
 use pady_core::{Action, Config, Contact, Direction, Profile, Recognizer, TouchFrame, Trigger};
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -59,6 +63,9 @@ static GLOBAL: Counting = Counting;
 
 /// How much worse than the baseline a number may get.
 const ALLOWED: f64 = 1.20;
+/// The same for timings on CI's machines, whose processors differ from the
+/// one the baseline was recorded on (see the note at the top).
+const ALLOWED_TIME_ON_CI: f64 = 1.50;
 
 fn frame(t: u64, fingers: u32, x: f32, y: f32) -> TouchFrame {
     let contacts = (0..fingers).map(|i| Contact { id: i, x: 20.0 + x + 12.0 * i as f32, y: 30.0 + y }).collect();
@@ -235,13 +242,14 @@ fn performance_has_not_regressed() {
             worse.push(format!("{name}: {now:.1} allocations per 1,000 frames, was {was:.1}"));
         }
     }
+    let allowed_time = if std::env::var_os("CI").is_some() { ALLOWED_TIME_ON_CI } else { ALLOWED };
     for (name, now) in &ratios {
         let was = baseline["time_in_yardsticks"][name].as_f64().unwrap_or_else(|| panic!("no baseline for {name}"));
-        if *now > was * ALLOWED {
+        if *now > was * allowed_time {
             worse.push(format!("{name}: {:.0}% slower ({now:.3} yardsticks, was {was:.3})", (now / was - 1.0) * 100.0));
         }
     }
-    assert!(worse.is_empty(), "more than 20% worse than security/perf-baseline.json:\n  {}", worse.join("\n  "));
+    assert!(worse.is_empty(), "worse than security/perf-baseline.json allows:\n  {}", worse.join("\n  "));
 }
 
 /// The numbers the README promises, whatever the baseline says.
