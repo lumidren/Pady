@@ -24,7 +24,7 @@ use pady_core::{Action, Config, Contact, Direction, Profile, Recognizer, TouchFr
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Counts heap allocations per thread, so tests running side by side don't
 /// count each other's.
@@ -139,72 +139,71 @@ fn lookup_allocations(cfg: &Config) -> f64 {
     (allocated() - before) as f64
 }
 
-/// A fixed piece of arithmetic, the yardstick the timings are divided by.
-/// Returns its best time per round, in seconds.
+/// A fixed piece of arithmetic, the yardstick the timings are divided by:
+/// one timing of it, in seconds per round.
 fn yardstick() -> f64 {
-    let mut best = Duration::MAX;
-    for _ in 0..15 {
-        let start = Instant::now();
-        let (mut seed, mut sum) = (0x2545_F491_4F6C_DD1Du64, 0f32);
-        for _ in 0..200_000 {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            let (x, y) = ((seed & 0xFFFF) as f32 / 655.0, ((seed >> 16) & 0xFFFF) as f32 / 655.0);
-            sum += x.hypot(y).min(80.0) - (x - y).abs();
-        }
-        std::hint::black_box(sum);
-        best = best.min(start.elapsed());
+    let start = Instant::now();
+    let (mut seed, mut sum) = (0x2545_F491_4F6C_DD1Du64, 0f32);
+    for _ in 0..200_000 {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        let (x, y) = ((seed & 0xFFFF) as f32 / 655.0, ((seed >> 16) & 0xFFFF) as f32 / 655.0);
+        sum += x.hypot(y).min(80.0) - (x - y).abs();
     }
-    best.as_secs_f64() / 200_000.0
+    std::hint::black_box(sum);
+    start.elapsed().as_secs_f64() / 200_000.0
 }
 
-/// Best time per frame over many passes: the minimum is what the code costs
-/// when nothing else gets in the way.
-fn time_per_frame(frames: &[TouchFrame]) -> f64 {
-    let settings = config().recognizer_settings();
-    let mut best = Duration::MAX;
-    for _ in 0..25 {
-        let mut rec = Recognizer::new(settings.clone());
-        let start = Instant::now();
-        for f in frames {
-            std::hint::black_box(rec.update(f));
-        }
-        best = best.min(start.elapsed());
-    }
-    best.as_secs_f64() / frames.len() as f64
-}
-
-fn time_per_lookup(cfg: &Config) -> f64 {
-    let mut best = Duration::MAX;
-    for _ in 0..25 {
-        let start = Instant::now();
-        for _ in 0..2_000 {
-            std::hint::black_box(cfg.resolve(Trigger::Tap(3), Some(r"C:\Program Files\Editor\not-listed.exe")));
-        }
-        best = best.min(start.elapsed());
-    }
-    best.as_secs_f64() / 2_000.0
+/// How long one of `items` pieces of `work` takes, in yardsticks. Each
+/// repetition times the yardstick and then the work back to back, so both
+/// run on the same core at the same clock speed (laptops mix fast and slow
+/// cores and change speed all the time), and the median of the ratios is
+/// what counts: one repetition disturbed by something else doesn't.
+fn in_yardsticks(items: usize, mut work: impl FnMut()) -> f64 {
+    let mut ratios: Vec<f64> = (0..31)
+        .map(|_| {
+            let unit = yardstick();
+            let start = Instant::now();
+            work();
+            start.elapsed().as_secs_f64() / items as f64 / unit
+        })
+        .collect();
+    ratios.sort_by(f64::total_cmp);
+    ratios[ratios.len() / 2]
 }
 
 type Numbers = BTreeMap<String, f64>;
 
-fn measure() -> (Numbers, Numbers) {
+/// Allocations per 1,000 frames (or lookups), exact.
+fn measure_allocations() -> Numbers {
+    let mut allocs: Numbers =
+        scenarios().iter().map(|(name, frames)| (name.to_string(), allocations(frames))).collect();
+    allocs.insert("profile_lookup".into(), lookup_allocations(&config()));
+    allocs
+}
+
+/// Time per frame (or lookup), in yardsticks.
+fn measure_times() -> Numbers {
     let cfg = config();
-    let mut allocs = Numbers::new();
+    let settings = cfg.recognizer_settings();
     let mut ratios = Numbers::new();
-    let unit = yardstick();
     for (name, frames) in scenarios() {
-        allocs.insert(name.to_string(), allocations(&frames));
-        if !cfg!(debug_assertions) {
-            ratios.insert(name.to_string(), time_per_frame(&frames) / unit);
+        let time = in_yardsticks(frames.len(), || {
+            let mut rec = Recognizer::new(settings.clone());
+            for f in &frames {
+                std::hint::black_box(rec.update(f));
+            }
+        });
+        ratios.insert(name.to_string(), time);
+    }
+    let time = in_yardsticks(2_000, || {
+        for _ in 0..2_000 {
+            std::hint::black_box(cfg.resolve(Trigger::Tap(3), Some(r"C:\Program Files\Editor\not-listed.exe")));
         }
-    }
-    allocs.insert("profile_lookup".into(), lookup_allocations(&cfg));
-    if !cfg!(debug_assertions) {
-        ratios.insert("profile_lookup".into(), time_per_lookup(&cfg) / unit);
-    }
-    (allocs, ratios)
+    });
+    ratios.insert("profile_lookup".into(), time);
+    ratios
 }
 
 fn baseline_path() -> std::path::PathBuf {
@@ -213,14 +212,14 @@ fn baseline_path() -> std::path::PathBuf {
 
 #[test]
 fn performance_has_not_regressed() {
-    let (allocs, ratios) = measure();
+    let allocs = measure_allocations();
     println!("allocations per 1,000 frames: {allocs:#?}");
-    if !ratios.is_empty() {
-        println!("time per frame, in yardsticks: {ratios:#?}");
-    }
+    // Timings only mean something in a release build.
+    let mut ratios = if cfg!(debug_assertions) { Numbers::new() } else { measure_times() };
 
     if std::env::var_os("PADY_PERF_RECORD").is_some() {
         assert!(!ratios.is_empty(), "record the baseline from a release build (--release)");
+        println!("time per frame, in yardsticks: {ratios:#?}");
         let json = serde_json::json!({
             "about": "Baseline for security/tests/perf_regression.rs. Record with PADY_PERF_RECORD=1 (release build).",
             "allocations_per_1000_frames": allocs,
@@ -242,9 +241,27 @@ fn performance_has_not_regressed() {
             worse.push(format!("{name}: {now:.1} allocations per 1,000 frames, was {was:.1}"));
         }
     }
+
     let allowed_time = if std::env::var_os("CI").is_some() { ALLOWED_TIME_ON_CI } else { ALLOWED };
+    let was =
+        |name: &str| baseline["time_in_yardsticks"][name].as_f64().unwrap_or_else(|| panic!("no baseline for {name}"));
+    // A real regression is slow every time it is measured; a busy moment on
+    // the machine is not. Anything over the limit is measured again (twice
+    // at most), and the best of the measurements is what counts.
+    for _ in 0..2 {
+        if ratios.iter().all(|(name, now)| *now <= was(name) * allowed_time) {
+            break;
+        }
+        for (name, again) in measure_times() {
+            let best = ratios.get_mut(&name).expect("the same scenarios");
+            *best = best.min(again);
+        }
+    }
+    if !ratios.is_empty() {
+        println!("time per frame, in yardsticks: {ratios:#?}");
+    }
     for (name, now) in &ratios {
-        let was = baseline["time_in_yardsticks"][name].as_f64().unwrap_or_else(|| panic!("no baseline for {name}"));
+        let was = was(name);
         if *now > was * allowed_time {
             worse.push(format!("{name}: {:.0}% slower ({now:.3} yardsticks, was {was:.3})", (now / was - 1.0) * 100.0));
         }
