@@ -29,6 +29,16 @@ const BROWSERS = [
 ].filter(Boolean);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * A value as a JavaScript literal for code that is built as text and run in
+ * the page. JSON alone isn't enough there: it leaves `<`, `>`, `/` and the
+ * line separators U+2028/U+2029 as they are, and those can end a script or
+ * a line. They are written as \uXXXX escapes instead.
+ */
+const UNSAFE = /[<>/  ]/g;
+const literal = (value) =>
+  JSON.stringify(value).replace(UNSAFE, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
 const page = (file, query = "") => pathToFileURL(join(UI, file)).href + query;
 
 /** Runs in the page: click the first visible element whose text matches. */
@@ -71,7 +81,8 @@ class Cdp {
   }
   /** Click the first visible element matching a CSS selector. */
   clickSelector(selector) {
-    return this.eval(`(() => { const el = [...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => e.getClientRects().length > 0 && !e.disabled); if (!el) throw new Error("no " + ${JSON.stringify(selector)}); el.click(); return true; })()`);
+    const s = literal(selector);
+    return this.eval(`(() => { const el = [...document.querySelectorAll(${s})].find((e) => e.getClientRects().length > 0 && !e.disabled); if (!el) throw new Error("no " + ${s}); el.click(); return true; })()`);
   }
   /** Resolve once the Live page has shown at least `min` fingers for `heldMs`. */
   waitForFingers(min, heldMs, timeoutMs = 20000) {
