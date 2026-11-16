@@ -6,7 +6,7 @@
 | Dates | 16–17 November 2026 |
 | Kind | Authorized white-box assessment by the project's maintainer: source review, attack tests, fuzzing, load tests |
 | Where | One Windows 11 laptop (the test machine) and the project's own GitHub Actions runs. Nothing else was scanned or contacted. |
-| Result | 13 findings: 2 high, 8 low, 3 informational. 11 fixed and verified, 2 open (one by design, one upstream). |
+| Result | 14 findings: 2 high, 8 low, 4 informational. 12 fixed and verified, 2 open (one by design, one upstream). |
 
 ## Executive summary
 
@@ -56,6 +56,7 @@ Severity uses CVSS 3.1 base scores. Pady has no network service, so most vectors
 | PADY-07 | Window policy lacks `base-uri`, `form-action`, `object-src`, `frame-ancestors` | Info | – | Fixed |
 | PADY-12 | Six unmaintained or unsound crates in Tauri's Linux dependencies | Info | – | Open (upstream) |
 | PADY-13 | Developer script builds page code with `JSON.stringify` alone | Info | – | Fixed |
+| PADY-14 | Windows programs built without Control Flow Guard | Info | – | Fixed (after 1.1.2) |
 
 ### PADY-03: a program planted in the current folder is started in place of the named app
 
@@ -203,6 +204,29 @@ A fix would be a small privileged helper that owns `/dev/uinput` and accepts onl
 - **PADY-07.** The window's Content Security Policy had no `base-uri`, `form-action`, `object-src` or `frame-ancestors`. Nothing can inject markup today, so there was no way to use this; all four are now `'none'` (`0918752`), checked by `security/tests/window_policy.rs`.
 - **PADY-12.** `cargo audit`: 0 vulnerabilities in 548 crates. Six warnings, all pulled in by Tauri's Linux GTK stack: `proc-macro-error`, `zbus_names`, `zvariant`, `zvariant_derive` (unmaintained), `glib` 0.18.5 and `rustix` 1.1.5 (unsound in functions Pady doesn't call). Nothing to change in this repository; they go away when Tauri moves on.
 - **PADY-13.** CodeQL's only two alerts were one line of `scripts/screenshots.mjs`, a developer tool that builds page code from constant selectors with `JSON.stringify`. Not shipped and not exploitable; values now go through an escaping `literal()` (`d9e6149`, `8183657`).
+
+### PADY-14: Windows programs built without Control Flow Guard (second round)
+
+**Severity:** Informational (hardening). **Status:** fixed on `main` after v1.1.2; it ships with the next release.
+
+**Description.** A second round, run after 1.1.2 was built, read the headers of `pady.exe` and `pady-cli.exe`. Address space layout randomization (including the 64-bit kind) and data execution prevention were on, and no section was both writable and executable. Control Flow Guard was off: Rust doesn't enable it unless asked. Pady has about 150 `unsafe` blocks that call Windows directly; if one of them ever had a memory bug, Control Flow Guard is what stops a corrupted function pointer from being called.
+
+**Proof.** `security/tests/binary_hardening.rs` reads the header of the program it runs in (built with the same settings): "built without Control Flow Guard" before, passing after.
+
+**Fix.** `.cargo/config.toml` turns it on for every Windows build. All tests pass with it, including those that exercise Windows callbacks (window procedures, window and monitor enumeration), and per-frame times are unchanged. The installer's own stub (NSIS, from Tauri) has address randomization and data execution prevention but no Control Flow Guard; that is not Pady's to change. Neither program nor installer is code-signed yet.
+
+## Second round (16 November, after 1.1.2 was built)
+
+| What was tried | Result |
+|---|---|
+| The whole suite and `cargo audit` again, on the 1.1.2 code | 49 of 49 attack tests pass; 0 known vulnerabilities |
+| 30,000 mutated `save_config` payloads: wrong types, huge numbers, 6,000-character strings, control and direction-changing characters, hundreds of bindings and profiles, deep nesting (`payload_fuzz.rs`) | No panic. 10,448 accepted, every one within the limits and identical after a save and reload; 19,552 refused |
+| 30,000 mutated `test_action` payloads | No panic. No accepted link is an option or a bare file name; every log label is one clean line |
+| 3,000 sets of glyphs with points as large as a number goes, matched against strokes with NaN and infinity | No panic; a match is always finite and names a real glyph |
+| Device names, wildcards, command separators, a NUL and a 5,000-character name as program names | Never found in the current folder; never matched by accident |
+| Exploit protections of the built programs | PADY-14 above |
+
+One thing the fuzzing showed that is not a finding: the app parses a whole `save_config` payload before any limit applies, so a payload of hundreds of megabytes costs that much memory for a moment. Only Pady's own window can send one.
 
 ## Tested and found sound
 

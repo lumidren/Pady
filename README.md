@@ -678,9 +678,9 @@ cargo run -p pady-actions --release --example time_actions   # how long volume, 
 
 ### Tests
 
-About 265 unit tests across the workspace cover taps, multi-taps, holds, swipes, pinches, drags and glyphs, the config format and backups, the HID and Linux multitouch decoders, parsing Linux tool output, and the overlay's layout, motion and colours. Fuzz tests (named `fuzzed_*`) feed deterministic random device reports, multitouch events, configs, triggers, shortcuts and touch frames through every parser: nothing a device or a hand-edited file says may make Pady panic.
+About 266 unit tests across the workspace cover taps, multi-taps, holds, swipes, pinches, drags and glyphs, the config format and backups, the HID and Linux multitouch decoders, parsing Linux tool output, and the overlay's layout, motion and colours. Fuzz tests (named `fuzzed_*`) feed deterministic random device reports, multitouch events, configs, triggers, shortcuts and touch frames through every parser: nothing a device or a hand-edited file says may make Pady panic.
 
-The 49 security tests in [`security/`](security/README.md) are attacks: each one failed against the code before its fix (a program planted in the current folder, six threads saving the config at once, a process killed mid-save, a token in the log, a flood of volume steps) and must pass now. `cargo test -p pady-security` runs them alone.
+The 54 security tests in [`security/`](security/README.md) are attacks: each one failed against the code before its fix (a program planted in the current folder, six threads saving the config at once, a process killed mid-save, a token in the log, a flood of volume steps) and must pass now. `cargo test -p pady-security` runs them alone.
 
 CI runs on every push and pull request, on Windows and Ubuntu:
 

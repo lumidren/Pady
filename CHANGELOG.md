@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- **Control Flow Guard on Windows.** `pady.exe` and `pady-cli.exe` are now built with it, next to the address randomization and data execution prevention they already had. It stops a corrupted function pointer from being called, should the code that talks to Windows directly ever have a memory bug. No measurable cost.
+
 ## 1.1.2 (2026-11-16)
 
 Safer and steadier: the fixes from a security and performance assessment of 1.1.1. The full write-up is in [security/REPORT.md](security/REPORT.md).

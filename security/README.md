@@ -6,7 +6,7 @@ Every test in `tests/` is an attack. Each one first failed against the code as i
 cargo test -p pady-security
 ```
 
-That's the whole suite: about 20 seconds. Tests only touch throwaway folders under the system temp directory and remove them again. On Windows two of them start a harmless copy of `whoami.exe` from such a folder, so a console window may flash.
+That's the whole suite: under a minute. Tests only touch throwaway folders under the system temp directory and remove them again. On Windows two of them start a harmless copy of `whoami.exe` from such a folder, so a console window may flash.
 
 | File | What it attacks | Finding |
 |---|---|---|
@@ -21,6 +21,8 @@ That's the whole suite: about 20 seconds. Tests only touch throwaway folders und
 | `tests/window_policy.rs` | The settings window's policy and every place text could become HTML | PADY-07 |
 | `tests/site.rs` | The website turning GitHub's API answer into HTML | PADY-09 |
 | `tests/action_flood.rs` | Level changes queued faster than they can run | PADY-10 |
+| `tests/binary_hardening.rs` | The built program's exploit protections (Control Flow Guard, ASLR, DEP) | PADY-14 |
+| `tests/payload_fuzz.rs` | 60,000 mutated `save_config` and `test_action` payloads; glyphs with extreme points | sound; kept that way |
 | `tests/updater_config.rs` | The updater's endpoints, key and checks | sound; kept that way |
 | `tests/privacy.rs` | Reading the clipboard or keyboard; new network code | sound; kept that way |
 | `tests/leaks.rs` | Handle and memory leaks over 20,000 rounds and a million frames | sound; kept that way |
