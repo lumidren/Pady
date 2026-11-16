@@ -427,10 +427,15 @@ Pady will not transfer any information to other networked systems unless specifi
 - **Touchpad only.** On Windows, Pady registers for the touchpad's Raw Input collection, never the keyboard. On Linux, the udev rule gives the signed-in user access to touchpads and `/dev/uinput`, not keyboards or mice.
 - **Signed updates.** The updater installs a new version only if it's signed with Pady's updater key.
 - **A locked-down window.** The settings window runs only the app's own files under a strict Content Security Policy, and only it may call Pady's commands.
-- **Careful with input.** What devices report and what hand-edited files say is bounds-checked and fuzz tested.
-- **Audited dependencies.** CI checks every dependency against the RustSec advisory database on each push and once a week.
+- **Careful with input.** What devices report and what hand-edited files say is bounds-checked and fuzz tested, and a config file over 4 MB is refused.
+- **Programs from the right place.** On Windows, an app named without a folder (`chrome.exe`) is found through App Paths, the Windows folders and `PATH`, never the folder Pady happened to be started from.
+- **A careful log.** The log names a failed command by its program and a link by its site, without arguments, paths or queries, since bug reports ask for it.
+- **Safe saves.** Settings are written to a temp file, flushed and renamed into place, so a crash or two saves at once never leave half a config.
+- **Audited dependencies and a pinned build.** CI checks every dependency against the RustSec advisory database on each push and once a week, scans the history for secrets and runs CodeQL. Every GitHub Action is pinned to an exact commit, and the updater key reaches only the build steps that sign.
 
-Found a vulnerability? Please report it privately, as described in [SECURITY.md](SECURITY.md), which also explains every permission Pady uses and why.
+Pady's config decides what your gestures run, shell commands included: read a config someone gives you before you use it, as you would a script.
+
+Found a vulnerability? Please report it privately, as described in [SECURITY.md](SECURITY.md), which also explains every permission Pady uses and why. The November 2026 security assessment, with each finding's proof and fix, is in [security/REPORT.md](security/REPORT.md).
 
 ## How it works
 
@@ -659,24 +664,30 @@ Writes are atomic (a temporary file, then a rename), so a crash never leaves hal
 | Timers for holds, double taps, drag release | 1 ms precision while one is pending (Windows' default tick is ~15.6 ms) | Requested only while needed, then given back |
 | Download | 5.6 MB Windows setup, 5.4 MB .deb | v1.1.0 release files |
 
+Load, spike and soak results (the frame rate ramped to 500 touchpads' worth, a burst of half a million frames, 30 minutes of steady load) are in [docs/benchmarks.md](docs/benchmarks.md).
+
 To measure on your own machine:
 
 ```bash
 cargo bench -p pady-core                                     # time and allocations per frame, gesture → action latency
+cargo bench -p pady-security                                 # load ramp, overload point, profile lookup, config I/O, spike
 cargo run -p pady-actions --release --example time_actions   # how long volume, mute and brightness take (changes are undone)
 ```
 
 ### Tests
 
-About 260 unit tests across the workspace cover taps, multi-taps, holds, swipes, pinches, drags and glyphs, the config format and backups, the HID and Linux multitouch decoders, parsing Linux tool output, and the overlay's layout, motion and colours. Fuzz tests (named `fuzzed_*`) feed deterministic random device reports, multitouch events, configs, triggers, shortcuts and touch frames through every parser: nothing a device or a hand-edited file says may make Pady panic.
+About 265 unit tests across the workspace cover taps, multi-taps, holds, swipes, pinches, drags and glyphs, the config format and backups, the HID and Linux multitouch decoders, parsing Linux tool output, and the overlay's layout, motion and colours. Fuzz tests (named `fuzzed_*`) feed deterministic random device reports, multitouch events, configs, triggers, shortcuts and touch frames through every parser: nothing a device or a hand-edited file says may make Pady panic.
+
+The 49 security tests in [`security/`](security/README.md) are attacks: each one failed against the code before its fix (a program planted in the current folder, six threads saving the config at once, a process killed mid-save, a token in the log, a flood of volume steps) and must pass now. `cargo test -p pady-security` runs them alone.
 
 CI runs on every push and pull request, on Windows and Ubuntu:
 
 ```mermaid
 flowchart LR
     push(["Push, pull request<br/>or weekly"]) --> matrix["windows-latest and ubuntu-22.04"]
-    matrix --> fmt["cargo fmt --check"] --> clippy["cargo clippy, warnings are errors"] --> test["cargo test --workspace"] --> js["node --check on the UI scripts"]
+    matrix --> fmt["cargo fmt --check"] --> clippy["cargo clippy, warnings are errors"] --> test["cargo test --workspace<br/>(unit, fuzz and security tests)"] --> perf["performance regression check<br/>against a recorded baseline"] --> js["node --check on every script"]
     push --> audit["cargo audit<br/>against RustSec advisories"]
+    push --> scan["gitleaks over the history<br/>CodeQL: Rust, scripts, workflows"]
 ```
 
 ### Repository layout
@@ -696,11 +707,12 @@ Pady/
 │       ├── ui/                index.html, app.js, model.js, mock.js, styles.css, overlay.*
 │       ├── capabilities/      which window may call which command
 │       └── tauri.conf.json    bundles, CSP, updater public key
+├── security/                  attack tests, load harness, threat model, assessment report
 ├── packaging/linux/           udev rule, modules-load file, .deb/.rpm scripts
 ├── site/                      the website, lumidren.github.io/Pady
 ├── scripts/                   website build, icons, README screenshots
-├── docs/                      banner, demo, screenshots, video posters
-└── .github/                   CI, release and website workflows, issue templates
+├── docs/                      banner, demo, screenshots, video posters, benchmarks.md
+└── .github/                   CI, security, release and website workflows, issue templates
 ```
 
 ### Release pipeline

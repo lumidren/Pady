@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+Fixes from a security and performance assessment of 1.1.1. The full write-up is in [security/REPORT.md](security/REPORT.md).
+
+### Security
+
+- **Programs are never started from the current folder by a bare name (Windows).** *Launch*, *Switch to an app* and *Open a link* let Windows look in the folder Pady was started from first, so a file planted there under an app's name ran in its place. Pady now finds a bare name itself: App Paths, the Windows folders, then `PATH`. A link without a scheme opens as `https://` and is never taken for a file name.
+- **The log leaves out what may be secret.** A failed action used to be logged with its whole command or link, and bug reports ask for the log. It now names a command by its program and a link by its site. Line breaks and escape codes in device and app names can no longer forge log lines.
+- **Limits on the config file.** A config over 4 MB is refused, and profiles (200), apps per profile (100), name lengths and command lengths are capped, so a huge or hostile config can't fill the disk with backups or slow every gesture.
+- **A tighter window policy.** The settings window's Content Security Policy now also forbids plugins, frames, and changing the page's base or form targets.
+- **A pinned release pipeline.** Every GitHub Action is pinned to an exact commit, the updater signing key reaches only the two build steps that sign, and CI runs with a read-only token. A new workflow scans the history for secrets and runs CodeQL.
+- **The website treats GitHub's answer as text.** Download links from the release API are built as elements and must point at Pady's releases.
+
+### Fixed
+
+- **Saving from two places at once could tear the config.** The window, the tray switch and `pady-cli` shared one temp file; a save could be renamed into place half-written, and the next start fell back to defaults. Every save now has its own temp file, is flushed to disk before the rename, and cleans up after a crash.
+- **One misdated backup switched backups off.** A backup dated in the future (after the clock was wrong for a while) made every later save look too recent to back up. Such copies no longer count, and are the first to be pruned.
+- **Run commands with quotes work on Windows.** A command such as `"C:\Program Files\App\app.exe" --flag` reached `cmd` mangled and never ran as written.
+
+### Performance
+
+- **Volume and brightness stop when your fingers do.** Steps of a repeating swipe that queue up behind a slow one now run as a single change of their sum. With a 5 ms step, a fast 400 mm swipe went from 195 calls over 1.07 s to 2 calls in 11 ms. A slow swipe still moves step by step.
+- **Profile lookup is 4 times faster** (75 µs instead of 303 µs with 200 profiles) and allocates nothing.
+- **CI fails when performance slips**: allocations per frame more than 20% over a recorded baseline, or time per frame more than 50% over it (20% on the machine the baseline was recorded on; CI's processors vary too much for less). Load, spike and 30-minute soak results are in [docs/benchmarks.md](docs/benchmarks.md).
+
 ## 1.1.1 (2026-11-12)
 
 Faster gestures and a quieter language notice.
