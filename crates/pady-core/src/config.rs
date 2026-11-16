@@ -195,8 +195,8 @@ pub struct Profile {
 
 impl Profile {
     pub fn matches(&self, app: &str) -> bool {
-        let app = app_key(app);
-        !app.is_empty() && self.apps.iter().any(|a| app_key(a) == app)
+        let app = app_base(app);
+        !app.is_empty() && self.apps.iter().any(|a| app_base(a).eq_ignore_ascii_case(app))
     }
 
     fn binding(&self, trigger: Trigger) -> Option<&Binding> {
@@ -218,10 +218,23 @@ pub enum Resolution<'a> {
     Unbound,
 }
 
-/// `C:\Apps\Code.EXE` / `code.exe` / `Code` → `code`
-fn app_key(app: &str) -> String {
-    let base = app.trim().trim_matches('"').rsplit(['\\', '/']).next().unwrap_or("").to_ascii_lowercase();
-    base.strip_suffix(".exe").map(str::to_string).unwrap_or(base)
+/// `C:\Apps\Code.EXE` / `code.exe` / `Code` → `Code`: the part of an app's
+/// name that profiles compare, ignoring case. A slice of `app`: looking up
+/// the profile for the app in front happens for every gesture, so it
+/// allocates nothing.
+fn app_base(app: &str) -> &str {
+    let base = app.trim().trim_matches('"').rsplit(['\\', '/']).next().unwrap_or("");
+    let cut = base.len().saturating_sub(4);
+    if base.is_char_boundary(cut) && base[cut..].eq_ignore_ascii_case(".exe") {
+        &base[..cut]
+    } else {
+        base
+    }
+}
+
+/// `text` cut to at most `max` characters.
+fn clip(text: &str, max: usize) -> String {
+    text.chars().take(max).collect()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -247,6 +260,8 @@ pub enum ConfigError {
     Serialize(#[from] toml::ser::Error),
     #[error("could not locate the user config directory")]
     NoConfigDir,
+    #[error("{path} is too large to be a Pady config ({bytes} bytes; the limit is {} MB)", Config::MAX_BYTES >> 20)]
+    TooLarge { path: PathBuf, bytes: u64 },
 }
 
 const HEADER: &str = r#"# Pady configuration.
@@ -283,6 +298,25 @@ impl Default for Config {
 }
 
 impl Config {
+    /// The largest config file Pady reads or writes. A real one is a few
+    /// kilobytes (about 50 KB with every glyph recorded); anything near this
+    /// is not a config, and reading it, re-reading it on every change and
+    /// copying it into fifty backups would only waste memory and disk.
+    pub const MAX_BYTES: u64 = 4 << 20;
+    /// Most per-app profiles kept. Each gesture looks through them for the
+    /// app in front.
+    pub const MAX_PROFILES: usize = 200;
+    /// Most apps one profile lists.
+    pub const MAX_APPS_PER_PROFILE: usize = 100;
+    /// Longest profile or glyph name, in characters; longer ones are cut.
+    pub const MAX_NAME: usize = 200;
+    /// Longest command, link, shortcut, program, argument or app name, in
+    /// bytes. A binding with a longer one is dropped: half a command is a
+    /// different command.
+    pub const MAX_TEXT: usize = 4096;
+    /// Most arguments a `launch` passes.
+    pub const MAX_ARGS: usize = 64;
+
     /// `%APPDATA%\Pady\config.toml` on Windows, `~/.config/pady/config.toml` on Linux.
     pub fn default_path() -> Result<PathBuf, ConfigError> {
         let dir = dirs::config_dir().ok_or(ConfigError::NoConfigDir)?;
@@ -301,7 +335,20 @@ impl Config {
     }
 
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
-        let text = std::fs::read_to_string(path).map_err(|source| ConfigError::Io { path: path.into(), source })?;
+        use std::io::Read;
+        let io = |source| ConfigError::Io { path: path.into(), source };
+        let file = std::fs::File::open(path).map_err(io)?;
+        // Checked before anything is read, and enforced while reading in
+        // case the file grows in between.
+        let bytes = file.metadata().map_err(io)?.len();
+        if bytes > Config::MAX_BYTES {
+            return Err(ConfigError::TooLarge { path: path.into(), bytes });
+        }
+        let mut text = String::new();
+        let read = file.take(Config::MAX_BYTES + 1).read_to_string(&mut text).map_err(io)? as u64;
+        if read > Config::MAX_BYTES {
+            return Err(ConfigError::TooLarge { path: path.into(), bytes: read });
+        }
         Config::from_toml(&text).map_err(|source| ConfigError::Parse { path: path.into(), source: Box::new(source) })
     }
 
@@ -329,6 +376,10 @@ impl Config {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let io = |source| ConfigError::Io { path: path.into(), source };
         let text = self.to_toml()?;
+        // Never write a config that `load` would refuse to read back.
+        if text.len() as u64 > Config::MAX_BYTES {
+            return Err(ConfigError::TooLarge { path: path.into(), bytes: text.len() as u64 });
+        }
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(io)?;
         }
@@ -405,13 +456,18 @@ impl Config {
     pub fn normalize(&mut self) {
         self.settings.sanitize();
         self.bindings = dedupe(std::mem::take(&mut self.bindings), |b| {
-            !b.action.is_none() && matches!(b.trigger, Trigger::Drag(_)) == matches!(b.action, Action::Drag)
+            !b.action.is_none()
+                && b.action.fits()
+                && matches!(b.trigger, Trigger::Drag(_)) == matches!(b.action, Action::Drag)
         });
+        // Counts and lengths no real setup comes near (see the limits above).
+        self.profiles.truncate(Config::MAX_PROFILES);
         for p in &mut self.profiles {
-            p.name = p.name.trim().to_string();
-            p.apps.retain(|a| !a.trim().is_empty());
+            p.name = clip(p.name.trim(), Config::MAX_NAME);
+            p.apps.retain(|a| !a.trim().is_empty() && a.len() <= Config::MAX_TEXT);
+            p.apps.truncate(Config::MAX_APPS_PER_PROFILE);
             p.bindings = dedupe(std::mem::take(&mut p.bindings), |b| {
-                !matches!(b.trigger, Trigger::Drag(_)) && !matches!(b.action, Action::Drag)
+                b.action.fits() && !matches!(b.trigger, Trigger::Drag(_)) && !matches!(b.action, Action::Drag)
             });
         }
         // Glyphs: valid ids, one per id, the right number of finite points, a name.
@@ -424,7 +480,7 @@ impl Config {
             ok
         });
         for s in &mut self.glyphs {
-            s.name = s.name.trim().to_string();
+            s.name = clip(s.name.trim(), Config::MAX_NAME);
             if s.name.is_empty() {
                 s.name = format!("Glyph {}", s.id);
             }
@@ -765,10 +821,17 @@ mod tests {
     }
 
     #[test]
-    fn app_keys_ignore_path_case_and_extension() {
-        assert_eq!(app_key(r"C:\Apps\Code.EXE"), "code");
-        assert_eq!(app_key("/usr/bin/firefox"), "firefox");
-        assert_eq!(app_key("\"Spotify.exe\""), "spotify");
+    fn app_names_ignore_path_case_and_extension() {
+        assert_eq!(app_base(r"C:\Apps\Code.EXE"), "Code");
+        assert_eq!(app_base("/usr/bin/firefox"), "firefox");
+        assert_eq!(app_base("\"Spotify.exe\""), "Spotify");
+        assert_eq!(app_base(".exe"), "");
+        assert_eq!(app_base("é.exe"), "é");
+        assert_eq!(app_base("日本"), "日本", "a cut inside a character is no cut");
+        let p = Profile { name: "x".into(), apps: vec!["Code.exe".into(), "ÉDITEUR".into()], bindings: Vec::new() };
+        assert!(p.matches(r"c:\apps\CODE.EXE") && p.matches("code"));
+        assert!(p.matches("ÉDITEUR.exe") && !p.matches("éditeur"), "only ASCII case is ignored");
+        assert!(!p.matches("") && !p.matches(".exe") && !p.matches("codex"));
     }
 
     #[test]

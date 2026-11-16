@@ -82,6 +82,22 @@ impl Action {
         }
     }
 
+    /// Is every piece of text in this action of a sane length
+    /// ([`crate::Config::MAX_TEXT`], [`crate::Config::MAX_ARGS`])?
+    pub fn fits(&self) -> bool {
+        use crate::Config;
+        let ok = |s: &str| s.len() <= Config::MAX_TEXT;
+        match self {
+            Action::Keys { combo } => ok(combo),
+            Action::OpenUrl { url, browser } => ok(url) && browser.as_deref().is_none_or(ok),
+            Action::Launch { program, args } | Action::FocusOrLaunch { program, args } => {
+                ok(program) && args.len() <= Config::MAX_ARGS && args.iter().all(|a| ok(a))
+            }
+            Action::Run { command } => ok(command),
+            _ => true,
+        }
+    }
+
     /// Volume or brightness: actions that move a level up or down.
     pub fn is_level(&self) -> bool {
         matches!(self, Action::Volume { .. } | Action::Brightness { .. })

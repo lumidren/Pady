@@ -54,6 +54,10 @@ pub fn snapshot(config: &Path, force: bool) -> std::io::Result<Option<PathBuf>> 
 }
 
 fn snapshot_at(config: &Path, force: bool, now: u64) -> std::io::Result<Option<PathBuf>> {
+    // Something too large to be a config isn't worth fifty copies.
+    if std::fs::metadata(config).is_ok_and(|m| m.len() > crate::Config::MAX_BYTES) {
+        return Ok(None);
+    }
     let Ok(current) = std::fs::read(config) else { return Ok(None) };
     // A copy dated after now was taken while the clock was wrong (or was put
     // there by something else). Its date says nothing about how recent it
