@@ -1192,6 +1192,61 @@ mod tests {
         assert!(touchpad_conflict("four", false, true).unwrap().message.ends_with("four-finger taps."));
     }
 
+    /// Names Windows treats specially (devices, wildcards, dots, a NUL
+    /// inside) must not crash the lookup, hang it, or make it answer with
+    /// anything but a full path outside the current folder.
+    #[test]
+    fn odd_program_names_resolve_to_a_full_path_or_nothing() {
+        let here = std::env::current_dir().unwrap();
+        let long = "a".repeat(5_000);
+        let nul_inside = String::from_utf8(vec![b'a', 0, b'b']).unwrap();
+        let odd = [
+            "*",
+            "?",
+            "*.exe",
+            "con",
+            "CON",
+            "nul",
+            "aux",
+            "prn",
+            "com1",
+            "lpt1",
+            "nul.exe",
+            "con.txt",
+            "..",
+            ".",
+            "...",
+            "a b",
+            "x.",
+            "x ",
+            " ",
+            "<>|",
+            "%PATH%",
+            "%SystemRoot%",
+            "cmd.exe ",
+            "cmd.exe.",
+            "CMD",
+            "cmd;calc",
+            "cmd&calc",
+            nul_inside.as_str(),
+            long.as_str(),
+        ];
+        for name in odd {
+            if !is_bare_name(name) {
+                continue;
+            }
+            if let Some(found) = locate_program(name) {
+                assert!(found.is_absolute(), "{name:?} -> {}", found.display());
+                assert_ne!(found.parent(), Some(here.as_path()), "{name:?} was found in the current folder");
+            }
+        }
+        // Wildcards and command separators never match a real program by accident.
+        for name in ["*", "?", "*.exe", "cmd;calc", "cmd&calc", "%SystemRoot%", nul_inside.as_str()] {
+            assert_eq!(locate_program(name), None, "{name:?}");
+        }
+        assert!(locate_program("CMD").is_some(), "names are not case sensitive");
+    }
+
     #[test]
     fn browsers_map_to_app_paths() {
         assert_eq!(browser_exe("Chrome"), "chrome.exe");
