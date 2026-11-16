@@ -23,7 +23,7 @@ What was found sits one layer out, where Pady meets the operating system, the di
 
 All of these are fixed, each with a test in `security/tests` that failed before the fix and passes after. Two items stay open on purpose and are described at the end: how the Linux udev rule shares `/dev/uinput`, and six unmaintained or unsound crates deep in Tauri's Linux dependencies.
 
-Nothing here has been released yet: the fixes are on `main`, after v1.1.1.
+The fixes were released as v1.1.2 on 16 November 2026.
 
 ## Scope and method
 
@@ -241,7 +241,7 @@ Pady has no server, accounts, sessions, database, uploads or listening ports, so
 
 ## What needs you
 
-1. **Release these fixes** when you're ready (they are on `main` only). Ask and I'll prepare 1.1.2.
+1. **Publish the 1.1.2 release** once its draft is built, so installed copies update.
 2. **Repository settings** I can't and shouldn't change for you:
    - Settings › Actions › General › Workflow permissions: **Read repository contents** as the default.
    - Settings › Branches: protect `main` (require the CI checks; no force pushes).

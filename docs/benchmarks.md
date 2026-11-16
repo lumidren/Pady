@@ -8,7 +8,7 @@ Measured 16 November 2026, before and after the changes that followed the securi
 | System | Windows 11 Home, build 26200 |
 | Toolchain | rustc 1.99.1, release profile (`lto = true`, `codegen-units = 1`) |
 | Before | v1.1.1, commit `c17f9d3` |
-| After | `main` after the assessment |
+| After | v1.1.2 |
 | Runs | Per-frame numbers (`cargo bench -p pady-core`) are medians of 3 runs. The load harness ran three times on each version; the latency tables show the first run of the current code, and profile and config numbers are the median of the three. Start-up timings are medians of 35. |
 
 No real touchpad or real actions are involved: frames are generated, and actions go to a stand-in that records when it was called. A real touchpad sends 125–250 frames a second.

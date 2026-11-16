@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.1.2 (2026-11-16)
 
-Fixes from a security and performance assessment of 1.1.1. The full write-up is in [security/REPORT.md](security/REPORT.md).
+Safer and steadier: the fixes from a security and performance assessment of 1.1.1. The full write-up is in [security/REPORT.md](security/REPORT.md).
 
 ### Security
 

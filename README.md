@@ -72,6 +72,8 @@
 | ✅ | **Faster gestures**: a 0.1 ms full-screen check, quicker brightness, 250 ms taps, lighter recognition | **v1.0.0** |
 | ✅ | **Beta builds** for trying new things early (they never update themselves) | **v1.0.0** |
 | ✅ | **App switcher**: swipe to show every open app, slide sideways to pick one, lift to switch | **v1.1.0** (released 2026-11-09) |
+| ✅ | **Faster taps and a quieter language notice**: actions run before bookkeeping, and the tap wait learns your pace | **v1.1.1** (released 2026-11-12) |
+| ✅ | **Security and reliability fixes** from a full assessment: safer program lookup, safe config saves, a careful log, volume that stops when your fingers do | **v1.1.2** (released 2026-11-16) |
 | 🧪 | **Glyphs**: draw your own two-finger shapes (a circle, a V, a check mark) and bind them like any gesture | Coming soon. Built, but shown only in beta builds for now |
 | 🧪 | **Translator**: select text, do a gesture, and a pop-up shows the translation (free MyMemory or DeepL, 38 languages) | Coming soon. Being built on the `translator` branch |
 
