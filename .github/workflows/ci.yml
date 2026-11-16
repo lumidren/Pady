@@ -40,6 +40,11 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      # Fails if a key number (allocations per frame, time per frame relative
+      # to a yardstick timed in the same run) is over 20% worse than
+      # security/perf-baseline.json.
+      - name: Performance regression check
+        run: cargo test --release -p pady-security --test perf_regression -- --nocapture
       - name: Check UI scripts parse
         run: for f in crates/pady-app/ui/*.js; do node --check "$f"; done
         shell: bash

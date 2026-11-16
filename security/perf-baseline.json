@@ -1,0 +1,19 @@
+{
+  "about": "Baseline for security/tests/perf_regression.rs: the slowest of four release runs on the reference laptop. Re-record with PADY_PERF_RECORD=1 cargo test --release -p pady-security --test perf_regression.",
+  "allocations_per_1000_frames": {
+    "drag_3_fingers": 967.2,
+    "pointing_1_finger": 0.0,
+    "profile_lookup": 0.0,
+    "scrolling_2_fingers": 0.0,
+    "swipe_4_fingers_repeating": 609.8,
+    "tap_3_fingers": 0.0
+  },
+  "time_in_yardsticks": {
+    "drag_3_fingers": 31.5,
+    "pointing_1_finger": 6.3,
+    "profile_lookup": 893.5,
+    "scrolling_2_fingers": 14.4,
+    "swipe_4_fingers_repeating": 38.3,
+    "tap_3_fingers": 14.2
+  }
+}
