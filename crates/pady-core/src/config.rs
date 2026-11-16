@@ -390,6 +390,7 @@ impl Config {
         if written.is_err() {
             let _ = std::fs::remove_file(&tmp);
         }
+        sweep_stale_temps(path, std::time::Duration::from_secs(60));
         written.map_err(io)
     }
 
@@ -593,6 +594,24 @@ fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
     file.write_all(bytes)?;
     file.sync_all()
+}
+
+/// Remove temp files of saves that never finished (the process was killed
+/// or the power went mid-save), once they are older than `age`: a save in
+/// progress in another process has a younger one.
+fn sweep_stale_temps(config: &Path, age: std::time::Duration) {
+    let (Some(dir), Some(name)) = (config.parent(), config.file_name().and_then(|n| n.to_str())) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let prefix = format!("{name}.");
+    for entry in entries.flatten() {
+        let file = entry.file_name();
+        let Some(file) = file.to_str() else { continue };
+        let is_temp = file.strip_prefix(&prefix).is_some_and(|rest| rest.ends_with(".tmp"));
+        let stale = entry.metadata().and_then(|m| m.modified()).is_ok_and(|at| at.elapsed().is_ok_and(|e| e >= age));
+        if is_temp && stale {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// Rename `from` over `to`. On Windows the rename is refused while another
