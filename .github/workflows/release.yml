@@ -34,14 +34,15 @@ jobs:
       HAS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
       HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
       HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
-      # Signs update files so installed copies of Pady trust them (see RELEASING.md).
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
 
@@ -71,9 +72,15 @@ jobs:
           } } } | ConvertTo-Json -Depth 5 -Compress
           "TAURI_SIGNING_CONFIG=$signing" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # The updater key signs update files so installed copies of Pady trust
+      # them (see RELEASING.md). Only the two steps that sign get it: no other
+      # step, action or tool in this job can read it.
       - name: Build installers
         working-directory: crates/pady-app
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           args=(build --bundles "${{ matrix.bundles }}")
           if [ -n "${TAURI_SIGNING_CONFIG:-}" ]; then args+=(--config "$TAURI_SIGNING_CONFIG"); fi
@@ -104,7 +111,7 @@ jobs:
       - name: Upload installers for signing
         id: unsigned
         if: runner.os == 'Windows' && env.HAS_SIGNPATH == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pady-windows-unsigned
           path: |
@@ -112,7 +119,7 @@ jobs:
             dist/*.msi
       - name: Sign with SignPath
         if: runner.os == 'Windows' && env.HAS_SIGNPATH == 'true'
-        uses: signpath/github-action-submit-signing-request@v1
+        uses: signpath/github-action-submit-signing-request@ced31329c0317e779dad2eec2a7c3bb46ea1343e # v1
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -125,6 +132,9 @@ jobs:
       - name: Use the signed installers
         if: runner.os == 'Windows' && env.HAS_SIGNPATH == 'true'
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           cp signed/* dist/
@@ -142,7 +152,7 @@ jobs:
           cd dist && sha256sum $(ls | grep -v '\.sig$') > "SHA256SUMS-${{ matrix.name }}.txt"
           ls -l
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pady-${{ matrix.name }}
           path: dist/*
@@ -150,7 +160,7 @@ jobs:
 
       - name: Attach to a draft release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           draft: true
           generate_release_notes: true
@@ -164,7 +174,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: pady-*
           path: dist
@@ -197,7 +207,7 @@ jobs:
           JS
       - name: Attach latest.json to the draft release
         if: steps.manifest.outputs.written == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           draft: true
           files: latest.json
