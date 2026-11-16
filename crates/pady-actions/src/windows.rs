@@ -142,7 +142,15 @@ impl Executor for WindowsExecutor {
                 }
             }
             Action::Run { command } => {
-                std::process::Command::new("cmd").args(["/C", command]).creation_flags(CREATE_NO_WINDOW.0).spawn()?;
+                // `cmd /S /C "<command>"`: with /S, cmd drops exactly the first
+                // and the last quote and runs what is between them as typed.
+                // Rust's own argument quoting escapes quotes with backslashes,
+                // which cmd doesn't understand: `"C:\My App\app.exe" --x` never ran.
+                std::process::Command::new(system_dir().join("cmd.exe"))
+                    .raw_arg("/S /C")
+                    .raw_arg(format!("\"{command}\""))
+                    .creation_flags(CREATE_NO_WINDOW.0)
+                    .spawn()?;
                 Ok(())
             }
             Action::Lock => unsafe { LockWorkStation() }.map_err(Into::into),
