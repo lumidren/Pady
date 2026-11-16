@@ -5,7 +5,7 @@ use crate::trigger::Trigger;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 
 /// Tuning knobs. All distances are millimetres on the touchpad surface.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -316,15 +316,30 @@ impl Config {
         }
     }
 
-    /// Write atomically (temp file + rename) so a crash never leaves half a config.
+    /// Write atomically (temp file + rename) so neither a crash nor a second
+    /// save at the same moment ever leaves half a config.
+    ///
+    /// Each save writes its own temp file (two saves used to share one, and
+    /// one could rename it into place while the other was still writing),
+    /// flushes it to disk, and only then renames it over the config. Saves
+    /// in this process take turns; another process (`pady-cli` next to the
+    /// app) has its own temp file, so the last rename wins whole.
     pub fn save(&self, path: &Path) -> Result<(), ConfigError> {
+        static SAVING: Mutex<()> = Mutex::new(());
+        static NEXT: AtomicU64 = AtomicU64::new(0);
         let io = |source| ConfigError::Io { path: path.into(), source };
+        let text = self.to_toml()?;
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(io)?;
         }
-        let tmp = path.with_extension("toml.tmp");
-        std::fs::write(&tmp, self.to_toml()?).map_err(io)?;
-        std::fs::rename(&tmp, path).map_err(io)
+        let _one_at_a_time = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp =
+            path.with_extension(format!("toml.{}-{}.tmp", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        let written = write_new(&tmp, text.as_bytes()).and_then(|()| rename_over(&tmp, path));
+        if written.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        written.map_err(io)
     }
 
     pub fn binding(&self, trigger: Trigger) -> Option<&Binding> {
@@ -510,6 +525,32 @@ impl Config {
             multi_tap_ms: s.multi_tap_ms,
             multi_tap_fingers: self.multi_tap_fingers(),
             glide_fingers: self.glide_fingers(),
+        }
+    }
+}
+
+/// Create `path` (it must not exist: nothing is ever written through a file
+/// or link someone else put there) and write `bytes` all the way to disk.
+fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let _ = std::fs::remove_file(path); // left over from a crash of a process with our id
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+/// Rename `from` over `to`. On Windows the rename is refused while another
+/// program (an editor, a virus scanner) holds `to` open, so it is tried
+/// again for a moment.
+fn rename_over(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut tries = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && tries < 40 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            result => return result,
         }
     }
 }
