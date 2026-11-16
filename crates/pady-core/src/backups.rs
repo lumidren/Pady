@@ -55,22 +55,32 @@ pub fn snapshot(config: &Path, force: bool) -> std::io::Result<Option<PathBuf>> 
 
 fn snapshot_at(config: &Path, force: bool, now: u64) -> std::io::Result<Option<PathBuf>> {
     let Ok(current) = std::fs::read(config) else { return Ok(None) };
-    let existing = list(config);
-    if let Some(newest) = existing.first() {
+    // A copy dated after now was taken while the clock was wrong (or was put
+    // there by something else). Its date says nothing about how recent it
+    // is, so it never counts as "the last copy": one such file used to make
+    // every ordinary save look too soon, switching backups off until real
+    // time caught up with it.
+    let (future, past): (Vec<Backup>, Vec<Backup>) = list(config).into_iter().partition(|b| b.id > now);
+    if let Some(newest) = past.first() {
         if std::fs::read(&newest.path).is_ok_and(|b| b == current) {
             return Ok(None);
         }
-        if !force && now.saturating_sub(newest.id) < QUIET.as_millis() as u64 {
+        if !force && now - newest.id < QUIET.as_millis() as u64 {
             return Ok(None);
         }
     }
     let folder = dir(config);
     std::fs::create_dir_all(&folder)?;
     // Never overwrite a copy, even if two land in the same millisecond.
-    let id = existing.first().map_or(now, |n| now.max(n.id + 1));
-    let path = folder.join(format!("config-{id}.toml"));
+    let mut id = past.first().map_or(now, |n| now.max(n.id.saturating_add(1)));
+    let mut path = folder.join(format!("config-{id}.toml"));
+    while path.exists() {
+        id = id.checked_add(1).ok_or_else(|| std::io::Error::other("no free backup id"))?;
+        path = folder.join(format!("config-{id}.toml"));
+    }
     std::fs::write(&path, current)?;
-    for old in existing.iter().skip(KEEP - 1) {
+    // Keep the newest real copies; the misdated ones are the first to go.
+    for old in past.iter().chain(&future).skip(KEEP - 1) {
         let _ = std::fs::remove_file(&old.path);
     }
     Ok(Some(path))
@@ -142,6 +152,28 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&all[0].path).unwrap(), format!("v{}", KEEP + 6));
         assert_eq!(find(&cfg, all[3].id), Some(all[3].clone()));
         assert_eq!(find(&cfg, 1), None);
+    }
+
+    #[test]
+    fn copies_dated_in_the_future_neither_block_nor_outlive_real_ones() {
+        let f = Folder::new("future");
+        let cfg = f.config();
+        std::fs::create_dir_all(dir(&cfg)).unwrap();
+        for i in 0..KEEP as u64 {
+            std::fs::write(dir(&cfg).join(format!("config-{}.toml", 900 * MIN + i)), "future").unwrap();
+        }
+        for i in 0..4u64 {
+            std::fs::write(&cfg, format!("v{i}")).unwrap();
+            assert!(snapshot_at(&cfg, false, (i + 1) * 10 * MIN).unwrap().is_some(), "save {i} is backed up");
+        }
+        let all = list(&cfg);
+        assert_eq!(all.len(), KEEP, "still only {KEEP} copies");
+        let real: Vec<u64> = all.iter().map(|b| b.id).filter(|id| *id < 900 * MIN).collect();
+        assert_eq!(
+            real,
+            vec![40 * MIN, 30 * MIN, 20 * MIN, 10 * MIN],
+            "every real copy is kept; misdated ones go first"
+        );
     }
 
     #[test]
