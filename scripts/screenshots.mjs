@@ -36,7 +36,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * line separators U+2028/U+2029 as they are, and those can end a script or
  * a line. They are written as \uXXXX escapes instead.
  */
-const UNSAFE = /[<>/  ]/g;
+const UNSAFE = /[<>/\u2028\u2029]/g;
 const literal = (value) =>
   JSON.stringify(value).replace(UNSAFE, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
 const page = (file, query = "") => pathToFileURL(join(UI, file)).href + query;
