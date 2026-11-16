@@ -39,7 +39,20 @@ USAGE:
 Set RUST_LOG=debug for more detail.";
 
 fn main() -> ExitCode {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
+        // One event per line, whatever a device or a program put in its name.
+        .format(|buf, record| {
+            let message = record.args().to_string();
+            writeln!(
+                buf,
+                "[{} {:<5} {}] {}",
+                buf.timestamp(),
+                record.level(),
+                record.target(),
+                pady_core::log_line(&message)
+            )
+        })
+        .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let result = match args.as_slice() {

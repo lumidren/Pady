@@ -100,6 +100,47 @@ impl Action {
         matches!(self, Action::None)
     }
 
+    /// [`Action::label`] for the log file, which people attach to bug
+    /// reports: a command is named by its program and a link by its site,
+    /// because the rest (arguments, paths, queries) is where keys and tokens
+    /// live. Everything else reads the same as its label.
+    pub fn log_label(&self) -> String {
+        use crate::logsafe::{command_name, link_site};
+        match self {
+            Action::Run { command } => match command_name(command) {
+                "" => "Run a command".into(),
+                program => format!("Run `{program} …`"),
+            },
+            Action::OpenUrl { url, browser: Some(b) } => format!("Open {} in {b}", link_site(url)),
+            Action::OpenUrl { url, browser: None } => format!("Open {}", link_site(url)),
+            other => other.label(),
+        }
+    }
+
+    /// `text` (an error about this action) with the action's private parts
+    /// taken out: executors quote the command, link or arguments they were
+    /// given in their errors.
+    pub fn redact(&self, text: &str) -> String {
+        use crate::logsafe::{command_name, link_site};
+        let swap = |text: String, secret: &str, shown: &str| {
+            if secret.trim().is_empty() {
+                text
+            } else {
+                text.replace(secret, shown)
+            }
+        };
+        let text = text.to_string();
+        match self {
+            Action::Run { command } => swap(text, command, &format!("{} …", command_name(command))),
+            Action::OpenUrl { url, .. } => swap(text, url, &link_site(url)),
+            Action::Launch { args, .. } | Action::FocusOrLaunch { args, .. } => {
+                let joined = swap(text, &args.join(" "), "…");
+                args.iter().fold(joined, |text, arg| swap(text, arg, "…"))
+            }
+            _ => text,
+        }
+    }
+
     /// Short human-readable description for logs, tray tooltips and the UI feed.
     pub fn label(&self) -> String {
         match self {
@@ -144,6 +185,35 @@ mod tests {
         assert_eq!(w.action, Action::Lock);
         let w: Wrap = toml::from_str(r#"action = { type = "app_switcher" }"#).unwrap();
         assert_eq!(w.action, Action::AppSwitcher);
+    }
+
+    #[test]
+    fn log_labels_leave_out_what_may_be_secret() {
+        let run = Action::Run { command: "curl -H \"Authorization: Bearer abc123\" https://api.example.com".into() };
+        assert_eq!(run.log_label(), "Run `curl …`");
+        assert_eq!(
+            run.redact("cannot run `curl -H \"Authorization: Bearer abc123\" https://api.example.com`: x"),
+            "cannot run `curl …`: x"
+        );
+        let open =
+            Action::OpenUrl { url: "https://example.com/key/abc123?u=1".into(), browser: Some("firefox".into()) };
+        assert_eq!(open.log_label(), "Open https://example.com in firefox");
+        assert_eq!(
+            open.redact("could not open `https://example.com/key/abc123?u=1`"),
+            "could not open `https://example.com`"
+        );
+        let launch = Action::Launch { program: "deploy.exe".into(), args: vec!["--token".into(), "abc123".into()] };
+        assert_eq!(launch.log_label(), "Launch deploy.exe");
+        assert_eq!(
+            launch.redact("cannot launch deploy.exe --token abc123: not found"),
+            "cannot launch deploy.exe …: not found"
+        );
+        assert_eq!(Action::Run { command: "  ".into() }.log_label(), "Run a command");
+        // Nothing private in these: they read as they always did.
+        for plain in [Action::Mute, Action::Volume { step: 5 }, Action::Keys { combo: "ctrl+c".into() }, Action::Lock] {
+            assert_eq!(plain.log_label(), plain.label());
+            assert_eq!(plain.redact("some error"), "some error");
+        }
     }
 
     #[test]

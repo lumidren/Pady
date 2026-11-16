@@ -94,7 +94,7 @@ pub struct LogExecutor;
 
 impl Executor for LogExecutor {
     fn run(&mut self, action: &Action) -> Result<Option<Level>, ActionError> {
-        log::info!("would run: {}", action.label());
+        log::info!("would run: {}", action.log_label());
         Ok(None)
     }
     fn mouse_button(&mut self, down: bool) -> Result<(), ActionError> {
@@ -486,7 +486,13 @@ impl ActionLoop {
         match self.exec.run(action) {
             Ok(Some(level)) => (self.observer)(EngineEvent::Level(level)),
             Ok(None) => {}
-            Err(e) => self.report(&action.label(), Err(e)),
+            Err(e) => {
+                // The window hears all of it; the log (which gets shared in bug
+                // reports) only what the action is, never its command or link.
+                let error = e.to_string();
+                log::warn!("{} failed: {}", action.log_label(), action.redact(&error));
+                (self.observer)(EngineEvent::ActionFailed { action: action.label(), error });
+            }
         }
     }
 

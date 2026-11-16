@@ -768,6 +768,19 @@ fn init_logging() {
         std::fs::OpenOptions::new().create(true).append(true).open(path).ok()
     });
     let mut builder = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    // One event per line, whatever a device, a program or a broken config
+    // put in its name or text (see `pady_core::logsafe`).
+    builder.format(|buf, record| {
+        let message = record.args().to_string();
+        writeln!(
+            buf,
+            "[{} {:<5} {}] {}",
+            buf.timestamp(),
+            record.level(),
+            record.target(),
+            pady_core::log_line(&message)
+        )
+    });
     if let Some(file) = file {
         builder.target(env_logger::Target::Pipe(Box::new(Tee(file))));
     }
