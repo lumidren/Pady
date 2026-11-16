@@ -22,15 +22,39 @@ pub fn executor() -> Box<dyn Executor> {
     return Box::new(pady_core::engine::LogExecutor);
 }
 
-/// A link is handed to a browser or the system opener as a command-line
-/// argument, so one starting with `-` would be read as an option (Chromium's
-/// `--gpu-launcher=` runs a program). No real link starts with one.
+/// The link an `open_url` action opens, made safe to hand to a browser or
+/// the system opener:
+///
+/// * It can't start with `-`: it travels as a command-line argument, and
+///   Chromium's `--gpu-launcher=` runs a program. No real link starts so.
+/// * A link without a scheme (`example.com`) becomes `https://example.com`.
+///   Handed over as it was, the system opener took it for a *file name* in
+///   the current folder first, and `example.com` is a perfectly good name
+///   for a program there (`.com` files run on Windows).
+///
+/// App links (`spotify:`, `ms-settings:`) and full paths to a local file
+/// (`C:\page.html`, `/home/me/page.html`, `\\server\share\page.html`) pass
+/// through unchanged.
 #[cfg(any(windows, target_os = "linux"))]
-fn check_url(url: &str) -> Result<(), ActionError> {
-    if url.trim_start().starts_with('-') {
+pub fn link(url: &str) -> Result<String, ActionError> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err("there is no link to open".into());
+    }
+    if url.starts_with('-') {
         return Err(format!("`{url}` is not a link (links can't start with `-`)").into());
     }
-    Ok(())
+    let scheme = url.split_once(':').map(|(s, _)| s).filter(|s| {
+        let mut chars = s.chars();
+        chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+            && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    });
+    let full_path = url.starts_with('/') || url.starts_with("\\\\") || url.starts_with('~');
+    if scheme.is_some() || full_path {
+        Ok(url.to_string())
+    } else {
+        Ok(format!("https://{url}"))
+    }
 }
 
 /// Let go of the mouse button if a drag holds it; for crash handlers. On
@@ -125,11 +149,28 @@ pub fn set_autostart(enabled: bool, exe: &Path) -> Result<(), ActionError> {
 mod tests {
     #[test]
     fn links_cannot_smuggle_in_options() {
-        for bad in ["--gpu-launcher=calc.exe", " -profile /tmp/x", "-", "\t--help"] {
-            assert!(super::check_url(bad).is_err(), "{bad:?}");
+        for bad in ["--gpu-launcher=calc.exe", " -profile /tmp/x", "-", "\t--help", "", "  "] {
+            assert!(super::link(bad).is_err(), "{bad:?}");
         }
         for good in ["https://example.com/a-b", "mailto:me@example.com", "ms-settings:display", "spotify:track:1"] {
-            assert!(super::check_url(good).is_ok(), "{good:?}");
+            assert_eq!(super::link(good).unwrap(), good);
+        }
+    }
+
+    #[test]
+    fn a_link_without_a_scheme_is_a_web_address_never_a_file_name() {
+        for (typed, opened) in [
+            ("example.com", "https://example.com"),
+            (" youtube.com/watch?v=1 ", "https://youtube.com/watch?v=1"),
+            ("calc.exe", "https://calc.exe"),
+            ("..\\..\\evil.bat", "https://..\\..\\evil.bat"),
+            ("localhost:8080/x", "localhost:8080/x"), // reads as scheme `localhost`: left to the opener
+        ] {
+            assert_eq!(super::link(typed).unwrap(), opened, "{typed:?}");
+        }
+        // Full paths to a local page are the user's own choice.
+        for path in ["C:\\Users\\me\\page.html", "/home/me/page.html", "\\\\server\\share\\page.html", "~/page.html"] {
+            assert_eq!(super::link(path).unwrap(), path);
         }
     }
 }

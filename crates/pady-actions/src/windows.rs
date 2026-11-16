@@ -33,9 +33,11 @@ use windows::Win32::System::Com::{
     RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE,
 };
 use windows::Win32::System::Registry::{
-    RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
+    RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, REG_SZ,
+    RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
 };
 use windows::Win32::System::Shutdown::LockWorkStation;
+use windows::Win32::System::SystemInformation::{GetSystemDirectoryW, GetWindowsDirectoryW};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, CREATE_NO_WINDOW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
@@ -126,9 +128,9 @@ impl Executor for WindowsExecutor {
             }
             Action::Media { key } => tap_vk(media_vk(*key)),
             Action::OpenUrl { url, browser } => {
-                crate::check_url(url).and_then(|()| match browser.as_deref().filter(|b| !b.trim().is_empty()) {
-                    Some(b) => shell_open(&browser_exe(b), Some(&quote_arg(url))),
-                    None => shell_open(url, None),
+                crate::link(url).and_then(|url| match browser.as_deref().filter(|b| !b.trim().is_empty()) {
+                    Some(b) => shell_open(&browser_exe(b), Some(&quote_arg(&url))),
+                    None => shell_open(&url, None),
                 })
             }
             Action::Launch { program, args } => shell_open(&resolve_program(program), join_args(args).as_deref()),
@@ -678,7 +680,101 @@ fn join_args(args: &[String]) -> Option<String> {
     (!args.is_empty()).then(|| args.iter().map(|a| quote_arg(a)).collect::<Vec<_>>().join(" "))
 }
 
+/// `C:\Windows\System32`, from Windows itself (not the environment).
+fn system_dir() -> PathBuf {
+    let mut buf = [0u16; MAX_PATH as usize];
+    let len = unsafe { GetSystemDirectoryW(Some(&mut buf)) } as usize;
+    if len == 0 || len >= buf.len() {
+        return PathBuf::from(r"C:\Windows\System32");
+    }
+    PathBuf::from(String::from_utf16_lossy(&buf[..len]))
+}
+
+fn windows_dir() -> PathBuf {
+    let mut buf = [0u16; MAX_PATH as usize];
+    let len = unsafe { GetWindowsDirectoryW(Some(&mut buf)) } as usize;
+    if len == 0 || len >= buf.len() {
+        return PathBuf::from(r"C:\Windows");
+    }
+    PathBuf::from(String::from_utf16_lossy(&buf[..len]))
+}
+
+/// A program named without a folder: `chrome.exe`, `notepad`.
+fn is_bare_name(file: &str) -> bool {
+    !file.is_empty() && !file.contains(['\\', '/', ':'])
+}
+
+/// The program registered for `name` under App Paths (how Windows finds
+/// `chrome.exe` or `msedge.exe`, which aren't on PATH).
+fn app_path(name: &str) -> Option<PathBuf> {
+    let key = HSTRING::from(format!(r"Software\Microsoft\Windows\CurrentVersion\App Paths\{name}"));
+    let read = |root: HKEY| {
+        let mut bytes = 0u32;
+        let sized = unsafe { RegGetValueW(root, &key, PCWSTR::null(), RRF_RT_REG_SZ, None, None, Some(&mut bytes)) };
+        if sized.is_err() || bytes < 2 {
+            return None;
+        }
+        let mut buf = vec![0u16; (bytes as usize).div_ceil(2) + 1];
+        let mut bytes = (buf.len() * 2) as u32;
+        let status = unsafe {
+            RegGetValueW(
+                root,
+                &key,
+                PCWSTR::null(),
+                RRF_RT_REG_SZ,
+                None,
+                Some(buf.as_mut_ptr() as *mut c_void),
+                Some(&mut bytes),
+            )
+        };
+        if status.is_err() {
+            return None;
+        }
+        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        let path = PathBuf::from(String::from_utf16_lossy(&buf[..len]).trim().trim_matches('"'));
+        (path.is_absolute() && path.is_file()).then_some(path)
+    };
+    read(HKEY_CURRENT_USER).or_else(|| read(HKEY_LOCAL_MACHINE))
+}
+
+/// Where the program called `name` lives: App Paths, the Windows folders,
+/// then the folders on PATH. Never the current folder: `ShellExecuteW`
+/// looks there first for a bare name, so a file planted where Pady (or
+/// `pady-cli`) happened to be started from ran in place of the real app.
+fn locate_program(name: &str) -> Option<PathBuf> {
+    let names: Vec<String> = if Path::new(name).extension().is_some() {
+        vec![name.to_string()]
+    } else {
+        [".exe", ".com", ".bat", ".cmd"].iter().map(|ext| format!("{name}{ext}")).collect()
+    };
+    if let Some(found) = names.iter().find_map(|n| app_path(n)) {
+        return Some(found);
+    }
+    let on_path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default();
+    // Relative PATH entries (`.`, an empty one) mean the current folder again.
+    let folders = [system_dir(), windows_dir()].into_iter().chain(on_path.into_iter().filter(|d| d.is_absolute()));
+    for folder in folders {
+        for n in &names {
+            let candidate = folder.join(n);
+            // Not `is_file`: app execution aliases (`wt.exe`) are links that can't be followed.
+            if std::fs::symlink_metadata(&candidate).is_ok_and(|m| !m.is_dir()) {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
 fn shell_open(file: &str, params: Option<&str>) -> Result<(), ActionError> {
+    let located;
+    let file = if is_bare_name(file) {
+        located = locate_program(file)
+            .ok_or_else(|| format!("Windows could not find `{file}` (not an installed app, and not on PATH)"))?;
+        located.to_string_lossy()
+    } else {
+        std::borrow::Cow::Borrowed(file)
+    };
+    let file = &*file;
     let file_w = HSTRING::from(file);
     let params_w = params.map(HSTRING::from);
     let result = unsafe {
@@ -1024,6 +1120,21 @@ pub fn set_autostart(enabled: bool, exe: &Path) -> Result<(), ActionError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn programs_are_found_in_windows_own_places_only() {
+        let cmd = locate_program("cmd").expect("cmd is part of Windows");
+        assert!(cmd.is_absolute() && cmd.ends_with("cmd.exe"), "{}", cmd.display());
+        assert_eq!(locate_program("cmd.exe"), Some(cmd));
+        assert!(locate_program("notepad").is_some_and(|p| p.is_absolute()));
+        assert_eq!(locate_program("pady-no-such-program-anywhere"), None);
+        assert_eq!(locate_program("pady-no-such-program-anywhere.exe"), None);
+        assert!(is_bare_name("chrome.exe") && is_bare_name("notepad"));
+        for not_bare in ["", "C:x.exe", "a/b.exe", "ms-settings:display", "sub/app.exe"] {
+            assert!(!is_bare_name(not_bare), "{not_bare:?}");
+        }
+        assert!(system_dir().join("cmd.exe").is_file());
+    }
 
     #[test]
     fn exe_names_are_normalised() {
