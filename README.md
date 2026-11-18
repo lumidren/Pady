@@ -74,6 +74,7 @@
 | ✅ | **App switcher**: swipe to show every open app, slide sideways to pick one, lift to switch | **v1.1.0** (released 2026-11-09) |
 | ✅ | **Faster taps and a quieter language notice**: actions run before bookkeeping, and the tap wait learns your pace | **v1.1.1** (released 2026-11-12) |
 | ✅ | **Security and reliability fixes** from a full assessment: safer program lookup, safe config saves, a careful log, volume that stops when your fingers do | **v1.1.2** (released 2026-11-16) |
+| 🧪 | **Choose an app**: pick the app a gesture opens from a searchable menu of everything installed, with icons, Store apps included | Next release. Built, and on `main` |
 | 🧪 | **Glyphs**: draw your own two-finger shapes (a circle, a V, a check mark) and bind them like any gesture | Coming soon. Built, but shown only in beta builds for now |
 | 🧪 | **Translator**: select text, do a gesture, and a pop-up shows the translation (free MyMemory or DeepL, 38 languages) | Coming soon. Being built on the `translator` branch |
 
@@ -100,17 +101,19 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
 | <img src="docs/screenshots/live.png" alt="Fingers drawn live on a to-scale touchpad"> | <img src="docs/screenshots/tutorial.png" alt="The first-run tutorial"> |
 | **Settings** | **Level overlay** |
 | <img src="docs/screenshots/settings.png" alt="Gesture tuning sliders"> | <img src="docs/screenshots/overlay.png" alt="The volume pill shown while scrubbing"> |
+| **Choose an app** *(next release)* | |
+| <img src="docs/screenshots/apps.png" alt="A searchable menu of installed apps to launch with a gesture"> | Pick the app a gesture opens from everything installed. The real menu shows each app's own icon. |
 
 ## Install
 
-Download from the [latest release](https://github.com/lumidren/Pady/releases/latest). Sizes are for v1.1.0.
+Download from the [latest release](https://github.com/lumidren/Pady/releases/latest). Sizes are for v1.1.2.
 
 | System | File | Size | What happens |
 |---|---|---|---|
-| **Windows 10 / 11** | `Pady_<version>_x64-setup.exe` | 5.6 MB | Installs for you only, with no admin prompt, and adds Pady to the Start menu. If Microsoft WebView2 is missing, the installer downloads it. Nothing else is needed. |
-| Windows (managed PCs) | `Pady_<version>_x64_en-US.msi` | 7.3 MB | Per-machine install for Intune or Group Policy. |
-| **Ubuntu, Debian, Mint** | `Pady_<version>_amd64.deb` | 5.4 MB | `sudo apt install ./Pady_*_amd64.deb` pulls in every dependency and sets up touchpad access. |
-| **Fedora, openSUSE** | `Pady-<version>-1.x86_64.rpm` | 5.4 MB | `sudo dnf install ./Pady-*.x86_64.rpm`, same as the .deb. |
+| **Windows 10 / 11** | `Pady_<version>_x64-setup.exe` | 5.7 MB | Installs for you only, with no admin prompt, and adds Pady to the Start menu. If Microsoft WebView2 is missing, the installer downloads it. Nothing else is needed. |
+| Windows (managed PCs) | `Pady_<version>_x64_en-US.msi` | 7.4 MB | Per-machine install for Intune or Group Policy. |
+| **Ubuntu, Debian, Mint** | `Pady_<version>_amd64.deb` | 5.5 MB | `sudo apt install ./Pady_*_amd64.deb` pulls in every dependency and sets up touchpad access. |
+| **Fedora, openSUSE** | `Pady-<version>-1.x86_64.rpm` | 5.5 MB | `sudo dnf install ./Pady-*.x86_64.rpm`, same as the .deb. |
 | Any Linux | `Pady_<version>_amd64.AppImage` | 84 MB | `chmod +x` it and run. The tutorial's **Fix permissions** button sets up access and installs missing helper tools after one password prompt. |
 | Terminal tool only | `pady-cli-<version>-windows-x64.zip` or `-linux-x64.tar.gz` | about 1 MB | The optional [`pady-cli`](#command-line). |
 
@@ -167,7 +170,7 @@ A few rules keep them apart:
 | Brightness up / down | Laptop screens (WMI on Windows; brightnessctl, sysfs or logind on Linux) and external monitors (DDC/CI). | `{ type = "brightness", step = 10 }` |
 | Media keys | Play/pause, next, previous, stop, and the volume keys. | `{ type = "media", key = "play_pause" }` |
 | Open a link | In your default browser or a specific one (Chrome, Edge, Firefox, Brave). | `{ type = "open_url", url = "https://…", browser = "chrome" }` |
-| Launch an app | Any installed app, picked from a searchable menu of everything in Start (Store apps included), or a program, path or URI such as `ms-settings:`. | `{ type = "launch", program = "notepad.exe" }` |
+| Launch an app | A program, path or URI such as `ms-settings:`: browse for it, or type its name as it appears in Start. From the next release, pick any installed app from a searchable menu instead (Store apps included). | `{ type = "launch", program = "notepad.exe" }` |
 | Switch to an app | Brings it to the front, minimises it if it's already in front, and launches it if it isn't running. | `{ type = "focus_or_launch", program = "chrome.exe" }` |
 | Run a command | Anything your shell can run (`cmd /C` on Windows, `sh -c` on Linux). | `{ type = "run", command = "…" }` |
 | Lock the screen | Locks your session. | `{ type = "lock" }` |
@@ -664,7 +667,7 @@ Writes are atomic (a temporary file, then a rename), so a crash never leaves hal
 | A brightness step on Windows | about 4.5 ms, the first one 8 ms (it connects to WMI at startup) | `time_actions` |
 | Swipe glow and touches | about 0.2 ms of work per frame, paced by the display | The glow is drawn once; each frame only moves it and changes its opacity |
 | Timers for holds, double taps, drag release | 1 ms precision while one is pending (Windows' default tick is ~15.6 ms) | Requested only while needed, then given back |
-| Download | 5.6 MB Windows setup, 5.4 MB .deb | v1.1.0 release files |
+| Download | 5.7 MB Windows setup, 5.5 MB .deb | v1.1.2 release files |
 
 Load, spike and soak results (the frame rate ramped to 500 touchpads' worth, a burst of half a million frames, 30 minutes of steady load) are in [docs/benchmarks.md](docs/benchmarks.md).
 
