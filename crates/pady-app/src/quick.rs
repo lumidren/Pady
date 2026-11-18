@@ -122,10 +122,9 @@ impl Quick {
             self.closings.fetch_add(1, Ordering::SeqCst); // cancel a pending destroy
             let (width, height) = lock(&self.size).unwrap_or(FIRST_SIZE);
             place(app, &window, anchor, false, width, height);
-            show_inactive(&window);
-        }
-        if focus {
-            let _ = window.set_focus();
+            show(&window, focus);
+        } else if focus {
+            give_focus(&window);
         }
     }
 
@@ -298,10 +297,7 @@ pub fn quick_layout(app: AppHandle, quick: tauri::State<Quick>, id: u64, width: 
     place(&app, &window, anchor, was_shown && quick.moved.load(Ordering::SeqCst), width, height);
     if !was_shown {
         quick.closings.fetch_add(1, Ordering::SeqCst); // cancel a pending destroy
-        show_inactive(&window);
-        if !quick.capturing.load(Ordering::SeqCst) {
-            let _ = window.set_focus();
-        }
+        show(&window, !quick.capturing.load(Ordering::SeqCst));
     }
 }
 
@@ -396,25 +392,21 @@ fn place(app: &AppHandle, window: &WebviewWindow, mut anchor: (f64, f64), moved:
     let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
 }
 
-/// Show the window without taking the keyboard from the app in front: its
-/// selection is still being read (with Ctrl+C, which must reach that app).
-#[cfg(windows)]
-fn show_inactive(window: &WebviewWindow) {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
-    match window.hwnd() {
-        Ok(hwnd) => {
-            let _ = unsafe { ShowWindow(HWND(hwnd.0), SW_SHOWNOACTIVATE) };
-        }
-        Err(_) => {
-            let _ = window.show();
-        }
+/// Put the window on screen. Without `focus` it must not take the keyboard
+/// from the app in front, whose selection is still being read (with Ctrl+C,
+/// which has to reach that app): it is shown as a window that can't be
+/// focused, until [`give_focus`].
+fn show(window: &WebviewWindow, focus: bool) {
+    let _ = window.set_focusable(focus);
+    let _ = window.show();
+    if focus {
+        let _ = window.set_focus();
     }
 }
 
-#[cfg(not(windows))]
-fn show_inactive(window: &WebviewWindow) {
-    let _ = window.show();
+fn give_focus(window: &WebviewWindow) {
+    let _ = window.set_focusable(true);
+    let _ = window.set_focus();
 }
 
 #[cfg(windows)]
