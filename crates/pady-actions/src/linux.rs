@@ -206,7 +206,9 @@ impl Executor for LinuxExecutor {
             Action::Brightness { step } => return brightness(*step),
             Action::Media { key } => return self.media(*key),
             // Drag is driven through mouse_button / mouse_move.
-            Action::None | Action::Drag => Ok(()),
+            Action::None | Action::Drag | Action::QuickNote => Ok(()),
+            // The desktop's clipboard history, where it has one (KDE's Klipper).
+            Action::Clipboard => self.send_combo(&"win+v".parse::<KeyCombo>().map_err(|e| format!("{e}"))?),
             Action::AppSwitcher => self.send_combo(&"alt+tab".parse::<KeyCombo>().map_err(|e| format!("{e}"))?),
             Action::Keys { combo } => {
                 let parsed: KeyCombo = combo.parse().map_err(|e| format!("invalid shortcut `{combo}`: {e}"))?;
@@ -984,6 +986,51 @@ fn exe_basename(target: &Path) -> Option<String> {
 
 fn current_desktop() -> String {
     env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_ascii_uppercase()
+}
+
+/// Run the first of `tools` that is installed; `None` if none is.
+fn first_tool(tools: &[&[&str]], input: Option<&str>) -> Option<io::Result<std::process::Output>> {
+    use std::io::Write;
+    for tool in tools {
+        let mut cmd = Command::new(tool[0]);
+        cmd.args(&tool[1..]).stdout(Stdio::piped()).stderr(Stdio::null());
+        cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err(e) => return Some(Err(e)),
+        };
+        if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        return Some(child.wait_with_output());
+    }
+    None
+}
+
+fn wayland() -> bool {
+    env::var_os("WAYLAND_DISPLAY").is_some()
+}
+
+/// Whatever is highlighted right now (the primary selection).
+pub(crate) fn primary_selection() -> Result<Option<String>, ActionError> {
+    let wl: &[&str] = &["wl-paste", "--primary", "--no-newline"];
+    let x: &[&[&str]] = &[&["xclip", "-o", "-selection", "primary"], &["xsel", "-o", "-p"]];
+    let tools: Vec<&[&str]> = if wayland() {
+        std::iter::once(wl).chain(x.iter().copied()).collect()
+    } else {
+        x.iter().copied().chain(std::iter::once(wl)).collect()
+    };
+    match first_tool(&tools, None) {
+        None => Err("install wl-clipboard (Wayland) or xclip (X11) to put selected text in a note".into()),
+        Some(Err(e)) => Err(e.into()),
+        Some(Ok(out)) if out.status.success() => {
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            Ok(Some(text).filter(|t| !t.trim().is_empty()))
+        }
+        // These exit with an error when nothing is selected.
+        Some(Ok(_)) => Ok(None),
+    }
 }
 
 pub fn conflicts(config: &Config) -> Vec<Conflict> {

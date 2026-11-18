@@ -2,6 +2,8 @@
 //! needs (start-with-system, detecting gestures the OS also handles).
 
 pub mod apps;
+#[cfg(windows)]
+mod clipboard;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(windows)]
@@ -77,6 +79,26 @@ pub fn foreground_app() -> Option<String> {
     return linux::LinuxExecutor::new().foreground_app();
     #[cfg(not(any(windows, target_os = "linux")))]
     None
+}
+
+/// The text selected in the app in front, or `None` if nothing is.
+///
+/// Windows: copied with Ctrl+C, with the clipboard put back afterwards; it
+/// waits for the app to answer, at most `wait`. Linux: the primary selection
+/// (whatever is highlighted), read with wl-paste, xclip or xsel.
+pub fn selected_text(wait: std::time::Duration) -> Result<Option<String>, ActionError> {
+    #[cfg(windows)]
+    return clipboard::selected_text(|| windows::press("ctrl+c"), wait);
+    #[cfg(target_os = "linux")]
+    return {
+        let _ = wait;
+        linux::primary_selection()
+    };
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = wait;
+        Ok(None)
+    }
 }
 
 /// Something on this system that will fight with the user's bindings.

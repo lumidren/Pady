@@ -158,6 +158,9 @@ pub enum EngineEvent {
         action: String,
         error: String,
     },
+    /// An action the app carries out itself (see
+    /// [`Action::is_app_action`]): a quick note.
+    AppAction(Action),
     /// A gesture was ignored because a full-screen game is in front.
     Paused {
         trigger: String,
@@ -516,6 +519,10 @@ impl ActionLoop {
     }
 
     fn execute(&mut self, action: &Action) {
+        if action.is_app_action() {
+            (self.observer)(EngineEvent::AppAction(action.clone()));
+            return;
+        }
         match self.exec.run(action) {
             Ok(Some(level)) => (self.observer)(EngineEvent::Level(level)),
             Ok(None) => {}
@@ -1279,6 +1286,15 @@ mod tests {
         cfg.set_binding(Trigger::Tap(3), Action::Run { command: "nope".into() }, false);
         let (_, events) = run_engine(cfg, tap3());
         assert!(events.iter().any(|e| matches!(e, EngineEvent::ActionFailed { error, .. } if error == "boom")));
+    }
+
+    #[test]
+    fn a_quick_note_is_handed_to_the_app() {
+        let mut cfg = Config::default();
+        cfg.set_binding(Trigger::Tap(3), Action::QuickNote, false);
+        let (jobs, events) = run_engine(cfg, tap3());
+        assert!(events.iter().any(|e| matches!(e, EngineEvent::AppAction(Action::QuickNote))));
+        assert!(jobs.is_empty(), "the executor never sees it: {jobs:?}");
     }
 
     fn with_browser_profile() -> Config {

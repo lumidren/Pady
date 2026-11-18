@@ -41,6 +41,13 @@ pub enum Action {
     Lock,
     /// Hold the left mouse button while the fingers move (drag triggers only).
     Drag,
+    /// The system's clipboard history (Win+V on Windows; the same shortcut
+    /// on Linux desktops that have one, such as KDE), to paste something
+    /// copied earlier.
+    Clipboard,
+    /// Open a small note by the cursor to jot something down; selected text
+    /// goes in it. The app does this itself (it needs a window).
+    QuickNote,
     /// The app switcher (Alt+Tab). On a swipe it stays open while the fingers
     /// keep sliding: each step picks the next app, sliding back the previous
     /// one, and lifting switches to it. On any other gesture, one Alt+Tab.
@@ -123,6 +130,12 @@ impl Action {
         }
     }
 
+    /// Actions the app runs itself: they need a window or its own state,
+    /// which the engine and the executor have none of.
+    pub fn is_app_action(&self) -> bool {
+        matches!(self, Action::QuickNote)
+    }
+
     pub fn is_none(&self) -> bool {
         matches!(self, Action::None)
     }
@@ -186,6 +199,8 @@ impl Action {
             Action::Run { command } => format!("Run `{command}`"),
             Action::Lock => "Lock screen".into(),
             Action::Drag => "Drag (hold left button)".into(),
+            Action::Clipboard => "Clipboard history".into(),
+            Action::QuickNote => "Quick note".into(),
             Action::AppSwitcher => "App switcher".into(),
         }
     }
@@ -210,6 +225,11 @@ mod tests {
         assert_eq!(w.action, Action::Media { key: MediaKey::PlayPause });
         let w: Wrap = toml::from_str(r#"action = { type = "lock" }"#).unwrap();
         assert_eq!(w.action, Action::Lock);
+        let w: Wrap = toml::from_str(r#"action = { type = "quick_note" }"#).unwrap();
+        assert_eq!(w.action, Action::QuickNote);
+        assert!(w.action.is_app_action() && !Action::Clipboard.is_app_action());
+        let w: Wrap = toml::from_str(r#"action = { type = "clipboard" }"#).unwrap();
+        assert_eq!(w.action, Action::Clipboard);
         let w: Wrap = toml::from_str(r#"action = { type = "app_switcher" }"#).unwrap();
         assert_eq!(w.action, Action::AppSwitcher);
     }

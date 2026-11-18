@@ -114,8 +114,10 @@ impl Executor for WindowsExecutor {
             return self.change_brightness(*step).map(Some);
         }
         match action {
-            Action::None | Action::Drag | Action::Brightness { .. } => Ok(()),
+            Action::None | Action::Drag | Action::QuickNote | Action::Brightness { .. } => Ok(()),
             Action::AppSwitcher => send_combo(&"alt+tab".parse::<KeyCombo>()?),
+            // Windows' own clipboard history.
+            Action::Clipboard => send_combo(&"win+v".parse::<KeyCombo>()?),
             Action::Volume { step } => change_volume(*step),
             Action::Mute => tap_vk(VK_VOLUME_MUTE),
             Action::Keys { combo } => {
@@ -257,6 +259,11 @@ fn tap_vk(vk: VIRTUAL_KEY) -> Result<(), ActionError> {
 
 /// Press modifiers, tap the key, release in reverse order — all in one
 /// `SendInput` call so no real keystroke can interleave.
+/// Press a shortcut such as `ctrl+c` (outside the executor, from any thread).
+pub(crate) fn press(combo: &str) -> Result<(), ActionError> {
+    send_combo(&combo.parse::<KeyCombo>()?)
+}
+
 fn send_combo(combo: &KeyCombo) -> Result<(), ActionError> {
     let m = combo.modifiers;
     let mods: Vec<VIRTUAL_KEY> =

@@ -26,7 +26,9 @@ use crate::windows::{ICON_FONTS, NUMBER_FONTS};
 use crate::{Icon, Notice};
 use std::ffi::c_void;
 use std::mem::size_of;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
+use std::sync::OnceLock;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use windows::core::{w, PCWSTR};
@@ -94,6 +96,7 @@ impl Notice {
                 Icon::Lock => 0xE72E,
                 Icon::Done => GLYPH_CHECK,
                 Icon::Keyboard => 0xE765,
+                Icon::Note => 0xE70B,
             },
         }
     }
@@ -322,6 +325,25 @@ struct ClipboardChange {
     pasting: bool,
 }
 
+/// Until when (ms after [`epoch`]) Pady's own clipboard use, such as reading
+/// the selection for a note, mustn't show "Copied".
+static QUIET_UNTIL: AtomicU64 = AtomicU64::new(0);
+
+fn epoch() -> Instant {
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+    *EPOCH.get_or_init(Instant::now)
+}
+
+/// Keep "Copied" quiet for `time` from now.
+pub fn quiet_clipboard(time: Duration) {
+    let until = (epoch().elapsed() + time).as_millis() as u64;
+    QUIET_UNTIL.fetch_max(until, Ordering::Relaxed);
+}
+
+fn clipboard_quiet() -> bool {
+    (epoch().elapsed().as_millis() as u64) < QUIET_UNTIL.load(Ordering::Relaxed)
+}
+
 /// Long enough for a slow app to finish writing after the key press.
 const COPY_WINDOW: Duration = Duration::from_millis(1500);
 
@@ -510,7 +532,9 @@ impl Toaster {
                 WM_COPIED => {
                     if self.watching {
                         let seq = unsafe { GetClipboardSequenceNumber() };
-                        if seq != self.last_copy && looks_like_your_copy(&ClipboardChange::now()) {
+                        if clipboard_quiet() {
+                            self.last_copy = seq;
+                        } else if seq != self.last_copy && looks_like_your_copy(&ClipboardChange::now()) {
                             self.last_copy = seq;
                             self.show(Notice::Copied);
                         }
