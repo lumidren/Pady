@@ -777,9 +777,13 @@ pub(crate) fn show_main(app: &AppHandle) {
     let window = match app.get_webview_window("main") {
         Some(window) => window,
         None => {
-            let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main").cloned() else {
+            let Some(mut config) = app.config().app.windows.iter().find(|w| w.label == "main").cloned() else {
                 return;
             };
+            if pady_core::BETA {
+                // Told apart from the released Pady on the taskbar and in Alt+Tab.
+                config.title = "Pady Beta".into();
+            }
             match tauri::WebviewWindowBuilder::from_config(app, &config).and_then(|b| b.build()) {
                 Ok(window) => window,
                 Err(e) => {
@@ -962,12 +966,6 @@ fn main() {
             record_glyph,
         ])
         .setup(move |app| {
-            if pady_core::BETA {
-                // Told apart from the released Pady on the taskbar and in Alt+Tab.
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.set_title("Pady Beta");
-                }
-            }
             let config_path = Config::default_path()?;
             let config = Arc::new(SharedConfig::new(load_config(&config_path)));
             let live = Arc::new(AtomicBool::new(false));
