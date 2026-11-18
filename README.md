@@ -167,7 +167,7 @@ A few rules keep them apart:
 | Brightness up / down | Laptop screens (WMI on Windows; brightnessctl, sysfs or logind on Linux) and external monitors (DDC/CI). | `{ type = "brightness", step = 10 }` |
 | Media keys | Play/pause, next, previous, stop, and the volume keys. | `{ type = "media", key = "play_pause" }` |
 | Open a link | In your default browser or a specific one (Chrome, Edge, Firefox, Brave). | `{ type = "open_url", url = "https://…", browser = "chrome" }` |
-| Launch an app | A program, path or URI such as `ms-settings:`. Browse for it, or type its name as it appears in Start. | `{ type = "launch", program = "notepad.exe" }` |
+| Launch an app | Any installed app, picked from a searchable menu of everything in Start (Store apps included), or a program, path or URI such as `ms-settings:`. | `{ type = "launch", program = "notepad.exe" }` |
 | Switch to an app | Brings it to the front, minimises it if it's already in front, and launches it if it isn't running. | `{ type = "focus_or_launch", program = "chrome.exe" }` |
 | Run a command | Anything your shell can run (`cmd /C` on Windows, `sh -c` on Linux). | `{ type = "run", command = "…" }` |
 | Lock the screen | Locks your session. | `{ type = "lock" }` |
@@ -701,7 +701,7 @@ Pady/
 │   ├── pady-core/             recognizer, engine, config, presets, backups, glyphs
 │   │   └── benches/           hot_path.rs: cost per frame, gesture → action latency
 │   ├── pady-input/            windows.rs + hid.rs (Raw Input), linux.rs + mt.rs (evdev), sched.rs
-│   ├── pady-actions/          windows.rs, linux.rs, examples/time_actions.rs
+│   ├── pady-actions/          windows.rs, linux.rs, apps.rs (installed apps), examples/
 │   ├── pady-overlay/          native Windows pill, notices, glow and touches (GDI+)
 │   ├── pady-cli/              the pady-cli tool
 │   └── pady-app/              the Tauri app

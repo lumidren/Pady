@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Choose an app from a menu.** *Launch an app* and *Switch to an app* now have a **Choose an app** button: a searchable list of everything installed, with icons, the same apps Start shows. Type a few letters, press Enter, done. It also finds apps that have no file to browse to (Microsoft Store and other packaged apps such as Claude or WhatsApp), and stores an address that keeps working when the app updates. Gesture cards show the app's name instead of its path. On Linux the list comes from your desktop's app entries.
+
 ### Security
 
 - **Control Flow Guard on Windows.** `pady.exe` and `pady-cli.exe` are now built with it, next to the address randomization and data execution prevention they already had. It stops a corrupted function pointer from being called, should the code that talks to Windows directly ever have a memory bug. No measurable cost.
