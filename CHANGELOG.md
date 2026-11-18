@@ -1,11 +1,14 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 (2026-11-19)
 
-### Added
+The first public release.
+
+Pady gives a precision touchpad 33 multi-finger gestures (taps, double and triple taps, holds, swipes, pinches and a three-finger drag) and lets each one run an action: a shortcut, volume, brightness, media keys, a link, an app, a command, the app switcher, a quick note. Gestures can differ per app, five starter presets get you going, and a first-run tutorial shows the basics. It runs as one small process in the tray, updates itself, keeps a backup of your settings before every change, and sends nothing anywhere.
+
+### New since the last preview build
 
 - **Choose an app from a menu.** *Launch an app* and *Switch to an app* now have a **Choose an app** button: a searchable list of everything installed, with icons, the same apps Start shows. Type a few letters, press Enter, done. It also finds apps that have no file to browse to (Microsoft Store and other packaged apps such as Claude or WhatsApp), and stores an address that keeps working when the app updates. Gesture cards show the app's name instead of its path. On Linux the list comes from your desktop's app entries.
-
 - **Quick note.** A new action (under *Everyday*): do the gesture in any app and a small note opens by the cursor. Esc, Ctrl+Enter, a click elsewhere or the same gesture again saves it. It is made to be instant: while a Quick note gesture is set, the note's window is kept ready in the background, so the gesture only has to show it.
 - **Selected text in quick notes** (Settings › General, off by default). With it on, a quick note starts with the text you had selected. This is the one thing that makes Pady open the clipboard: it presses Ctrl+C, reads the text and puts back what was there, while the note is already on screen. In a terminal the note still starts empty, because Ctrl+C means something else there.
 - **Notes page.** Everything you jot down, in the app: search (matches are highlighted), `#tags`, colours, pins, to-do lists you can tick, a reading view, and sorting. Notes save as you type. Deleting has an **Undo**, Ctrl+N starts a note, Ctrl+F searches, and **Export all notes** writes them into one Markdown file. Notes are plain text in `notes.json` next to the config, on your computer only.
@@ -13,13 +16,18 @@
 
 ### Security
 
+- **Assessed before launch.** A full security and performance assessment in November 2026: a threat model, attack tests, fuzzing, load and 30-minute soak tests. Fourteen findings, twelve fixed and held in place by tests that run on every change, two open and documented. The write-up is in [security/REPORT.md](security/REPORT.md).
 - **Control Flow Guard on Windows.** `pady.exe` and `pady-cli.exe` are now built with it, next to the address randomization and data execution prevention they already had. It stops a corrupted function pointer from being called, should the code that talks to Windows directly ever have a memory bug. No measurable cost.
 
-## 1.1.2 (2026-11-16)
+## Before 1.0.0: preview builds
+
+These builds were handed out while Pady was being made, under version numbers that ran past 1.0.0. They are no longer offered, and everything in them is in 1.0.0. The notes are kept as the project's history.
+
+### Preview 1.1.2 (2026-11-16)
 
 Safer and steadier: the fixes from a security and performance assessment of 1.1.1. The full write-up is in [security/REPORT.md](security/REPORT.md).
 
-### Security
+#### Security
 
 - **Programs are never started from the current folder by a bare name (Windows).** *Launch*, *Switch to an app* and *Open a link* let Windows look in the folder Pady was started from first, so a file planted there under an app's name ran in its place. Pady now finds a bare name itself: App Paths, the Windows folders, then `PATH`. A link without a scheme opens as `https://` and is never taken for a file name.
 - **The log leaves out what may be secret.** A failed action used to be logged with its whole command or link, and bug reports ask for the log. It now names a command by its program and a link by its site. Line breaks and escape codes in device and app names can no longer forge log lines.
@@ -28,58 +36,58 @@ Safer and steadier: the fixes from a security and performance assessment of 1.1.
 - **A pinned release pipeline.** Every GitHub Action is pinned to an exact commit, the updater signing key reaches only the two build steps that sign, and CI runs with a read-only token. A new workflow scans the history for secrets and runs CodeQL.
 - **The website treats GitHub's answer as text.** Download links from the release API are built as elements and must point at Pady's releases.
 
-### Fixed
+#### Fixed
 
 - **Saving from two places at once could tear the config.** The window, the tray switch and `pady-cli` shared one temp file; a save could be renamed into place half-written, and the next start fell back to defaults. Every save now has its own temp file, is flushed to disk before the rename, and cleans up after a crash.
 - **One misdated backup switched backups off.** A backup dated in the future (after the clock was wrong for a while) made every later save look too recent to back up. Such copies no longer count, and are the first to be pruned.
 - **Run commands with quotes work on Windows.** A command such as `"C:\Program Files\App\app.exe" --flag` reached `cmd` mangled and never ran as written.
 
-### Performance
+#### Performance
 
 - **Volume and brightness stop when your fingers do.** Steps of a repeating swipe that queue up behind a slow one now run as a single change of their sum. With a 5 ms step, a fast 400 mm swipe went from 195 calls over 1.07 s to 2 calls in 11 ms. A slow swipe still moves step by step.
 - **Profile lookup is 4 times faster** (75 µs instead of 303 µs with 200 profiles) and allocates nothing.
 - **A performance gate**: CI fails when allocations per frame are more than 20% over a recorded baseline. Time per frame is held to 20% on the machine the baseline was recorded on, as a step before each release. Load, spike and 30-minute soak results are in [docs/benchmarks.md](docs/benchmarks.md).
 
-## 1.1.1 (2026-11-12)
+### Preview 1.1.1 (2026-11-12)
 
 Faster gestures and a quieter language notice.
 
-### Performance
+#### Performance
 
 - **Actions go out first.** Pady used to update its stats, notices and window before running a gesture's action; now the action runs first and the rest follows. On a test where that work takes 5 ms, a gesture reached its action in 0.07 ms instead of 5.5 ms.
 - **Taps learn your pace.** When a finger count has a double or triple tap too, a single tap waits for a possible second one. That wait now learns how quickly you tap again: after a few double taps it shrinks to just past your slowest recent gap (150 ms at the least, never more than Settings › Double-tap speed). A slower double tap that came out as two single taps widens it again.
 - **App profiles cost less per gesture.** The app in front is remembered while its window stays in front, instead of being looked up for every gesture and every volume or brightness step.
 
-### Fixed
+#### Fixed
 
 - **The keyboard language notice no longer shows up by itself.** Clicking between apps, or between parts of one window (a browser's address bar and its page), could look like a language switch, and so could an app setting its own language while nobody was typing. Only a real switch is named now.
 
-## 1.1.0 (2026-11-09)
+### Preview 1.1.0 (2026-11-09)
 
 Pick any open app with one slide.
 
-### Added
+#### Added
 
 - **App switcher.** A new action that shows every open app, like Alt+Tab. On a swipe it stays open until you lift your fingers: slide sideways to pick an app (each 12 mm to the right moves to the next one, to the left goes back), then lift to switch to it. A finger the touchpad loses for a moment doesn't close it. On a tap or hold it's one Alt+Tab, back to the app you used last.
 
-## 1.0.0 (2026-11-03)
+### Preview 1.0.0 (2026-11-03)
 
 The first stable release: faster, calmer, and safer with your settings.
 
-### Added
+#### Added
 
 - **Keyboard language notice.** Switch your keyboard language (Win+Space or Alt+Shift) and a corner notice names it, like "Arabic" or "English". It has its own switch under Settings › Animations (Windows).
 - **More animation options.** A Glow switch for every glow (notices, the swipe glow and the app's own highlights), glow strength, animation speed and how long notices stay.
 - **Switch keyboard language** is a new action for any gesture. The corner pill names the language you switched to.
 - **Settings backups.** Pady keeps a copy of your settings before every change (the newest 50), and **Settings › Restore a backup** brings one back.
 
-### Changed
+#### Changed
 
 - **Calmer by default.** New installs show the corner notices (Copied, Pasted, keyboard language, actions, pinch steps) and keep everything else off: swipe glow, touches, card previews, the live touchpad and celebrations. Settings now has a Notices section for the pill, separate from Animations; the Animations switch no longer turns the notices off. Settings you've already saved stay as they are.
 - **The screenshot notice** has its own switch and is off by default: the screenshot tool already shows itself.
 - **Snappier taps.** When a finger count has a double or triple tap too, a single tap now waits 250 ms for a second one instead of 300 ms (new installs; change it under Settings › Double-tap speed).
 
-### Performance
+#### Performance
 
 - **Gestures act sooner on Windows.** The check for a full-screen game, made before every gesture, took 17–90 ms; it now takes about 0.1 ms.
 - **Brightness responds at once.** The first step after starting took about 100 ms and now takes 8 ms; every later step is twice as fast.
@@ -88,7 +96,7 @@ The first stable release: faster, calmer, and safer with your settings.
 - **Lighter while touching.** Gesture recognition is 3–4 times faster and no longer allocates memory per touch frame, and two-finger scrolling skips the glyph tracker when you have no glyphs.
 - Apps opened by name ("Spotify") no longer search the Start menu every time.
 
-### Fixed
+#### Fixed
 
 - A touchpad that reports a broken finger position for a moment no longer fires a swipe, pinch or drag, and a swipe keeps working after one.
 - Pausing Pady now stops the very next tap or hold too.
@@ -100,15 +108,15 @@ The first stable release: faster, calmer, and safer with your settings.
 - The website's live demo no longer shows a warning on load or an old version number, and always loads matching files after an update.
 - The keyboard language notice now names the language in every app, Pady's own window included.
 
-## 0.6.1 (2026-10-29)
+### Preview 0.6.1 (2026-10-29)
 
-### Changed
+#### Changed
 
 - **Copy and paste moved to three fingers.** Pinch three fingers together to copy, spread them to paste. If you have the five-finger version from 0.6.0 and three fingers are free, Pady moves it for you once.
 
-## 0.6.0 (2026-10-29)
+### Preview 0.6.0 (2026-10-29)
 
-### Added
+#### Added
 - **Copy and paste with one hand.** Close your hand on the touchpad (a five-finger pinch in) to copy, and open it to paste. It's in the Recommended, Like a Mac and Productivity sets; if you set Pady up before, the app offers to add it once.
 - **"Pasted" notice.** Pasting with a gesture gets its own glowing corner notice, like "Copied".
 - **Swipe glow.** A soft glow in Pady's colours grows at the screen edge a swipe is heading for, and flashes when it fires (only for swipes that do something). Windows.
@@ -121,101 +129,101 @@ The first stable release: faster, calmer, and safer with your settings.
 - **First-time celebrations.** A small burst of confetti the first time each gesture works.
 - **An Animations section in Settings**, with one switch for everything and one for each animation.
 
-### Changed
+#### Changed
 - "Copied" only shows for copies you make in the app in front of you, not when another program (a clipboard manager, cloud clipboard sync, a password manager) changes the clipboard.
 
-### Performance
+#### Performance
 - The glow and the touch pad are drawn once; each frame only moves them and changes their opacity, paced by the display, at about 0.2 ms of work per frame. With nothing moving, the thread sleeps and costs nothing.
 
-## 0.5.3 (2026-10-28)
+### Preview 0.5.3 (2026-10-28)
 
-### Changed
+#### Changed
 - **Pinches register the way people actually pinch.** Pady now follows the span of your whole hand (the two fingers furthest apart) instead of the average spread, so pinches with a tilted hand, or where only the thumb moves, count straight away. When a pinch and a swipe are a close call, the pinch wins, and a pinch so fast that the touchpad merges two fingers still counts.
 - **Pinch has its own section in Settings**, with a "Try it now" tester that lights up when Pady sees your pinch, and the pinch sensitivity slider.
 - **The corner notices glow.** "Copied" and "Gestures paused" are bigger and wrapped in a soft purple aura whose colours turn around the pill; it blooms as the notice lands and breathes while it rests. Every frame waits for the display, so it stays smooth.
 
-## 0.5.2 (2026-10-28)
+### Preview 0.5.2 (2026-10-28)
 
-### Added
+#### Added
 - **A "Copied" notice.** A small glass notice slides in at the top-right corner each time you copy something, and fades away a second later. Pady is told *that* you copied, never *what*. Turn it off in Settings.
 - **Pady never ignores a gesture silently.** If a gesture is skipped because a full-screen game is in front, a notice in the corner says so.
 
-### Fixed
+#### Fixed
 - **A watchdog keeps gestures alive.** Every two seconds Pady checks its touchpad listener and replaces it with a fresh one after the computer slept, if it ever stopped, or if no touch has arrived for ten minutes while the computer is in use.
 - **Gestures keep working after the laptop sleeps.** Windows can keep reporting a full-screen game after waking or unlocking (the lock screen counts), which paused every gesture until another window came to the front. Pady now also checks that the window in front really fills the screen and isn't part of Windows itself.
 - After waking from sleep or unlocking, Pady re-registers for touchpad input and clears any touch that was cut off, so the first gesture starts clean.
 - The log now says when gestures pause for a full-screen game and when they resume, and which app was in front.
 
-### Performance
+#### Performance
 - **Gestures stay instant on a busy computer.** On Windows, the touchpad, engine and action threads run at the highest normal priority, so a game, a compile or a video call can't make a gesture wait.
 - **Holds, double taps and drag release fire on time.** Windows timers normally tick every ~15.6 ms; Pady asks for 1 ms timers only while one of these is pending and gives them back straight after, so idle battery use is unchanged.
 
-### Security
+#### Security
 - **The updater no longer includes the `zip` library**, which had three known vulnerabilities (RUSTSEC-2026-0367, -0368, -0369). Pady's updates are a plain setup `.exe` or AppImage, so the zip support was never used.
 - CI checks every dependency against the RustSec advisory database on each push and once a week.
 
-## 0.5.1 (2026-10-27)
+### Preview 0.5.1 (2026-10-27)
 
-### Fixed
+#### Fixed
 - **The first gesture after a long break is as quick as any other** on Windows. Pady no longer lets Windows put it in efficiency mode or page its memory out while it waits, and runs slightly above normal priority. It keeps about 48 MB resident; idle CPU is still zero.
 
-### Added
+#### Added
 - **Feedback from the app.** About has *Report a bug*, *Suggest a feature* and *Share feedback* buttons that open a short GitHub form with your Pady version filled in.
 - The website and README now warn up front to set Windows' own three- and four-finger gestures to *Nothing*.
 
-## 0.5.0 (2026-10-27)
+### Preview 0.5.0 (2026-10-27)
 
-### Added
+#### Added
 - **Browse for an app.** "Launch an app" and "Switch to an app" have a Browse… button that opens a file picker for apps and shortcuts (the Start menu on Windows).
 - **Apps by name.** Type an app's name as it appears in Start (like `Antigravity`) and Pady finds its Start menu shortcut. "Switch to an app" also recognises shortcuts.
 
-### Changed
+#### Changed
 - New motto: *Your touchpad, finally awake.*
 
-## 0.4.6 (2026-10-27)
+### Preview 0.4.6 (2026-10-27)
 
-### Changed
+#### Changed
 - The About page ends with a small "made by" signature, with links to the creator's LinkedIn and GitHub.
 
-## 0.4.2 (2026-10-27)
+### Preview 0.4.2 (2026-10-27)
 
-### Fixed
+#### Fixed
 - **A crash during a three-finger drag no longer leaves the mouse button held down** on Windows. Pady lets go of the button before it exits. (On Linux the system already did.)
 - The website no longer says Pady works entirely offline: it checks GitHub for updates twice a day, which you can turn off.
 
-## 0.4.1 (2026-10-27)
+### Preview 0.4.1 (2026-10-27)
 
-### Changed
+#### Changed
 - **Pady starts with your computer by default.** The first launch registers it to start quietly in the tray when you sign in, so gestures are always on. Turning it off in Settings is remembered.
 
-## 0.4.0 (2026-10-27)
+### Preview 0.4.0 (2026-10-27)
 
-### Added
+#### Added
 - **Auto-update.** Pady checks GitHub for a new version twice a day and offers it in the tray menu and as a notice in the window; one click downloads it, verifies its signature, installs it and restarts. Windows installs and the AppImage update themselves; .deb/.rpm installs are told to update through the package manager. Turn checking off in Settings.
 - **MIT license.**
 - The release workflow signs installers through SignPath (free for open source) once the project is set up there, and publishes the files the updater needs.
 
-## 0.3.2 (2026-10-27)
+### Preview 0.3.2 (2026-10-27)
 
-### Changed
+#### Changed
 - **Volume uses Windows' own slider.** Volume and mute gestures press the real volume keys, so Windows shows its familiar volume flyout, and each step takes well under a millisecond instead of about 13 ms. Pady's own level pill is now off by default on Windows (it stays on by default on Linux, and is still a setting).
 - **Volume and brightness swipes glide.** A repeating swipe bound to volume or brightness now steps 2% at a time every couple of millimetres, so the level follows your finger like a slider instead of jumping 4% every 7 mm.
 
-## 0.3.1 (2026-10-25)
+### Preview 0.3.1 (2026-10-25)
 
-### Performance
+#### Performance
 - **The open settings window no longer keeps the CPU busy while idle.** A card under the mouse pointer replayed its animation forever (about 19% of a CPU core); it now plays twice. The Live page and the tutorial's touchpad draw only while fingers are down, and the tutorial's welcome animation rests after three loops.
 - New measuring tools: `cargo bench -p pady-core` (cost per touch frame, gesture → action latency) and `cargo run -p pady-actions --release --example time_actions` (how long volume, mute and brightness take).
 
-### Security and robustness
+#### Security and robustness
 - Pady's commands now need a permission that only the main window has; the overlay window can only listen for level updates.
 - Stricter limits on what devices report: Raw Input records are size-checked before they're read, descriptor ranges no longer overflow, and absurd contact or slot counts are capped (a bogus device could otherwise make Pady grow without limit or exit at start-up).
 - Hand-edited settings are clamped to workable ranges and volume/brightness steps to ±100%, and a driver glitch can no longer turn one frame into millions of repeated steps.
 - Fuzz tests now feed random device reports, multitouch events, configs, triggers, shortcuts and frames through every parser on each CI run.
 
-## 0.3.0 (2026-10-25)
+### Preview 0.3.0 (2026-10-25)
 
-### Added
+#### Added
 - **Double and triple taps** for 3, 4 and 5 fingers (`doubletap:N`, `tripletap:N`). Single taps only wait to be told apart where a multi-tap is bound; the "Double-tap speed" setting controls how long.
 - **Guided first-run tutorial.** It checks the touchpad, helps turn off clashing OS gestures, picks a starter preset and lets you practise with live feedback. You can reopen it from About.
 - **Starter presets**: Recommended, Like a Mac, Media, Productivity and Minimal, in the tutorial, in Settings and through `pady-cli config preset <id>` / `pady-cli presets`.
@@ -223,13 +231,13 @@ The first stable release: faster, calmer, and safer with your settings.
 - **Linux helper tools.** *Fix permissions* also installs missing helpers (brightnessctl, xdotool, wmctrl, playerctl) with the system package manager, and Pady flags bindings that need one.
 - A redesigned README with screenshots and an animated demo, plus contributing and security guides, issue and PR templates, and Dependabot.
 
-### Performance
+#### Performance
 - **The settings window is freed when closed.** In the tray, Pady holds no WebView at all, and the volume/brightness overlay is drawn natively on Windows.
 - **No CPU wake-ups while idle.** The engine sleeps until a frame arrives or a timer is due, instead of polling 60 times a second.
 
-## 0.2.0 (2026-10-25)
+### Preview 0.2.0 (2026-10-25)
 
-### Added
+#### Added
 - **Installers.**
   - Windows: a per-user setup `.exe` that installs WebView2 if it's missing, with the VC++ runtime linked statically so nothing else is needed, plus an MSI for managed PCs.
   - Linux: `.deb` and `.rpm` packages that declare their libraries and install a udev rule for touchpad and `/dev/uinput` access, plus an AppImage.
@@ -244,13 +252,13 @@ The first stable release: faster, calmer, and safer with your settings.
 - `pinch_threshold_mm` setting.
 - Linux: palm rejection, touchpads plugged in after start are picked up, and per-app profiles on X11/XWayland and KDE Wayland.
 
-### Changed
+#### Changed
 - Gesture events report which profile a binding came from, including when a profile switches a gesture off ("Off in this app"), and actions report the resulting volume or brightness.
 - Quitting Pady in the middle of a drag releases the mouse button instead of leaving it held down.
 - `pady-cli.exe` no longer needs the VC++ Redistributable.
 - Windows touchpad conflicts are merged into one warning per finger count.
 
-## 0.1.0
+### Preview 0.1.0
 
 - First version: 3–5 finger taps, holds, swipes (with scrubbing) and three-finger drag, on Windows Precision Touchpads and Linux evdev.
 - Actions: keyboard shortcuts, volume, mute, brightness, media keys, links (optionally in a chosen browser), launch or switch to apps, commands and lock.

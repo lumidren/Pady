@@ -35,7 +35,7 @@
       <div class="glow" aria-hidden="true"></div>
       <p class="eyebrow">Features</p>
       <h1>Everything Pady <span class="grad">can do.</span></h1>
-      <p class="lead">Every gesture, every action and every setting, in one place. Marked with the version it arrived in, like <span class="tag tag-next">New in 1.1.2</span>, when it's recent, and <span class="tag tag-soon">Coming soon</span> when it isn't in a release yet.</p>
+      <p class="lead">Every gesture, every action and every setting, in one place. What is still on the way is marked <span class="tag tag-soon">Coming soon</span>.</p>
       <nav class="jump" aria-label="On this page">
         <a href="#gestures">Gestures</a>
         <a href="#actions">Actions</a>
@@ -77,13 +77,16 @@
         <div class="card"><h3>Media keys</h3><p>Play / pause, next, previous and stop, for Spotify, YouTube and any player.</p></div>
         <div class="card"><h3>Open a link</h3><p>In your default browser, or in Chrome, Edge, Firefox or Brave.</p></div>
         <div class="card"><h3>Launch an app</h3><p>A program, a path, or a link like <code>ms-settings:</code>.</p></div>
-        <div class="card"><span class="tag tag-soon">Coming soon</span><h3>Choose an app from a menu</h3><p>Pick the app from a searchable list of everything installed, with icons: the same apps Start shows, Store apps included. No paths to type.</p></div>
+        <div class="card"><h3>Choose an app from a menu</h3><p>Pick the app from a searchable list of everything installed, with icons: the same apps Start shows, Store apps included. No paths to type.</p></div>
         <div class="card"><h3>Switch to an app</h3><p>Brings it to the front, minimises it if it's already there, and starts it if it isn't running.</p></div>
         <div class="card"><h3>Run a command</h3><p>Anything your shell can run.</p></div>
         <div class="card"><h3>Lock the screen</h3><p>One gesture and you're away.</p></div>
         <div class="card"><h3>Ready-made picks</h3><p>Zoom, task view, show desktop, switch desktops, screenshot, close window, open Chrome or YouTube: one click each.</p></div>
-        <div class="card"><span class="tag tag-next">New in 1.1.0</span><h3>App switcher</h3><p>Swipe to show every open app, slide sideways to pick one and lift to switch to it, like Alt+Tab without the keys.</p></div>
-        <div class="card"><span class="tag tag-next">New in 1.0.0</span><h3>Switch keyboard language</h3><p>Flip between your keyboard languages without Windows' pop-up; a corner notice names the one you switched to.</p></div>
+        <div class="card"><h3>App switcher</h3><p>Swipe to show every open app, slide sideways to pick one and lift to switch to it, like Alt+Tab without the keys.</p></div>
+        <div class="card"><h3>Quick note</h3><p>A gesture opens a small note by the cursor, in any app, the moment you make it. Close it any way you like and it is saved. Notes stay on your computer.</p></div>
+        <div class="card"><h3>Notes</h3><p>Everything you jotted down, in the app: search, tags, colours, pins, to-do lists, undo for deletes, and an export to one Markdown file.</p></div>
+        <div class="card"><h3>Clipboard history</h3><p>Open the system's clipboard history with a gesture and paste something you copied earlier.</p></div>
+        <div class="card"><h3>Switch keyboard language</h3><p>Flip between your keyboard languages without Windows' pop-up; a corner notice names the one you switched to.</p></div>
       </div>
     </section>
 
@@ -135,10 +138,10 @@ action = { type = "none" }   <span class="c"># off here</span></code></pre>
           <div class="f-point"><h3>Five starter sets</h3><p><b>Recommended</b>, <b>Like a Mac</b>, <b>Media</b>, <b>Productivity</b> and <b>Minimal</b>. Pick one, then change anything.</p></div>
           <div class="f-point"><h3>Updates itself</h3><p>Checks GitHub twice a day and installs only updates signed by Pady. You can turn it off.</p></div>
           <div class="f-point"><h3>Starts with your PC</h3><p>Lives in the tray. Pause it from there, or let it pause itself while a game runs full screen.</p></div>
-          <div class="f-point"><span class="tag tag-next">New in 1.0.0</span><h3>Automatic backups</h3><p>Pady keeps copies of your settings before every change. Restore one from Settings in a click.</p></div>
+          <div class="f-point"><h3>Automatic backups</h3><p>Pady keeps copies of your settings before every change. Restore one from Settings in a click.</p></div>
         </div>
         <div class="f-points">
-          <div class="f-point"><span class="tag tag-next">New in 1.1.1</span><h3>Taps that learn your pace</h3><p>When a finger count has a double tap too, a single tap waits only as long as you take to tap again, not a fixed time.</p></div>
+          <div class="f-point"><h3>Taps that learn your pace</h3><p>When a finger count has a double tap too, a single tap waits only as long as you take to tap again, not a fixed time.</p></div>
           <div class="f-point"><h3>Tune the feel</h3><p>Tap speed, hold time, swipe distance, pinch sensitivity, drag speed and acceleration. All measured in millimetres, so they feel the same on every laptop.</p></div>
           <table class="f-table">
             <thead><tr><th>Setting</th><th>Default</th></tr></thead>
@@ -191,7 +194,7 @@ pady-cli fix-permissions   <span class="c"># Linux: set up touchpad access</span
         <div class="card"><h3>Written in Rust</h3><p>Reads every finger straight from the touchpad and sleeps when you're not touching it. The settings window frees its memory when you close it.</p></div>
         <div class="card"><h3>Reads only the touchpad</h3><p>Never the keyboard. Nothing about you is sent anywhere; the only connection is the update check, which you can turn off.</p></div>
         <div class="card"><h3>Tested hard</h3><p>About 320 tests: every gesture and the config, fuzz tests that throw random input at every parser, and 54 attack tests that keep each fixed security finding fixed.</p></div>
-        <div class="card"><span class="tag tag-next">New in 1.1.2</span><h3>Security assessed</h3><p>A full assessment in November 2026: a threat model, attack tests, load and soak tests. Programs are never started from the wrong folder, settings can't be half-saved, and the log leaves out your commands' secrets. The <a href="https://github.com/lumidren/Pady/blob/main/security/REPORT.md">report</a> is public.</p></div>
+        <div class="card"><h3>Security assessed</h3><p>A full assessment in November 2026: a threat model, attack tests, load and soak tests. Programs are never started from the wrong folder, settings can't be half-saved, and the log leaves out your commands' secrets. The <a href="https://github.com/lumidren/Pady/blob/main/security/REPORT.md">report</a> is public.</p></div>
       </div>
     </section>
 

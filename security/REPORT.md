@@ -1,5 +1,7 @@
 # Pady security and performance assessment
 
+> **About the version numbers.** This was written before the public launch. The versions it names (1.1.0, 1.1.1, 1.1.2) were preview builds; everything described here is in **Pady 1.0.0**, released 19 November 2026.
+
 | | |
 |---|---|
 | Target | [lumidren/Pady](https://github.com/lumidren/Pady), branch `main`, starting at v1.1.1 (`c17f9d3`) |
