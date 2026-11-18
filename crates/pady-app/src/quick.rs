@@ -1,14 +1,18 @@
-//! The quick note: a small note by the cursor to jot something down, with
-//! the selected text already in it. Saved notes go to the Notes page.
+//! The quick note: a small note by the cursor to jot something down.
+//! Saved notes go to the Notes page.
 //!
 //! It has to feel instant, so nothing waits on anything else:
 //!
 //! - While a Quick note gesture is bound, the window (`quick.html`) is kept
 //!   ready and hidden, so the gesture only has to show it. With no such
 //!   gesture there is no window at all (see [`sync`]).
-//! - The gesture shows the note at once, at the size it had last time and
-//!   without taking the focus, and reads the selected text meanwhile. The
-//!   text and the focus arrive a moment later.
+//! - The gesture shows the note at once, at the size it had last time.
+//!
+//! With `note_selection` on, the note starts with the selected text. Only
+//! then does Pady touch the clipboard: it presses Ctrl+C, reads the text
+//! and puts the clipboard back. The note is on screen meanwhile, without
+//! the focus (Ctrl+C must reach the app in front); the text and the focus
+//! arrive a moment later.
 //!
 //! The same gesture again saves the note and closes it.
 
@@ -239,18 +243,29 @@ pub fn note(app: AppHandle) {
         let target = foreground();
         let source = pady_actions::foreground_app();
         let id = quick.next_id.fetch_add(1, Ordering::SeqCst) + 1;
-        *lock(&quick.job) =
-            Some(Job { id, text: String::new(), source: source.clone(), pending: true, target, anchor: cursor(&app) });
+        let wanted = app.state::<Pady>().config.get().settings.note_selection;
+        let capture = wanted && !source.as_deref().is_some_and(is_terminal);
+        *lock(&quick.job) = Some(Job {
+            id,
+            text: String::new(),
+            source: source.clone(),
+            pending: capture,
+            target,
+            anchor: cursor(&app),
+        });
+        if !capture {
+            // Nothing to wait for: on screen and ready to type in.
+            quick.capturing.store(false, Ordering::SeqCst);
+            quick.send(&app);
+            quick.present(&app, true);
+            return;
+        }
         // On screen first; the selection follows.
         quick.send(&app);
         quick.present(&app, false);
-
-        let text = if source.as_deref().is_some_and(is_terminal) {
-            String::new()
-        } else {
-            pady_overlay::quiet_clipboard(Duration::from_millis(2_000));
-            pady_actions::selected_text(COPY_WAIT).ok().flatten().map(|t| t.trim().to_string()).unwrap_or_default()
-        };
+        pady_overlay::quiet_clipboard(Duration::from_millis(2_000));
+        let text =
+            pady_actions::selected_text(COPY_WAIT).ok().flatten().map(|t| t.trim().to_string()).unwrap_or_default();
         if let Some(job) = lock(&quick.job).as_mut().filter(|j| j.id == id) {
             job.text = text;
             job.pending = false;

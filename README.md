@@ -325,6 +325,7 @@ All distances are millimetres on the touchpad surface, so they feel the same on 
 | `show_overlay` | false on Windows, true on Linux | The level pill for volume and brightness. |
 | `pause_in_fullscreen` | true | Ignore gestures while a game runs in exclusive full screen (Windows). |
 | `show_copy_notice` | true | The "Copied" notice (Windows). |
+| `note_selection` | false | Start a quick note with the selected text. Pady presses Ctrl+C to read it and puts the clipboard back. |
 | `check_updates` | true | Look for a new version on GitHub twice a day. |
 
 The animation and notice switches (`animations`, `anim_*`, `glow_strength`, `anim_speed`, `notice_time`) are easiest to set in **Settings**.
@@ -400,7 +401,7 @@ No. Pady sleeps until the touchpad reports something. By default it also ignores
 <details>
 <summary><b>Does it read what I copy or type?</b></summary>
 
-No. Pady reads only the touchpad. For the "Copied" notice, Windows tells Pady *that* the clipboard changed, never what's in it.
+No. Pady reads only the touchpad. For the "Copied" notice, Windows tells Pady *that* the clipboard changed, never what's in it. One feature can read selected text, and only if you switch it on: **Selected text in quick notes** (off by default) lets a quick note start with what you had selected. Pady then presses Ctrl+C, reads that text into your note, and puts your clipboard back.
 </details>
 
 <details>

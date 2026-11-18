@@ -1649,7 +1649,7 @@
       case 'clipboard': return aboutType('clipboard', platform() === 'linux'
         ? 'Opens your desktop’s clipboard history (Super+V), where it has one: KDE does. Pick something you copied earlier to paste it.'
         : 'Opens Windows’ clipboard history, like pressing Win+V: pick something you copied earlier to paste it. The first time, Windows asks to turn the history on.');
-      case 'quick_note': return aboutType('note', 'Opens a small note by the cursor, with any selected text already in it. Closing it saves it to the Notes page. Do the gesture again to save and close.');
+      case 'quick_note': return aboutType('note', 'Opens a small note by the cursor. Closing it saves it to the Notes page; the same gesture again saves and closes. To start notes with the text you had selected, turn on “Selected text in quick notes” in Settings.');
       case 'lock': return aboutType('lock', 'Locks your session immediately, like pressing ' + (platform() === 'linux' ? 'Super+L.' : 'Win+L.'));
       case 'none': return aboutType('none', 'This gesture does nothing. Pick a preset or an action type above.');
       default: return null;
@@ -2594,7 +2594,7 @@
   // Fallbacks if the backend's settings predate a field (same values as pady-core's defaults).
   const SETTING_DEFAULTS = {
     tap_max_ms: 220, tap_slop_mm: 4, multi_tap_ms: 250, swipe_threshold_mm: 10, swipe_step_mm: 7, pinch_threshold_mm: 8,
-    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true, show_copy_notice: true, check_updates: true,
+    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true, show_copy_notice: true, check_updates: true, note_selection: false,
     animations: true, anim_swipe_glow: false, anim_hints: false, anim_pinch: true, anim_notices: true, anim_screenshot: false, anim_touches: false,
     anim_previews: false, anim_mirror: false, anim_celebrate: false, anim_language: true,
     anim_glow: true, glow_strength: 1, anim_speed: 1, notice_time: 1,
@@ -2706,6 +2706,7 @@
             settingToggle('show_overlay', 'Show Pady\'s level pill', 'Pady\'s own volume & brightness pill near the bottom of the screen. On Windows, volume always shows Windows\' own slider.'),
             settingToggle('check_updates', 'Check for updates', 'Looks for a new version on GitHub twice a day and lets you install it with one click.'),
             setUI.pauseRow = settingToggle('pause_in_fullscreen', 'Pause in full-screen games', 'Pady ignores gestures while a game runs in exclusive full screen.'),
+            settingToggle('note_selection', 'Selected text in quick notes', 'A quick note starts with the text you had selected. To read it, Pady presses Ctrl+C and puts your clipboard back afterwards. Off: the note opens empty and Pady never opens the clipboard.'),
             h('div', { class: 'row' },
               h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Tutorial'), h('div', { class: 'row-sub' }, 'A quick, hands-on tour of the basics.')),
               h('button', { class: 'btn btn--sm', type: 'button', onClick: () => openTutorial({ firstRun: false }) }, ico('graduation', 14), 'Show tutorial')),
@@ -3971,7 +3972,7 @@
       notesUI.list.replaceChildren(h('div', { class: 'empty notes-empty' },
         h('div', { class: 'empty-icon' }, ico('note', 26)),
         h('h3', null, 'No notes yet'),
-        h('p', null, 'Do your Quick note gesture in any app: a note opens by the cursor, with any selected text already in it. Or click New note.')));
+        h('p', null, 'Do your Quick note gesture in any app and a note opens by the cursor. Or click New note.')));
       return;
     }
     notesUI.list.replaceChildren(...(shown.length ? shown.map((n) => {

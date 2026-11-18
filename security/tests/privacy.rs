@@ -1,8 +1,9 @@
 //! What Pady promises about privacy, held to by the build.
 //!
 //! README and SECURITY.md say: Pady reads only the touchpad, never the
-//! keyboard; it is told *that* something was copied, never what; and its
-//! only network connection is the update check. Nothing was wrong here.
+//! keyboard; it is told *that* something was copied, never what; it opens
+//! the clipboard only for a quick note's selected text, and only when that
+//! is switched on; and its only network connection is the update check.
 //! These tests fail if code that would break a promise is ever added.
 
 use pady_security::{read, repo};
@@ -28,13 +29,51 @@ fn sources() -> Vec<(String, String)> {
     out
 }
 
+/// The one file that may open the clipboard: it reads the selected text
+/// for a quick note (Ctrl+C, read, put everything back).
+const CLIPBOARD_READER: &str = "clipboard.rs";
+
 #[test]
 fn the_clipboard_is_watched_but_never_read() {
     for (file, code) in sources() {
+        if file.replace('\\', "/").ends_with(&format!("pady-actions/src/{CLIPBOARD_READER}")) {
+            continue;
+        }
         for read in ["GetClipboardData", "OpenClipboard", "EnumClipboardFormats", "GetClipboardFormatName"] {
             assert!(!code.contains(read), "{file} calls {read}: the \"Copied\" notice must not see what was copied");
         }
     }
+}
+
+/// The selected text is read in one place, for one feature, behind a
+/// switch that is off unless the user turns it on.
+#[test]
+fn the_clipboard_is_opened_only_for_a_quick_note_and_only_when_asked() {
+    let mut callers = Vec::new();
+    for (file, code) in sources() {
+        let file = file.replace('\\', "/");
+        if code.contains("selected_text(") && !file.ends_with("pady-actions/src/clipboard.rs") {
+            callers.push(file);
+        }
+    }
+    callers.sort();
+    let expected = ["pady-actions/src/lib.rs", "pady-app/src/quick.rs"];
+    assert_eq!(callers.len(), expected.len(), "{callers:#?}");
+    for (caller, want) in callers.iter().zip(expected) {
+        assert!(caller.ends_with(want), "{caller} reads the selected text");
+    }
+    // In the app, the read sits behind the setting...
+    let quick = read("crates/pady-app/src/quick.rs");
+    let setting = quick.find("settings.note_selection").expect("the switch is checked");
+    let reading = quick.find("pady_actions::selected_text(").expect("the selection is read");
+    let early_return = quick[setting..reading].contains("if !capture {") && quick[setting..reading].contains("return;");
+    assert!(early_return, "without the switch the gesture must return before reading");
+    // ...and the setting is off unless someone turns it on.
+    let config = read("crates/pady-core/src/config.rs");
+    assert!(config.contains("note_selection: false,"), "note_selection must default to off");
+    // What was on the clipboard is put back, and kept out of Windows' history.
+    let clipboard = read("crates/pady-actions/src/clipboard.rs");
+    assert!(clipboard.contains("let restored = restore(&saved);") && clipboard.contains("keep_out_of_history()"));
 }
 
 #[test]

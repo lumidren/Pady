@@ -61,7 +61,7 @@ fn no_remote_page_and_no_other_window_can_call_commands() {
         assert!(!url.contains("://"), "{} loads a remote page", window["label"]);
     }
     assert!(conf["app"]["security"].get("dangerousDisableAssetCspModification").is_none());
-    for file in ["default.json", "overlay.json"] {
+    for file in ["default.json", "overlay.json", "quick.json"] {
         let capability: serde_json::Value =
             serde_json::from_str(&read(&format!("crates/pady-app/capabilities/{file}"))).unwrap();
         assert!(capability.get("remote").is_none(), "{file} lets remote pages in");
@@ -73,7 +73,7 @@ fn no_remote_page_and_no_other_window_can_call_commands() {
 /// The app's scripts, without comments (so a word in a comment can't hide or
 /// fake a finding).
 fn scripts() -> Vec<(String, String)> {
-    ["app.js", "model.js", "icons.js", "overlay.js"]
+    ["app.js", "model.js", "icons.js", "overlay.js", "quick.js"]
         .into_iter()
         .map(|name| {
             let text = read(&format!("crates/pady-app/ui/{name}"));

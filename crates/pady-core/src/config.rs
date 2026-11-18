@@ -44,6 +44,11 @@ pub struct Settings {
     /// (Windows). Pady is told that something was copied, never what. Like
     /// the other corner notices, it has only its own switch.
     pub show_copy_notice: bool,
+    /// Start a quick note with the text that was selected. Off by default:
+    /// to read the selection Pady has to press Ctrl+C and open the
+    /// clipboard (it puts back what was there), and with this off it never
+    /// opens the clipboard at all.
+    pub note_selection: bool,
     /// Master switch for the moving animations (swipe glow, touches,
     /// previews, the live touchpad, celebrations). Each also has its own
     /// switch. Corner notices and the glow don't depend on it.
@@ -109,6 +114,7 @@ impl Default for Settings {
             multi_tap_ms: 250,
             pause_in_fullscreen: true,
             show_copy_notice: true,
+            note_selection: false,
             animations: true,
             // The corner notices are on; the moving animations start off.
             anim_swipe_glow: false,
@@ -898,6 +904,7 @@ mod tests {
     fn notices_start_on_and_moving_animations_start_off() {
         let s = Settings::default();
         assert!(s.show_copy_notice && s.anim_language && s.anim_notices && s.anim_pinch, "the corner notices");
+        assert!(!s.note_selection, "reading the selection (and so the clipboard) is opt-in");
         assert!(!s.anim_hints, "hints are for learning");
         assert!(!s.anim_screenshot, "the screenshot tool shows itself");
         for (name, on) in [
