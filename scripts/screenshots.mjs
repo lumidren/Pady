@@ -156,6 +156,20 @@ async function main() {
     await sleep(4200); // switching profile replays the staggered card intro (~3.8 s)
     await cdp.shot("profiles.png");
 
+    // The "Choose an app" menu: a gesture's editor, set to launch an app.
+    await cdp.goto(page("index.html", "?noconflicts&still#gestures"), 3200);
+    await cdp.click("All apps").catch(() => {}); // the page remembers the Browser profile from the last picture
+    await sleep(600);
+    await cdp.click("4 fingers").catch(() => {});
+    await sleep(1200);
+    await cdp.clickSelector('button[aria-label^="4-finger double tap"]');
+    await sleep(700);
+    await cdp.click("Launch app", ".drawer button, .drawer [role=radio]");
+    await sleep(500);
+    await cdp.click("Choose an app", ".drawer button");
+    await sleep(900);
+    await cdp.shot("apps.png");
+
     await cdp.goto(page("index.html", "?noconflicts#live"), 1200);
     // Catch the virtual hand mid-swipe: four fingers down, trails drawn.
     await cdp.waitForFingers(4, 650);
