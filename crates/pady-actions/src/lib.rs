@@ -1,10 +1,13 @@
 //! Native executors for Pady actions, plus a few OS integrations the app
 //! needs (start-with-system, detecting gestures the OS also handles).
 
+pub mod apps;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(windows)]
 mod windows;
+
+pub use apps::{installed_apps, InstalledApp};
 
 use pady_core::Config;
 pub use pady_core::{ActionError, Executor};
