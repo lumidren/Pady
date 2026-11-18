@@ -6,6 +6,10 @@
 
 - **Choose an app from a menu.** *Launch an app* and *Switch to an app* now have a **Choose an app** button: a searchable list of everything installed, with icons, the same apps Start shows. Type a few letters, press Enter, done. It also finds apps that have no file to browse to (Microsoft Store and other packaged apps such as Claude or WhatsApp), and stores an address that keeps working when the app updates. Gesture cards show the app's name instead of its path. On Linux the list comes from your desktop's app entries.
 
+- **Quick note.** A new action (under *Everyday*): do the gesture in any app and a small note opens by the cursor, with whatever text you had selected already in it. Esc, Ctrl+Enter, a click elsewhere or the same gesture again saves it. It is made to be instant: while a Quick note gesture is set, the note's window is kept ready in the background, and the selected text is read while the note is already on screen. In a terminal the note starts empty, because Ctrl+C means something else there.
+- **Notes page.** Everything you jot down, in the app: search (matches are highlighted), `#tags`, colours, pins, to-do lists you can tick, a reading view, and sorting. Notes save as you type. Deleting has an **Undo**, Ctrl+N starts a note, Ctrl+F searches, and **Export all notes** writes them into one Markdown file. Notes are plain text in `notes.json` next to the config, on your computer only.
+- **Clipboard history.** A new action that opens the system's own clipboard history (Win+V on Windows, Super+V on Linux desktops that have one), so a gesture can paste something you copied earlier.
+
 ### Security
 
 - **Control Flow Guard on Windows.** `pady.exe` and `pady-cli.exe` are now built with it, next to the address randomization and data execution prevention they already had. It stops a corrupted function pointer from being called, should the code that talks to Windows directly ever have a memory bug. No measurable cost.
