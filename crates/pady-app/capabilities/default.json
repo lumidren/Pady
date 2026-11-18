@@ -25,6 +25,12 @@
     "allow-check-update",
     "allow-install-update",
     "allow-pick-program",
-    "allow-list-apps"
+    "allow-list-apps",
+    "allow-notes-list",
+    "allow-notes-export",
+    "allow-note-save",
+    "allow-note-delete",
+    "allow-note-pin",
+    "allow-note-color"
   ]
 }

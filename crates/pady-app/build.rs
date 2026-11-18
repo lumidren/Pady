@@ -1,6 +1,7 @@
 /// Every command in `generate_handler!` (src/main.rs). Listing them makes each
 /// one need a permission (`allow-<command>`), which only the main window is
-/// granted (capabilities/default.json); the overlay window can just listen.
+/// granted (capabilities/default.json); the overlay window can just listen,
+/// and the quick note gets its own three (capabilities/quick.json).
 const COMMANDS: &[&str] = &[
     "get_state",
     "save_config",
@@ -21,6 +22,15 @@ const COMMANDS: &[&str] = &[
     "pick_program",
     "record_glyph",
     "list_apps",
+    "quick_ready",
+    "quick_layout",
+    "quick_act",
+    "notes_list",
+    "notes_export",
+    "note_save",
+    "note_delete",
+    "note_pin",
+    "note_color",
 ];
 
 fn main() {

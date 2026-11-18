@@ -7,16 +7,20 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod feedback;
+mod notes;
+mod quick;
 mod responsive;
 mod update;
 
 use crossbeam_channel::Sender;
+use notes::{note_color, note_delete, note_pin, note_save, notes_export, notes_list};
 use pady_actions::Conflict;
 use pady_core::engine::Observer;
 use pady_core::{
     backups, Action, Config, Engine, EngineEvent, Level, NotAGlyph, Preset, Settings, SharedConfig, TouchFrame, PRESETS,
 };
 use pady_input::{DeviceInfo, InputHandle};
+use quick::{quick_act, quick_layout, quick_ready};
 use serde::Serialize;
 use serde_json::json;
 use std::io::Write;
@@ -64,6 +68,10 @@ struct AppState {
     platform: &'static str,
     version: &'static str,
     presets: &'static [Preset],
+    /// The page to open on (once, when a quick note asked for the Notes
+    /// page before the window existed).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    open_page: Option<String>,
 }
 
 impl Pady {
@@ -93,6 +101,7 @@ impl Pady {
             platform: if cfg!(windows) { "windows" } else { "linux" },
             version: env!("CARGO_PKG_VERSION"),
             presets: PRESETS,
+            open_page: None,
             config,
             devices,
             input_error,
@@ -108,6 +117,7 @@ impl Pady {
         apply_look(&config.settings);
         self.config.set(config);
         self.sync_tray();
+        quick::sync(app);
         let state = self.snapshot();
         let _ = app.emit("pady://state", &state);
         Ok(state)
@@ -140,7 +150,22 @@ fn modified(path: &Path) -> Option<SystemTime> {
 
 #[tauri::command]
 fn get_state(pady: State<Pady>) -> AppState {
-    pady.snapshot()
+    let mut state = pady.snapshot();
+    state.open_page = lock(&OPEN_PAGE).take();
+    state
+}
+
+static OPEN_PAGE: Mutex<Option<String>> = Mutex::new(None);
+
+/// Open the Pady window on one of its pages.
+pub(crate) fn show_page(app: &AppHandle, page: &str) {
+    match app.get_webview_window("main") {
+        Some(window) => {
+            let _ = window.eval(format!("location.hash = {}", json!(page)));
+        }
+        None => *lock(&OPEN_PAGE) = Some(page.to_string()),
+    }
+    show_main(app);
 }
 
 #[tauri::command]
@@ -552,6 +577,11 @@ fn observer(
         EngineEvent::ActionFailed { action, error } => {
             let _ = app.emit("pady://action-failed", json!({ "action": action, "error": error }));
         }
+        EngineEvent::AppAction(action) => {
+            if action == Action::QuickNote {
+                quick::note(app.clone());
+            }
+        }
         EngineEvent::GlyphRecorded { points, problem } => {
             let message = problem.map(NotAGlyph::message);
             let _ = app.emit("pady://glyph-recorded", json!({ "points": points, "problem": message }));
@@ -655,6 +685,7 @@ fn spawn_watcher(app: AppHandle) {
                             apply_look(&cfg.settings);
                             pady.config.set(cfg);
                             pady.sync_tray();
+                            quick::sync(&app);
                             changed = true;
                         }
                         Ok(_) => {}
@@ -859,6 +890,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(update::Updates::default())
+        .manage(quick::Quick::default())
         .invoke_handler(tauri::generate_handler![
             get_state,
             save_config,
@@ -879,11 +911,21 @@ fn main() {
             pick_program,
             record_glyph,
             list_apps,
+            quick_ready,
+            quick_layout,
+            quick_act,
+            notes_list,
+            notes_export,
+            note_save,
+            note_delete,
+            note_pin,
+            note_color,
         ])
         .setup(move |app| {
             let config_path = Config::default_path()?;
             let config = Arc::new(SharedConfig::new(load_config(&config_path)));
             let live = Arc::new(AtomicBool::new(false));
+            app.manage(notes::Notes::load(&config_path));
 
             // A native pill on Windows: no WebView kept alive just to show levels.
             let native_overlay = pady_overlay::Overlay::spawn();
@@ -924,7 +966,9 @@ fn main() {
             // Windows are created only now (`create: false` in tauri.conf.json):
             // a fast page load would otherwise call get_state before `manage` ran.
             // The settings window waits until it's opened (see show_main).
-            let wanted = |label: &str| label != "main" && (label != "overlay" || web_overlay_needed);
+            // The quick note's window is made by quick::sync, and only while
+            // a Quick note gesture is set.
+            let wanted = |label: &str| !matches!(label, "main" | "quick") && (label != "overlay" || web_overlay_needed);
             for window in app.config().app.windows.iter().filter(|w| wanted(&w.label)) {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), window)?.build()?;
             }
@@ -933,6 +977,7 @@ fn main() {
             *lock(&app.state::<Pady>().tray_toggle) = Some(toggle);
             app.state::<Pady>().sync_tray();
             spawn_watcher(app.handle().clone());
+            quick::sync(app.handle());
             update::spawn_checks(app.handle().clone());
             enable_autostart_once(app.handle());
 
@@ -946,6 +991,9 @@ fn main() {
             // the engine and the tray icon keep running.
             if let (WindowEvent::Destroyed, "main") = (event, window.label()) {
                 window.state::<Pady>().live.store(false, Ordering::Relaxed);
+            }
+            if let (WindowEvent::Destroyed, "quick") = (event, window.label()) {
+                quick::gone(window.app_handle());
             }
         })
         .build(tauri::generate_context!())
@@ -988,21 +1036,40 @@ mod tests {
         text[start..end].split(',').map(|s| s.trim().trim_matches('"')).filter(|s| !s.is_empty()).collect()
     }
 
-    /// A command missing from build.rs or the main window's capability fails
-    /// at runtime ("not allowed"), so the three lists must agree.
+    /// The quick note's own commands; no other window may call them.
+    const QUICK_COMMANDS: &[&str] = &["quick_ready", "quick_layout", "quick_act"];
+
+    /// A command missing from build.rs or a window's capability fails at
+    /// runtime ("not allowed"), so the lists must agree. The main window gets
+    /// every command but the quick note's; the quick note gets only its own.
     #[test]
-    fn every_command_is_permitted_for_the_main_window_only() {
+    fn every_command_is_permitted_for_its_window_only() {
         let handlers = names(include_str!("main.rs"), "generate_handler![", ']');
         let declared = names(include_str!("../build.rs"), "const COMMANDS: &[&str] = &[", ']');
         let main_window = include_str!("../capabilities/default.json");
         let overlay = include_str!("../capabilities/overlay.json");
+        let quick = include_str!("../capabilities/quick.json");
         assert!(!handlers.is_empty());
         assert_eq!(handlers, declared, "build.rs COMMANDS must match generate_handler!");
         for command in handlers {
             let permission = format!("\"allow-{}\"", command.replace('_', "-"));
-            assert!(main_window.contains(&permission), "{permission} missing from capabilities/default.json");
+            let for_quick = QUICK_COMMANDS.contains(&command);
+            assert_eq!(main_window.contains(&permission), !for_quick, "{permission} in capabilities/default.json");
+            assert_eq!(quick.contains(&permission), for_quick, "{permission} in capabilities/quick.json");
             assert!(!overlay.contains(&permission), "the overlay must not get {permission}");
         }
+    }
+
+    /// The quick note may listen for what to show and call its own three
+    /// commands, nothing else: it can't read or change the config.
+    #[test]
+    fn the_quick_note_window_gets_only_its_own_commands() {
+        let quick = json(include_str!("../capabilities/quick.json"));
+        assert_eq!(quick["windows"], serde_json::json!(["quick"]));
+        assert!(quick.get("webviews").is_none() && quick.get("remote").is_none());
+        let mut expected = vec!["core:event:allow-listen".to_string(), "core:event:allow-unlisten".to_string()];
+        expected.extend(QUICK_COMMANDS.iter().map(|c| format!("allow-{}", c.replace('_', "-"))));
+        assert_eq!(quick["permissions"], serde_json::json!(expected));
     }
 
     fn json(text: &str) -> serde_json::Value {

@@ -35,6 +35,22 @@
         "shadow": false,
         "visible": false,
         "create": false
+      },
+      {
+        "label": "quick",
+        "url": "quick.html",
+        "title": "Pady quick note",
+        "width": 380,
+        "height": 236,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "resizable": false,
+        "shadow": false,
+        "visible": false,
+        "create": false
       }
     ],
     "security": {

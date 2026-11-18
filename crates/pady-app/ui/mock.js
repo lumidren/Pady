@@ -216,7 +216,7 @@
   function checkAction(a) {
     if (!a || typeof a !== 'object') throw 'invalid type: expected internally tagged enum Action';
     switch (a.type) {
-      case 'none': case 'mute': case 'lock': case 'drag': case 'app_switcher': return;
+      case 'none': case 'mute': case 'lock': case 'drag': case 'clipboard': case 'quick_note': case 'app_switcher': return;
       case 'keys': return checkCombo(a.combo);
       case 'volume': case 'brightness':
         if (!Number.isInteger(a.step)) throw `${a.type} step must be a whole number`;
@@ -352,6 +352,8 @@
       case 'lock': return 'Lock screen';
       case 'drag': return 'Drag (hold left button)';
       case 'app_switcher': return 'App switcher';
+      case 'clipboard': return 'Clipboard history';
+      case 'quick_note': return 'Quick note';
       default: return 'Nothing';
     }
   }
@@ -431,6 +433,17 @@
   let live = false;
   const snapshot = () => clone(state);
 
+  // Notes for the Notes page.
+  const mockNotes = (() => {
+    const now = Date.now();
+    return [
+      { id: 1, text: 'Ideas for the weekend\n- [x] book the cabin\n- [ ] hike the ridge trail\n- [ ] try the new ramen place\n\n#plans', created: now - 3 * 864e5, updated: now - 2 * 3600e3, pinned: true, color: 'yellow' },
+      { id: 2, text: 'Meeting moved to 3pm, room 4B\nBring the **Q3 numbers** and the `budget.xlsx` draft. #work', created: now - 5 * 3600e3, updated: now - 5 * 3600e3, source: 'outlook.exe', pinned: false, color: 'blue' },
+      { id: 3, text: 'https://lumidren.github.io/Pady/\nShare this with the team #work', created: now - 864e5, updated: now - 864e5, source: 'chrome.exe', pinned: false },
+      { id: 4, text: '## Reading list\n1. Deep Work\n2. The Design of Everyday Things\n3. Make Time\n#books', created: now - 6 * 864e5, updated: now - 4 * 864e5, pinned: false, color: 'green' },
+    ];
+  })();
+
   const handlers = {
     get_state: () => snapshot(),
     save_config: ({ config }) => {
@@ -463,6 +476,21 @@
     pick_program: () => (linux ? '/usr/bin/firefox' : 'C:\\Users\\you\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Antigravity.lnk'),
     // The installed apps, as the real backend lists them (no icons here: the
     // menu shows each app's initial instead). ?slow makes it take a while.
+    notes_list: () => mockNotes.slice().sort((a, b) => b.pinned - a.pinned || b.updated - a.updated),
+    note_save: ({ id, text }) => {
+      const now = Date.now();
+      const note = mockNotes.find((n) => n.id === id);
+      if (note && !text.trim()) { mockNotes.splice(mockNotes.indexOf(note), 1); return null; }
+      if (note) { note.text = text; note.updated = now; return note; }
+      if (!text.trim()) return null;
+      const fresh = { id: now, text, created: now, updated: now, pinned: false };
+      mockNotes.push(fresh);
+      return fresh;
+    },
+    notes_export: () => (linux ? '/home/you/Documents/Pady notes.md' : 'C:\\Users\\you\\Documents\\Pady notes.md'),
+    note_delete: ({ id }) => { const i = mockNotes.findIndex((n) => n.id === id); if (i >= 0) mockNotes.splice(i, 1); },
+    note_pin: ({ id, pinned }) => { const n = mockNotes.find((x) => x.id === id); if (n) n.pinned = pinned; },
+    note_color: ({ id, color }) => { const n = mockNotes.find((x) => x.id === id); if (n) n.color = color || undefined; },
     list_apps: () => (linux
       ? [['Files', 'org.gnome.Nautilus'], ['Firefox', 'firefox'], ['GNOME Terminal', 'org.gnome.Terminal'], ['LibreOffice Writer', 'libreoffice-writer'], ['Spotify', 'spotify'], ['Visual Studio Code', 'code']]
       : [['Calculator', 'shell:AppsFolder\\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App'], ['Claude', 'shell:AppsFolder\\Claude_pzs8sxrjxfjjc!Claude'], ['Google Chrome', 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'], ['Notepad', 'shell:AppsFolder\\Microsoft.WindowsNotepad_8wekyb3d8bbwe!App'], ['Spotify', 'shell:AppsFolder\\SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify'], ['Visual Studio Code', 'C:\\Users\\you\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe'], ['WhatsApp', 'shell:AppsFolder\\5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App'], ['Word', 'C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE']]

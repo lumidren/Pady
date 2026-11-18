@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- No color-scheme meta: it can paint an opaque canvas behind the transparent window. -->
+  <title>Pady quick note</title>
+  <link rel="stylesheet" href="quick.css">
+</head>
+<body>
+  <main class="card" id="card" tabindex="-1" role="dialog" aria-labelledby="title">
+    <header class="head" title="Drag to move">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="title" id="title">Quick note</span>
+      <span class="source" id="source"></span>
+      <button class="icon-btn" id="close" type="button" aria-label="Save and close (Esc)" title="Save and close (Esc)">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <section class="body">
+      <textarea class="note-text" id="note" placeholder="Write something…" aria-label="Note" spellcheck="true"></textarea>
+    </section>
+    <footer class="foot" id="foot">
+      <button class="btn btn--ghost" id="all" type="button">All notes</button>
+      <span class="spacer"></span>
+      <span class="hint" id="hint">Ctrl+Enter</span>
+      <button class="btn btn--primary" id="save" type="button">Save</button>
+    </footer>
+  </main>
+  <script src="quick.js"></script>
+</body>
+</html>

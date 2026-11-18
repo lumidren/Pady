@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-quick-layout"
+description = "Enables the quick_layout command without any pre-configured scope."
+commands.allow = ["quick_layout"]
+
+[[permission]]
+identifier = "deny-quick-layout"
+description = "Denies the quick_layout command without any pre-configured scope."
+commands.deny = ["quick_layout"]

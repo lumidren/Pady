@@ -326,6 +326,7 @@
     else if (store.page === 'live') renderLive();
     else if (store.page === 'about') renderAbout();
     else if (store.page === 'glyphs') renderGlyphs();
+    else if (store.page === 'notes') renderNotes();
     if (tour.open) tourOnState();
   }
 
@@ -456,7 +457,7 @@
   // Glyphs (recorded two-finger gestures) are saved for a later release:
   // switch this on to show their page again.
   const GLYPHS_READY = false;
-  let PAGES = ['gestures', 'glyphs', 'live', 'settings', 'about'];
+  let PAGES = ['gestures', 'glyphs', 'notes', 'live', 'settings', 'about'];
 
   /** A pre-release version (`1.0.0-beta`): a beta build, installed by hand. */
   const isBeta = () => /-/.test((store.app && store.app.version) || '');
@@ -513,6 +514,9 @@
     if (!store.app) return;
     if (page === 'gestures') renderGestures(true);
     if (page === 'glyphs') renderGlyphs(true);
+    if (page === 'notes') renderNotes(true);
+    if (prev === 'notes' && page !== 'notes' && notesUI.built) toggleViewMenu(false);
+    if (prev === 'notes' && page !== 'notes') { flushNote(); commitDelete(); }
     if (page === 'settings') renderSettings();
     if (page === 'about') renderAbout();
     if (page === 'live') { renderLive(); liveView.start(); }
@@ -1642,6 +1646,10 @@
       case 'app_switcher': return aboutType('switch', ed.slot.kind === 'swipe'
         ? 'Shows every open app, like Alt+Tab. Keep your fingers down and slide sideways to pick one: right for the next app, left to go back. Lift your fingers to switch to it.'
         : 'Switches to the app you used last, like pressing Alt+Tab once. On a swipe it shows every open app and you slide to pick one.');
+      case 'clipboard': return aboutType('clipboard', platform() === 'linux'
+        ? 'Opens your desktop’s clipboard history (Super+V), where it has one: KDE does. Pick something you copied earlier to paste it.'
+        : 'Opens Windows’ clipboard history, like pressing Win+V: pick something you copied earlier to paste it. The first time, Windows asks to turn the history on.');
+      case 'quick_note': return aboutType('note', 'Opens a small note by the cursor, with any selected text already in it. Closing it saves it to the Notes page. Do the gesture again to save and close.');
       case 'lock': return aboutType('lock', 'Locks your session immediately, like pressing ' + (platform() === 'linux' ? 'Super+L.' : 'Win+L.'));
       case 'none': return aboutType('none', 'This gesture does nothing. Pick a preset or an action type above.');
       default: return null;
@@ -3717,6 +3725,561 @@
   }
 
   /* =====================================================================
+     Small pieces the Notes page is built from.
+     ===================================================================== */
+
+  /** Every gesture whose action is `type`, with the profile it's in. */
+  function gesturesFor(type) {
+    const cfg = store.app.config;
+    const out = (cfg.binding || []).filter((b) => b.action && b.action.type === type).map((b) => ({ trigger: b.trigger, profile: null }));
+    for (const p of cfg.profile || []) {
+      for (const b of p.binding || []) if (b.action && b.action.type === type) out.push({ trigger: b.trigger, profile: p.name });
+    }
+    return out;
+  }
+
+  /** A row of buttons, one of them pressed. */
+  function pills(label, options, onPick) {
+    const el = h('div', { class: 'pills', role: 'group', 'aria-label': label });
+    const buttons = options.map(([value, text]) => h('button', { class: 'pill', type: 'button', 'aria-pressed': 'false', onClick: () => onPick(value) }, text));
+    buttons.forEach((b, i) => { b.dataset.value = String(options[i][0]); });
+    el.append(...buttons);
+    el.set = (value) => buttons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.value === String(value))));
+    return el;
+  }
+
+  const selectEl = (label, options, onChange) => {
+    const el = h('select', { class: 'select', 'aria-label': label }, ...options.map(([v, t]) => h('option', { value: String(v) }, t)));
+    el.addEventListener('change', () => onChange(el.value));
+    return el;
+  };
+
+
+  /* =====================================================================
+     The Notes page: everything the Quick note gesture saved, to read,
+     search, edit, colour, tag, pin, export and delete. Edits save as you
+     type; a deleted note can be taken back for a few seconds; how the page
+     looks is remembered in this window.
+     ===================================================================== */
+
+  const NOTE_COLORS = [['', 'None'], ['yellow', 'Yellow'], ['orange', 'Orange'], ['red', 'Red'], ['pink', 'Pink'], ['purple', 'Purple'], ['blue', 'Blue'], ['teal', 'Teal'], ['green', 'Green'], ['gray', 'Gray']];
+  const NOTE_PREFS = { sort: 'edited', pinnedFirst: true, density: 'comfortable', font: 'sans', size: 2, preview: false, spellcheck: true, wrap: true };
+  const notesUI = { built: false, notes: [], open: null, timer: 0, query: '', tag: null, color: null, prefs: { ...NOTE_PREFS } };
+  try { Object.assign(notesUI.prefs, JSON.parse(localStorage.getItem('pady-notes-view') || '{}')); } catch (_) { /* defaults */ }
+
+  function setNotePref(key, value) {
+    notesUI.prefs[key] = value;
+    try { localStorage.setItem('pady-notes-view', JSON.stringify(notesUI.prefs)); } catch (_) { /* not kept */ }
+    paintNotePrefs();
+    paintNoteList();
+    paintNotePane();
+  }
+
+  const noteTags = (text) => [...new Set([...text.matchAll(/(?:^|\s)#([\p{L}\p{N}_-]{1,30})/gu)].map((m) => m[1].toLowerCase()))];
+
+  function buildNotes() {
+    const page = $('#page-notes');
+    notesUI.search = h('input', { class: 'input notes-search', type: 'search', placeholder: 'Search notes', 'aria-label': 'Search notes', spellcheck: 'false' });
+    notesUI.search.addEventListener('input', () => { notesUI.query = notesUI.search.value.trim().toLowerCase(); paintNoteList(); });
+    notesUI.search.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !notesUI.search.value) return;
+      e.stopPropagation();
+      notesUI.search.value = '';
+      notesUI.search.dispatchEvent(new Event('input'));
+    });
+    notesUI.search.title = 'Search notes (Ctrl+F)';
+    // Ctrl+N starts a note and Ctrl+F searches, while this page is open.
+    document.addEventListener('keydown', (e) => {
+      if (store.page !== 'notes' || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || $('.modal-backdrop')) return;
+      const key = e.key.toLowerCase();
+      if (key === 'n') { e.preventDefault(); newNote(); }
+      if (key === 'f') { e.preventDefault(); notesUI.search.focus(); notesUI.search.select(); }
+    });
+    notesUI.gesture = h('div', { class: 'notes-gesture' });
+    notesUI.filters = h('div', { class: 'notes-filters' });
+    notesUI.list = h('div', { class: 'notes-list', role: 'list' });
+    notesUI.editor = h('textarea', { class: 'input notes-editor', placeholder: 'Write something…  Use #tags, - lists and - [ ] checkboxes.', 'aria-label': 'Note' });
+    notesUI.editor.addEventListener('input', () => { clearTimeout(notesUI.timer); notesUI.timer = setTimeout(flushNote, 500); notesUI.status.textContent = ''; paintCount(); });
+    notesUI.editor.addEventListener('keydown', noteKeys);
+    notesUI.preview = h('div', { class: 'notes-preview selectable' });
+    notesUI.preview.addEventListener('click', onPreviewClick);
+    notesUI.status = h('span', { class: 'help notes-status', 'aria-live': 'polite' });
+    notesUI.meta = h('span', { class: 'help notes-meta' });
+    notesUI.count = h('span', { class: 'help' });
+    const tool = (iconName, title, onClick, text) => h('button', { class: 'btn btn--sm' + (text ? '' : ' btn--icon'), type: 'button', title, 'aria-label': title, onClick }, ico(iconName, 14), text || '');
+    notesUI.mode = pills('Edit or read', [['edit', 'Edit'], ['read', 'Read']], (m) => setNotePref('preview', m === 'read'));
+    notesUI.colors = h('div', { class: 'note-colors', role: 'radiogroup', 'aria-label': 'Note colour' },
+      ...NOTE_COLORS.map(([c, name]) => h('button', { class: 'note-swatch', type: 'button', role: 'radio', 'aria-checked': 'false', 'data-color': c, title: name, 'aria-label': name, onClick: () => colorNote(c) })));
+    notesUI.pin = tool('pin', 'Pin to the top', pinNote);
+    notesUI.check = tool('check', 'Make this line a to-do, or tick it (Ctrl+Enter)', toggleCheck, 'To-do');
+    notesUI.bullet = tool('minimal', 'Make this line a list item', () => insertLinePrefix('- '), 'List');
+    notesUI.copy = tool('copy', 'Copy the note', copyNote);
+    notesUI.dupe = tool('layers', 'Duplicate the note', duplicateNote);
+    notesUI.del = tool('trash', 'Delete the note (you can undo it)', deleteNote);
+    notesUI.pane = h('section', { class: 'panel notes-pane' },
+      h('div', { class: 'notes-toolbar' }, notesUI.mode, notesUI.check, notesUI.bullet,
+        h('span', { style: { flex: '1' } }), notesUI.pin, notesUI.copy, notesUI.dupe, notesUI.del),
+      notesUI.editor, notesUI.preview,
+      h('div', { class: 'notes-foot' }, notesUI.colors, notesUI.meta, h('span', { style: { flex: '1' } }), notesUI.status, notesUI.count));
+
+    // How the page looks.
+    notesUI.sort = selectEl('Sort notes', [['edited', 'Last edited'], ['created', 'Newest first'], ['oldest', 'Oldest first'], ['title', 'Title A–Z'], ['color', 'By colour']], (v) => setNotePref('sort', v));
+    notesUI.viewBtn = h('button', { class: 'btn', type: 'button', 'aria-expanded': 'false', onClick: () => toggleViewMenu() }, ico('settings', 14), 'View');
+    notesUI.density = pills('List', [['comfortable', 'Comfortable'], ['compact', 'Compact'], ['cards', 'Cards']], (v) => setNotePref('density', v));
+    notesUI.font = pills('Font', [['sans', 'Sans'], ['serif', 'Serif'], ['mono', 'Mono']], (v) => setNotePref('font', v));
+    notesUI.size = pills('Text size', [[1, 'S'], [2, 'M'], [3, 'L'], [4, 'XL']], (v) => setNotePref('size', Number(v)));
+    const prefSwitch = (key, title) => {
+      const input = h('input', { type: 'checkbox', role: 'switch' });
+      input.addEventListener('change', () => setNotePref(key, input.checked));
+      notesUI['sw_' + key] = input;
+      return h('label', { class: 'row', style: { cursor: 'pointer' } }, h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, title)),
+        h('span', { class: 'switch' }, input, h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' }))));
+    };
+    notesUI.viewMenu = h('div', { class: 'notes-view-menu panel', hidden: true },
+      h('div', { class: 'today-label' }, 'List'), notesUI.density,
+      h('div', { class: 'today-label' }, 'Font'), notesUI.font,
+      h('div', { class: 'today-label' }, 'Text size'), notesUI.size,
+      prefSwitch('pinnedFirst', 'Pinned notes first'),
+      prefSwitch('wrap', 'Wrap long lines'),
+      prefSwitch('spellcheck', 'Check spelling'),
+      h('div', { class: 'today-label' }, 'Keep a copy'),
+      h('button', { class: 'btn btn--sm', type: 'button', title: 'Saves every note into one Markdown file', onClick: () => { toggleViewMenu(false); exportNotes(); } }, ico('download', 14), 'Export all notes…'));
+    document.addEventListener('click', (e) => {
+      if (!notesUI.viewMenu.hidden && !notesUI.viewMenu.contains(e.target) && !notesUI.viewBtn.contains(e.target)) toggleViewMenu(false);
+    });
+    notesUI.viewMenu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { toggleViewMenu(false); notesUI.viewBtn.focus(); } });
+
+    page.append(
+      h('div', { class: 'notes-top' }, notesUI.search,
+        h('button', { class: 'btn btn--primary', type: 'button', title: 'New note (Ctrl+N)', onClick: newNote }, ico('plus', 14), 'New note'),
+        notesUI.sort,
+        h('div', { class: 'notes-view-wrap' }, notesUI.viewBtn, notesUI.viewMenu),
+        notesUI.gesture),
+      notesUI.filters,
+      h('div', { class: 'notes-grid' }, notesUI.list, notesUI.pane));
+    notesUI.built = true;
+    paintNotePrefs();
+  }
+
+  function toggleViewMenu(open = notesUI.viewMenu.hidden) {
+    notesUI.viewMenu.hidden = !open;
+    notesUI.viewBtn.setAttribute('aria-expanded', String(open));
+  }
+
+  function paintNotePrefs() {
+    const p = notesUI.prefs;
+    notesUI.sort.value = p.sort;
+    notesUI.density.set(p.density);
+    notesUI.font.set(p.font);
+    notesUI.size.set(p.size);
+    notesUI.mode.set(p.preview ? 'read' : 'edit');
+    for (const key of ['pinnedFirst', 'wrap', 'spellcheck']) notesUI['sw_' + key].checked = !!p[key];
+    const page = $('#page-notes');
+    page.dataset.density = p.density;
+    page.dataset.font = p.font;
+    page.style.setProperty('--note-size', `${[13, 14.5, 16, 18.5][p.size - 1] || 14.5}px`);
+    notesUI.editor.spellcheck = !!p.spellcheck;
+    notesUI.editor.wrap = p.wrap ? 'soft' : 'off';
+  }
+
+  function renderNotes(entering) {
+    if (!notesUI.built) buildNotes();
+    const found = gesturesFor('quick_note');
+    notesUI.gesture.replaceChildren(found.length
+      ? h('span', { class: 'help' }, ico('note', 13), ` Quick note: ${M.triggerLabel(found[0].trigger)}${found.length > 1 ? ` and ${found.length - 1} more` : ''}`)
+      : h('button', { class: 'btn btn--sm', type: 'button', onClick: () => route('gestures'), title: 'Pick a gesture and choose Quick note (under Everyday)' }, ico('plus', 14), 'Set a Quick note gesture'));
+    if (entering) loadNotes();
+  }
+
+  async function loadNotes() {
+    try { notesUI.notes = (await call('notes_list', null, { quiet: true })) || []; } catch (_) { notesUI.notes = []; }
+    if (notesUI.deleting) notesUI.notes = notesUI.notes.filter((n) => n.id !== notesUI.deleting.id);
+    // Keep the open note (and what's being typed in it).
+    if (notesUI.open != null && !notesUI.notes.some((n) => n.id === notesUI.open)) notesUI.open = null;
+    if (notesUI.open == null && notesUI.notes.length && document.activeElement !== notesUI.editor) openNote(sortedNotes()[0].id);
+    paintNoteList();
+    paintNotePane();
+  }
+
+  const noteTitle = (text) => (text.trim().split('\n')[0] || 'Empty note').replace(/^#{1,3}\s+/, '').slice(0, 80);
+  /** `chrome.exe` reads as "Chrome"; an app the menu knows by its own name. */
+  const noteSource = (source) => {
+    const name = M.programName(source).replace(/\.(exe|desktop)$/i, '');
+    return name ? name[0].toUpperCase() + name.slice(1) : '';
+  };
+  /** `text` with what's being searched for marked. */
+  const markMatches = (text) => {
+    const q = notesUI.query;
+    if (!q) return [text];
+    const out = [];
+    const lower = text.toLowerCase();
+    let at = 0;
+    for (let i = lower.indexOf(q); i >= 0; i = lower.indexOf(q, at)) {
+      if (i > at) out.push(text.slice(at, i));
+      out.push(h('mark', null, text.slice(i, i + q.length)));
+      at = i + q.length;
+    }
+    if (at < text.length) out.push(text.slice(at));
+    return out;
+  };
+  const noteWhen = (ms) => {
+    const d = new Date(ms), now = new Date();
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+  };
+
+  function sortedNotes() {
+    const p = notesUI.prefs;
+    const colorRank = (n) => { const i = NOTE_COLORS.findIndex(([c]) => c === (n.color || '')); return i <= 0 ? 99 : i; };
+    const by = {
+      edited: (a, b) => b.updated - a.updated,
+      created: (a, b) => b.created - a.created,
+      oldest: (a, b) => a.created - b.created,
+      title: (a, b) => noteTitle(a.text).localeCompare(noteTitle(b.text), undefined, { sensitivity: 'base' }),
+      color: (a, b) => colorRank(a) - colorRank(b) || b.updated - a.updated,
+    }[p.sort] || ((a, b) => b.updated - a.updated);
+    return notesUI.notes.slice().sort((a, b) => (p.pinnedFirst ? b.pinned - a.pinned : 0) || by(a, b));
+  }
+
+  function paintFilters() {
+    const tags = new Map();
+    for (const n of notesUI.notes) for (const t of noteTags(n.text)) tags.set(t, (tags.get(t) || 0) + 1);
+    const colors = new Set(notesUI.notes.map((n) => n.color).filter(Boolean));
+    if (notesUI.tag && !tags.has(notesUI.tag)) notesUI.tag = null;
+    if (notesUI.color && !colors.has(notesUI.color)) notesUI.color = null;
+    const chip = (text, on, onClick, extra) => h('button', { class: 'tag-chip' + (on ? ' is-on' : ''), type: 'button', 'aria-pressed': String(on), onClick }, extra || '', text);
+    const all = !notesUI.tag && !notesUI.color;
+    notesUI.filters.hidden = !tags.size && !colors.size;
+    notesUI.filters.replaceChildren(
+      chip(`All ${notesUI.notes.length}`, all, () => { notesUI.tag = null; notesUI.color = null; paintNoteList(); }),
+      ...NOTE_COLORS.filter(([c]) => colors.has(c)).map(([c, name]) => h('button', {
+        class: 'note-swatch note-swatch--filter' + (notesUI.color === c ? ' is-on' : ''), type: 'button', 'data-color': c, title: `${name} notes`, 'aria-label': `${name} notes`, 'aria-pressed': String(notesUI.color === c),
+        onClick: () => { notesUI.color = notesUI.color === c ? null : c; paintNoteList(); },
+      })),
+      ...[...tags].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t, n]) =>
+        chip(`#${t} ${n}`, notesUI.tag === t, () => { notesUI.tag = notesUI.tag === t ? null : t; paintNoteList(); })));
+  }
+
+  function paintNoteList() {
+    if (!notesUI.built) return;
+    paintFilters();
+    const q = notesUI.query;
+    const shown = sortedNotes().filter((n) => (!q || n.text.toLowerCase().includes(q))
+      && (!notesUI.tag || noteTags(n.text).includes(notesUI.tag))
+      && (!notesUI.color || n.color === notesUI.color));
+    if (!notesUI.notes.length) {
+      notesUI.list.replaceChildren(h('div', { class: 'empty notes-empty' },
+        h('div', { class: 'empty-icon' }, ico('note', 26)),
+        h('h3', null, 'No notes yet'),
+        h('p', null, 'Do your Quick note gesture in any app: a note opens by the cursor, with any selected text already in it. Or click New note.')));
+      return;
+    }
+    notesUI.list.replaceChildren(...(shown.length ? shown.map((n) => {
+      const lines = n.text.trim().split('\n');
+      const rest = lines.slice(1).map((l) => l.replace(/^\s*(?:- \[[ xX]\]|[-*]|\d+[.)]|#{1,3})\s+/, '')).join(' ').replace(/\*\*|`/g, '').trim();
+      const todo = lines.filter((l) => /^\s*- \[[ xX]\]/.test(l));
+      const doneCount = todo.filter((l) => /^\s*- \[[xX]\]/.test(l)).length;
+      return h('button', {
+        class: 'note-item' + (n.id === notesUI.open ? ' is-open' : ''), type: 'button', role: 'listitem', 'data-color': n.color || '',
+        onClick: () => { flushNote(); openNote(n.id); paintNoteList(); paintNotePane(); if (!notesUI.prefs.preview) notesUI.editor.focus(); },
+      },
+      h('span', { class: 'note-item-title' }, n.pinned ? ico('pin', 12) : '', h('span', { class: 'note-item-name' }, ...markMatches(noteTitle(n.text)))),
+      rest ? h('span', { class: 'note-item-rest' }, ...markMatches(matchSnippet(rest))) : '',
+      h('span', { class: 'note-item-meta' }, noteWhen(n.updated), n.source ? ` · ${noteSource(n.source)}` : '',
+        todo.length ? h('span', { class: 'note-item-todo' }, ico('check', 11), ` ${doneCount}/${todo.length}`) : ''));
+    }) : [h('div', { class: 'help', style: { padding: '12px' } }, 'No note matches.',
+      h('div', { style: { 'margin-top': '8px' } }, h('button', { class: 'btn btn--sm', type: 'button', onClick: () => {
+        notesUI.search.value = ''; notesUI.query = ''; notesUI.tag = null; notesUI.color = null; paintNoteList();
+      } }, 'Show all notes')))]));
+  }
+
+  /** The part of a note's text around what's being searched for. */
+  function matchSnippet(rest) {
+    const at = notesUI.query ? rest.toLowerCase().indexOf(notesUI.query) : -1;
+    return at > 100 ? '…' + rest.slice(at - 40, at + 120) : rest.slice(0, 160);
+  }
+
+  function openNote(id) {
+    notesUI.open = id;
+    const n = notesUI.notes.find((x) => x.id === id);
+    notesUI.editor.value = n ? n.text : '';
+  }
+
+  function paintNotePane() {
+    if (!notesUI.built) return;
+    const n = notesUI.notes.find((x) => x.id === notesUI.open);
+    notesUI.pane.hidden = !n && !notesUI.drafting;
+    for (const b of [notesUI.pin, notesUI.copy, notesUI.dupe, notesUI.del, notesUI.colors]) b.hidden = !n;
+    notesUI.pane.dataset.color = (n && n.color) || '';
+    $$('.note-swatch', notesUI.colors).forEach((s) => s.setAttribute('aria-checked', String(s.dataset.color === ((n && n.color) || ''))));
+    if (n) {
+      notesUI.pin.setAttribute('aria-pressed', String(!!n.pinned));
+      notesUI.pin.title = n.pinned ? 'Unpin' : 'Pin to the top';
+      notesUI.meta.textContent = `Edited ${noteWhen(n.updated)} · created ${noteWhen(n.created)}${n.source ? ` · from ${noteSource(n.source)}` : ''}`;
+    } else {
+      notesUI.meta.textContent = 'New note';
+    }
+    const reading = notesUI.prefs.preview && !!n;
+    notesUI.editor.hidden = reading;
+    notesUI.preview.hidden = !reading;
+    notesUI.check.hidden = notesUI.bullet.hidden = reading;
+    if (reading) notesUI.preview.replaceChildren(...renderNoteText(notesUI.editor.value));
+    paintCount();
+  }
+
+  function paintCount() {
+    const text = notesUI.editor.value;
+    const words = (text.match(/\S+/g) || []).length;
+    notesUI.count.textContent = `${words} ${words === 1 ? 'word' : 'words'} · ${text.length} characters`;
+  }
+
+  /** The note as it reads: headings, lists, checkboxes, bold, italics, code and #tags. */
+  function renderNoteText(text) {
+    const inline = (s) => {
+      const out = [];
+      const re = /(\*\*[^*]+\*\*|\*[^*\s][^*]*\*|`[^`]+`|(?:^|(?<=\s))#[\p{L}\p{N}_-]{1,30}|https?:\/\/[^\s)]+)/gu;
+      let last = 0;
+      for (const m of s.matchAll(re)) {
+        if (m.index > last) out.push(s.slice(last, m.index));
+        const t = m[0];
+        if (t.startsWith('**')) out.push(h('strong', null, t.slice(2, -2)));
+        else if (t.startsWith('`')) out.push(h('code', null, t.slice(1, -1)));
+        else if (t.startsWith('#')) out.push(h('span', { class: 'note-tag' }, t));
+        else if (t.startsWith('http')) out.push(h('span', { class: 'note-link' }, t));
+        else out.push(h('em', null, t.slice(1, -1)));
+        last = m.index + t.length;
+      }
+      if (last < s.length) out.push(s.slice(last));
+      return out;
+    };
+    const out = [];
+    let list = null;
+    text.split('\n').forEach((line, i) => {
+      const box = /^(\s*)- \[([ xX])\]\s?(.*)$/.exec(line);
+      const bullet = /^(\s*)[-*]\s+(.*)$/.exec(line);
+      const num = /^(\s*)\d+[.)]\s+(.*)$/.exec(line);
+      const head = /^(#{1,3})\s+(.*)$/.exec(line);
+      if (box || bullet || num) {
+        if (!list) { list = h('ul', { class: 'note-list' }); out.push(list); }
+        if (box) {
+          const done = box[2] !== ' ';
+          list.append(h('li', { class: 'note-check' + (done ? ' is-done' : ''), 'data-line': String(i) },
+            h('span', { class: 'note-box', role: 'checkbox', 'aria-checked': String(done), tabindex: '0' }, done ? ico('check', 11) : ''), h('span', null, ...inline(box[3]))));
+        } else {
+          list.append(h('li', { class: num ? 'is-num' : '' }, ...inline((bullet || num)[2])));
+        }
+        return;
+      }
+      list = null;
+      if (head) out.push(h(['h2', 'h3', 'h4'][head[1].length - 1], null, ...inline(head[2])));
+      else if (!line.trim()) out.push(h('div', { class: 'note-gap' }));
+      else out.push(h('p', null, ...inline(line)));
+    });
+    return out.length ? out : [h('p', { class: 'help' }, 'This note is empty.')];
+  }
+
+  /** Ticking a checkbox while reading changes the note itself. */
+  function onPreviewClick(e) {
+    const li = e.target.closest('.note-check');
+    if (!li || !e.target.closest('.note-box')) return;
+    const lines = notesUI.editor.value.split('\n');
+    const i = Number(li.dataset.line);
+    lines[i] = lines[i].replace(/- \[([ xX])\]/, (_, c) => (c === ' ' ? '- [x]' : '- [ ]'));
+    notesUI.editor.value = lines.join('\n');
+    flushNote();
+    paintNotePane();
+  }
+
+  function insertLinePrefix(prefix) {
+    const ed = notesUI.editor;
+    const start = ed.value.lastIndexOf('\n', ed.selectionStart - 1) + 1;
+    ed.focus();
+    ed.setRangeText(prefix, start, start, 'end');
+    ed.dispatchEvent(new Event('input'));
+  }
+
+  /** The line with the cursor: a to-do gets ticked or unticked, a list item or plain line becomes a to-do. */
+  function toggleCheck() {
+    const ed = notesUI.editor;
+    const start = ed.value.lastIndexOf('\n', ed.selectionStart - 1) + 1;
+    let end = ed.value.indexOf('\n', start);
+    if (end < 0) end = ed.value.length;
+    const line = ed.value.slice(start, end);
+    const box = /^(\s*)- \[([ xX])\] /.exec(line);
+    const bullet = /^(\s*)[-*] /.exec(line);
+    const caret = ed.selectionStart;
+    let next;
+    if (box) next = line.replace(/- \[([ xX])\]/, (_, c) => (c === ' ' ? '- [x]' : '- [ ]'));
+    else if (bullet) next = line.replace(/^(\s*)[-*] /, '$1- [ ] ');
+    else next = '- [ ] ' + line;
+    ed.focus();
+    ed.setRangeText(next, start, end, 'preserve');
+    const moved = Math.max(start, caret + (next.length - line.length));
+    ed.setSelectionRange(moved, moved);
+    ed.dispatchEvent(new Event('input'));
+  }
+
+  /** Enter continues a list; Ctrl+Enter ticks a to-do; Ctrl+B / Ctrl+I mark text bold or italic. */
+  function noteKeys(e) {
+    const ed = notesUI.editor;
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      toggleCheck();
+      return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+      const start = ed.value.lastIndexOf('\n', ed.selectionStart - 1) + 1;
+      const line = ed.value.slice(start, ed.selectionStart);
+      const m = /^(\s*)(- \[[ xX]\] |[-*] |\d+[.)] )/.exec(line);
+      if (!m) return;
+      e.preventDefault();
+      if (line === m[0]) { // an empty item ends the list
+        ed.setRangeText('', start, ed.selectionStart, 'end');
+      } else {
+        let next = m[2].startsWith('- [') ? '- [ ] ' : m[2];
+        const n = /^(\d+)([.)]) $/.exec(m[2]);
+        if (n) next = `${Number(n[1]) + 1}${n[2]} `;
+        ed.setRangeText('\n' + m[1] + next, ed.selectionStart, ed.selectionEnd, 'end');
+      }
+      ed.dispatchEvent(new Event('input'));
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'i')) {
+      e.preventDefault();
+      const mark = e.key === 'b' ? '**' : '*';
+      const { selectionStart: a, selectionEnd: b } = ed;
+      ed.setRangeText(mark + ed.value.slice(a, b) + mark, a, b, 'select');
+      if (a === b) ed.setSelectionRange(a + mark.length, a + mark.length);
+      ed.dispatchEvent(new Event('input'));
+    }
+  }
+
+  function newNote() {
+    flushNote();
+    notesUI.open = null;
+    notesUI.drafting = true;
+    notesUI.editor.value = notesUI.tag ? `\n\n#${notesUI.tag}` : '';
+    if (notesUI.prefs.preview) setNotePref('preview', false);
+    paintNoteList();
+    paintNotePane();
+    notesUI.editor.focus();
+    notesUI.editor.setSelectionRange(0, 0);
+  }
+
+  /** Save what's in the editor now (it also saves itself as you type). */
+  async function flushNote() {
+    clearTimeout(notesUI.timer);
+    if (!notesUI.built) return;
+    const text = notesUI.editor.value;
+    const id = notesUI.open;
+    const before = notesUI.notes.find((n) => n.id === id);
+    if (before ? before.text === text : !text.trim()) return;
+    try {
+      const saved = await call('note_save', { id, text }, { errorTitle: 'Couldn’t save the note' });
+      if (saved) {
+        const i = notesUI.notes.findIndex((n) => n.id === saved.id);
+        if (i >= 0) notesUI.notes[i] = saved; else notesUI.notes.unshift(saved);
+        if (notesUI.open === id) notesUI.open = saved.id;
+        notesUI.drafting = false;
+      } else {
+        notesUI.notes = notesUI.notes.filter((n) => n.id !== id);
+        if (notesUI.open === id) notesUI.open = null;
+      }
+      notesUI.status.textContent = 'Saved';
+      if (store.page === 'notes') { paintNoteList(); paintNotePane(); }
+    } catch (_) { /* toast shown */ }
+  }
+
+  async function pinNote() {
+    const n = notesUI.notes.find((x) => x.id === notesUI.open);
+    if (!n) return;
+    try { await call('note_pin', { id: n.id, pinned: !n.pinned }, { errorTitle: 'Couldn’t pin the note' }); } catch (_) { return; }
+    loadNotes();
+  }
+
+  async function colorNote(color) {
+    const n = notesUI.notes.find((x) => x.id === notesUI.open);
+    if (!n) return;
+    try { await call('note_color', { id: n.id, color: color || null }, { errorTitle: 'Couldn’t change the colour' }); } catch (_) { return; }
+    n.color = color || undefined;
+    paintNoteList();
+    paintNotePane();
+  }
+
+  async function copyNote() {
+    try {
+      await navigator.clipboard.writeText(notesUI.editor.value);
+      toast({ title: 'Copied the note' });
+    } catch (e) { toast({ kind: 'error', title: 'Couldn’t copy', text: errText(e) }); }
+  }
+
+  async function duplicateNote() {
+    await flushNote();
+    const n = notesUI.notes.find((x) => x.id === notesUI.open);
+    if (!n) return;
+    try {
+      const copy = await call('note_save', { id: null, text: n.text }, { errorTitle: 'Couldn’t duplicate the note' });
+      if (copy && n.color) await call('note_color', { id: copy.id, color: n.color }, { quiet: true });
+      if (copy) notesUI.open = copy.id;
+    } catch (_) { return; }
+    await loadNotes();
+    openNote(notesUI.open);
+    paintNotePane();
+    toast({ title: 'Duplicated the note' });
+  }
+
+  /** How long a deleted note can be taken back. */
+  const NOTE_UNDO_MS = 7000;
+
+  /**
+   * Delete without asking: the note leaves the list at once and is really
+   * removed a few seconds later, unless Undo is pressed. Quitting meanwhile
+   * keeps the note, never loses it.
+   */
+  async function deleteNote() {
+    await flushNote();
+    const n = notesUI.notes.find((x) => x.id === notesUI.open);
+    if (!n) return;
+    commitDelete(); // an earlier one still waiting
+    notesUI.deleting = { id: n.id, timer: setTimeout(commitDelete, NOTE_UNDO_MS) };
+    notesUI.notes = notesUI.notes.filter((x) => x.id !== n.id);
+    notesUI.open = null;
+    notesUI.drafting = false;
+    notesUI.editor.value = '';
+    if (notesUI.notes.length) openNote(sortedNotes()[0].id);
+    paintNoteList();
+    paintNotePane();
+    toast({ kind: 'info', title: 'Note deleted', text: noteTitle(n.text), timeout: NOTE_UNDO_MS, action: { label: 'Undo', onClick: undoDelete } });
+  }
+
+  async function commitDelete() {
+    const d = notesUI.deleting;
+    if (!d) return;
+    notesUI.deleting = null;
+    clearTimeout(d.timer);
+    try { await call('note_delete', { id: d.id }, { errorTitle: 'Couldn’t delete the note' }); } catch (_) { loadNotes(); }
+  }
+
+  async function undoDelete() {
+    const d = notesUI.deleting;
+    if (!d) return;
+    notesUI.deleting = null;
+    clearTimeout(d.timer);
+    await flushNote();
+    await loadNotes();
+    openNote(d.id);
+    paintNoteList();
+    paintNotePane();
+  }
+
+  /** Every note into one Markdown file, wherever the user says. */
+  async function exportNotes() {
+    await flushNote();
+    try {
+      const path = await call('notes_export', null, { errorTitle: 'Couldn’t export your notes' });
+      if (path) toast({ title: 'Notes exported', text: path, timeout: 6000 });
+    } catch (_) { /* toast shown */ }
+  }
+
+  /* =====================================================================
      12. Events & boot
      ===================================================================== */
 
@@ -3727,6 +4290,7 @@
     on('pady://gesture', (e) => onGesture(e.payload));
     on('pady://update', (e) => announceUpdate(e.payload));
     on('pady://glyph-recorded', (e) => onGlyphRecorded(e.payload));
+    on('pady://notes', () => { if (store.page === 'notes') loadNotes(); });
     on('pady://action-failed', (e) => {
       const p = e.payload || {};
       toast({ kind: 'error', title: p.action ? `“${p.action}” failed` : 'Action failed', text: p.error });
@@ -3816,12 +4380,14 @@
       renderShell();
       $('#boot').remove();
       syncLive(); // tells the backend "no frames" unless a page below asks for them
-      route(PAGES.includes(initial) ? initial : 'gestures');
+      const first = state.open_page || initial;
+      route(PAGES.includes(first) ? first : 'gestures');
       // `=== false`: a backend without the field never shows the tutorial.
       if (state.config.settings.onboarded === false) openTutorial({ firstRun: true });
       if (state.config.settings.check_updates !== false && !isBeta()) checkUpdate(false);
       if (state.config.settings.onboarded !== false) offerCopyPaste();
     } catch (e) {
+      console.error(e);
       $('#boot').replaceChildren(h('div', { class: 'empty' },
         h('div', { class: 'empty-icon' }, ico('warning', 28)),
         h('h3', null, 'Pady’s engine isn’t responding'),
