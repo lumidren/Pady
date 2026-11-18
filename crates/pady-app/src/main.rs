@@ -962,6 +962,12 @@ fn main() {
             record_glyph,
         ])
         .setup(move |app| {
+            if pady_core::BETA {
+                // Told apart from the released Pady on the taskbar and in Alt+Tab.
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_title("Pady Beta");
+                }
+            }
             let config_path = Config::default_path()?;
             let config = Arc::new(SharedConfig::new(load_config(&config_path)));
             let live = Arc::new(AtomicBool::new(false));
