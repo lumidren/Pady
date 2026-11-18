@@ -141,7 +141,10 @@
     if (typeof app.icon === 'string' && app.icon.startsWith('data:image/png;base64,')) {
       return h('img', { class: 'app-icon', src: app.icon, alt: '', width: '24', height: '24', loading: 'lazy', draggable: 'false' });
     }
-    return h('span', { class: 'app-icon app-icon--letter', 'aria-hidden': 'true' }, (app.name.trim()[0] || '?').toUpperCase());
+    // No icon (Linux, or an app without one): its initial on a colour of its own.
+    let hue = 0;
+    for (const ch of app.name) hue = (hue * 31 + ch.codePointAt(0)) % 360;
+    return h('span', { class: 'app-icon app-icon--letter', 'aria-hidden': 'true', style: { '--hue': String(hue) } }, (app.name.trim()[0] || '?').toUpperCase());
   }
 
   /**
