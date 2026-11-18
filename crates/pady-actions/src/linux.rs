@@ -1179,7 +1179,7 @@ fn autostart_file() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .or_else(|| env::var_os("HOME").filter(|h| !h.is_empty()).map(|h| PathBuf::from(h).join(".config")))?;
-    Some(config.join("autostart").join("pady.desktop"))
+    Some(config.join("autostart").join(if pady_core::BETA { "pady-beta.desktop" } else { "pady.desktop" }))
 }
 
 pub fn autostart_enabled() -> bool {

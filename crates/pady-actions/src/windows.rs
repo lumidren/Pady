@@ -910,7 +910,9 @@ fn process_exe(hwnd: HWND) -> Option<String> {
 
 const TOUCHPAD_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\PrecisionTouchPad");
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-const RUN_VALUE: PCWSTR = w!("Pady");
+/// A beta registers under its own name, so it never takes over the
+/// released Pady's start-up entry.
+const RUN_VALUE: PCWSTR = if pady_core::BETA { w!("Pady Beta") } else { w!("Pady") };
 
 fn read_string(key: PCWSTR, value: PCWSTR) -> Option<String> {
     let mut buf = [0u16; 64];

@@ -41,7 +41,9 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, State, Wind
 
 /// Must match `identifier` in tauri.conf.json: the log lives beside the
 /// WebView data, so "Delete the application data" on uninstall removes it.
-const IDENTIFIER: &str = "com.lumidren.pady";
+/// A beta is built with its own identifier (see build-beta2.sh), so it has
+/// its own log and WebView data and runs beside the released Pady.
+const IDENTIFIER: &str = if pady_core::BETA { "com.lumidren.pady.beta" } else { "com.lumidren.pady" };
 
 struct Pady {
     config: Arc<SharedConfig>,
@@ -811,7 +813,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<CheckMenuItem<Wry>> {
     let menu = Menu::with_items(app, &[&toggle, &open, &updates, &PredefinedMenuItem::separator(app)?, &quit])?;
 
     let mut tray = TrayIconBuilder::with_id("pady")
-        .tooltip("Pady — touchpad gestures")
+        .tooltip(if pady_core::BETA { "Pady Beta — touchpad gestures" } else { "Pady — touchpad gestures" })
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {

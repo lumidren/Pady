@@ -337,9 +337,15 @@ impl Default for Config {
 
 impl Config {
     /// `%APPDATA%\Pady\config.toml` on Windows, `~/.config/pady/config.toml` on Linux.
+    /// A beta keeps its own (`Pady Beta`, `pady-beta`): see [`crate::BETA`].
     pub fn default_path() -> Result<PathBuf, ConfigError> {
         let dir = dirs::config_dir().ok_or(ConfigError::NoConfigDir)?;
-        let app = if cfg!(windows) { "Pady" } else { "pady" };
+        let app = match (cfg!(windows), crate::BETA) {
+            (true, false) => "Pady",
+            (true, true) => "Pady Beta",
+            (false, false) => "pady",
+            (false, true) => "pady-beta",
+        };
         Ok(dir.join(app).join("config.toml"))
     }
 

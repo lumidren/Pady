@@ -34,6 +34,27 @@ pub use presets::{Preset, PRESETS};
 pub use recognizer::{Recognizer, RecognizerSettings, SwipeProgress};
 pub use trigger::Trigger;
 
+/// Is this a beta build (a version such as `2.0.0-beta`)?
+///
+/// A beta is an app of its own next to the released Pady: it has its own
+/// name ("Pady Beta"), its own settings folder, log folder and start-up
+/// entry, so the two can be installed and run side by side. They must not
+/// share a config: a beta's config holds actions the released version
+/// doesn't know, and it would refuse the whole file.
+pub const BETA: bool = is_prerelease(env!("CARGO_PKG_VERSION"));
+
+const fn is_prerelease(version: &str) -> bool {
+    let bytes = version.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'-' {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
 /// Deterministic random input for the fuzz tests (xorshift64*): the same
 /// cases on every run, with no dependencies.
 #[cfg(test)]
@@ -71,5 +92,14 @@ impl Rng {
     /// A string of `len` characters drawn from `alphabet`.
     pub(crate) fn text(&mut self, alphabet: &[char], len: usize) -> String {
         (0..len).map(|_| alphabet[self.below(alphabet.len() as u64) as usize]).collect()
+    }
+}
+
+#[cfg(test)]
+mod beta_tests {
+    #[test]
+    fn a_version_with_a_suffix_is_a_beta() {
+        assert!(super::is_prerelease("2.0.0-beta") && super::is_prerelease("1.2.0-rc.1"));
+        assert!(!super::is_prerelease("1.1.2") && !super::is_prerelease(""));
     }
 }
