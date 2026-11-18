@@ -461,6 +461,12 @@
     check_update: () => (q.has('update') ? { version: '9.9.9', notes: null, can_install: !linux } : null),
     install_update: () => new Promise((done) => setTimeout(done, 1500)),
     pick_program: () => (linux ? '/usr/bin/firefox' : 'C:\\Users\\you\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Antigravity.lnk'),
+    // The installed apps, as the real backend lists them (no icons here: the
+    // menu shows each app's initial instead). ?slow makes it take a while.
+    list_apps: () => (linux
+      ? [['Files', 'org.gnome.Nautilus'], ['Firefox', 'firefox'], ['GNOME Terminal', 'org.gnome.Terminal'], ['LibreOffice Writer', 'libreoffice-writer'], ['Spotify', 'spotify'], ['Visual Studio Code', 'code']]
+      : [['Calculator', 'shell:AppsFolder\\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App'], ['Claude', 'shell:AppsFolder\\Claude_pzs8sxrjxfjjc!Claude'], ['Google Chrome', 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'], ['Notepad', 'shell:AppsFolder\\Microsoft.WindowsNotepad_8wekyb3d8bbwe!App'], ['Spotify', 'shell:AppsFolder\\SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify'], ['Visual Studio Code', 'C:\\Users\\you\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe'], ['WhatsApp', 'shell:AppsFolder\\5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App'], ['Word', 'C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE']]
+    ).map(([name, program]) => ({ name, program, icon: null })),
     // Replace the All-apps bindings with a starter set; settings and profiles stay.
     apply_preset: ({ id }) => {
       const preset = PRESETS.find((p) => p.id === id);

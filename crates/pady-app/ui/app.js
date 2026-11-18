@@ -95,6 +95,141 @@
   const clone = (v) => JSON.parse(JSON.stringify(v));
   const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  /* ---------------- Choose an app ---------------- */
+
+  /**
+   * The apps installed on this computer (name, what `launch` should hold,
+   * icon), asked for once per session: listing them takes a couple of
+   * seconds. `again` asks afresh, after installing something.
+   */
+  const installed = { list: null, loading: null };
+  function installedApps(again) {
+    if (installed.list && !again) return Promise.resolve(installed.list);
+    if (!installed.loading) {
+      installed.loading = call('list_apps', null, { errorTitle: 'Couldn’t list your apps' })
+        .then((list) => {
+          installed.list = (Array.isArray(list) ? list : []).filter((a) => a && typeof a.name === 'string' && typeof a.program === 'string');
+          rememberAppNames(installed.list);
+          return installed.list;
+        })
+        .finally(() => { installed.loading = null; });
+    }
+    return installed.loading;
+  }
+
+  /** Names for the apps gestures launch, so cards say "Claude", not its id. */
+  function rememberAppNames(apps) {
+    let names = {};
+    try { names = JSON.parse(localStorage.getItem('pady-app-names') || '{}') || {}; } catch (_) { names = {}; }
+    for (const a of apps) names[a.program] = a.name;
+    M.setAppNames(names);
+    // Only the names in use are kept: the full list is asked for again when needed.
+    const used = {};
+    const cfg = store.app && store.app.config;
+    const all = cfg ? (cfg.binding || []).concat(...(cfg.profile || []).map((p) => p.binding || [])) : [];
+    for (const b of all) {
+      const p = b.action && b.action.program;
+      if (p && names[p]) used[p] = names[p];
+    }
+    for (const a of apps.filter((x) => x.keep)) used[a.program] = a.name;
+    try { localStorage.setItem('pady-app-names', JSON.stringify(used)); } catch (_) { /* private mode */ }
+  }
+
+  /** An app's icon, or its initial where it has none. */
+  function appIcon(app) {
+    // Only an image the backend made is ever shown: a PNG it encoded itself.
+    if (typeof app.icon === 'string' && app.icon.startsWith('data:image/png;base64,')) {
+      return h('img', { class: 'app-icon', src: app.icon, alt: '', width: '24', height: '24', loading: 'lazy', draggable: 'false' });
+    }
+    return h('span', { class: 'app-icon app-icon--letter', 'aria-hidden': 'true' }, (app.name.trim()[0] || '?').toUpperCase());
+  }
+
+  /**
+   * A searchable menu of installed apps. Resolves with the app picked, or
+   * null if the menu is closed without picking.
+   */
+  function chooseApp() {
+    return new Promise((resolve) => {
+      const root = $('#overlay-root');
+      const prev = document.activeElement;
+      let apps = [];
+      let shown = [];
+      let active = 0;
+      const backdrop = h('div', { class: 'backdrop modal-backdrop', onClick: () => done(null) });
+      const search = h('input', { class: 'input', type: 'search', placeholder: 'Search your apps', 'aria-label': 'Search your apps', spellcheck: 'false', autocomplete: 'off', role: 'combobox', 'aria-expanded': 'true', 'aria-controls': 'app-list', 'aria-autocomplete': 'list' });
+      const list = h('ul', { class: 'app-list', id: 'app-list', role: 'listbox', 'aria-label': 'Installed apps' });
+      const status = h('p', { class: 'app-status', role: 'status' }, 'Looking for your apps…');
+      const refresh = h('button', { class: 'btn btn--sm btn--ghost', type: 'button', onClick: () => load(true) }, ico('reset', 14), 'Refresh');
+      const cancel = h('button', { class: 'btn', type: 'button', onClick: () => done(null) }, 'Cancel');
+      const modal = h('div', { class: 'modal modal--wide modal--apps', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modal-title' },
+        h('h3', { id: 'modal-title' }, 'Choose an app'),
+        h('p', null, 'Everything in your Start menu, Store apps included.'),
+        search, status, list,
+        h('div', { class: 'modal-actions' }, refresh, h('span', { style: { flex: '1' } }), cancel));
+
+      function render() {
+        const q = search.value.trim().toLowerCase();
+        const words = q.split(/\s+/).filter(Boolean);
+        shown = apps.filter((a) => { const n = a.name.toLowerCase(); return words.every((w) => n.includes(w)); });
+        // Names that start with what was typed come first.
+        if (q) shown.sort((a, b) => Number(b.name.toLowerCase().startsWith(q)) - Number(a.name.toLowerCase().startsWith(q)));
+        active = Math.min(active, Math.max(0, shown.length - 1));
+        list.replaceChildren(...shown.map((app, i) => h('li', {
+          class: 'app-row' + (i === active ? ' is-active' : ''), role: 'option', id: 'app-row-' + i, 'aria-selected': i === active ? 'true' : 'false',
+          onClick: () => done(app), onMousemove: () => { if (active !== i) { active = i; mark(); } },
+        }, appIcon(app), h('span', { class: 'app-name' }, app.name))));
+        search.setAttribute('aria-activedescendant', shown.length ? 'app-row-' + active : '');
+        if (apps.length) status.textContent = shown.length ? '' : 'No app with that name. Try fewer letters, or use Browse for a file.';
+        status.hidden = !status.textContent;
+      }
+      function mark() {
+        $$('.app-row', list).forEach((row, i) => {
+          row.classList.toggle('is-active', i === active);
+          row.setAttribute('aria-selected', i === active ? 'true' : 'false');
+        });
+        search.setAttribute('aria-activedescendant', shown.length ? 'app-row-' + active : '');
+        const row = list.children[active];
+        if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest' });
+      }
+      async function load(again) {
+        status.hidden = false;
+        status.textContent = 'Looking for your apps…';
+        refresh.disabled = true;
+        try {
+          apps = await installedApps(again);
+          status.textContent = apps.length ? '' : 'Pady couldn’t find any apps here. Use Browse to pick a file instead.';
+        } catch (_) {
+          apps = [];
+          status.textContent = 'Pady couldn’t list your apps. Use Browse to pick a file instead.';
+        }
+        refresh.disabled = false;
+        if (modal.isConnected) render();
+      }
+      search.addEventListener('input', () => { active = 0; render(); });
+      modal.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+        else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (shown.length) { active = (active + (e.key === 'ArrowDown' ? 1 : shown.length - 1)) % shown.length; mark(); }
+        } else if (e.key === 'Enter' && document.activeElement === search) {
+          e.preventDefault();
+          if (shown[active]) done(shown[active]);
+        } else if (e.key === 'Tab') trapTab(e, modal);
+      });
+      root.append(backdrop, modal);
+      setInert(true);
+      search.focus();
+      load(false);
+      function done(app) {
+        backdrop.remove(); modal.remove();
+        if (!$('.drawer', root) && !tour.open) setInert(false);
+        if (prev && prev.focus) prev.focus();
+        if (app) rememberAppNames([Object.assign({ keep: true }, app)]);
+        resolve(app);
+      }
+    });
+  }
+
   function keysEl(caps, large) {
     const wrap = h('span', { class: 'keys' });
     caps.forEach((c, i) => {
@@ -1466,13 +1601,29 @@
             if (picked) { prog.value = picked; set({ program: picked }); }
           } catch (_) { /* toast shown */ }
         } }, ico('folder', 14), 'Browse\u2026');
+        const picked = h('div', { class: 'app-picked', hidden: true });
+        const showPicked = (app) => {
+          picked.hidden = !app;
+          if (app) picked.replaceChildren(appIcon(app), h('span', null, app.name));
+        };
+        const choose = h('button', { class: 'btn btn--sm btn--primary', type: 'button', onClick: async () => {
+          const app = await chooseApp();
+          if (!app) return;
+          prog.value = app.program;
+          // The app's own shortcut already carries any arguments it needs.
+          args.value = '';
+          delete ed.draft.args;
+          set({ program: app.program });
+          showPicked(app);
+        } }, ico('apps', 14), 'Choose an app\u2026');
+        prog.addEventListener('input', () => showPicked(null));
         const help = a.type === 'focus_or_launch'
           ? 'Brings the app to the front. If it’s already in front, minimises it. If it isn’t running, launches it.'
           : (linux ? 'A program on your PATH or a full path.' : 'An app’s name as it appears in Start, a full path, or a URI such as ms-settings:display.');
         return h('div', null,
           h('div', { class: 'about-type', style: { 'margin-bottom': '12px' } }, ico(a.type === 'focus_or_launch' ? 'switch' : 'apps', 18), h('div', null, help)),
-          h('div', { class: 'field' }, h('span', { class: 'label' }, 'Program'), h('div', { class: 'input-row' }, prog, browse),
-            linux ? null : h('span', { class: 'help' }, 'Type an app’s name (like Antigravity) or pick it with Browse.')),
+          h('div', { class: 'field' }, h('span', { class: 'label' }, 'Program'), h('div', { class: 'input-row input-row--apps' }, prog, choose, browse), picked,
+            h('span', { class: 'help' }, linux ? 'Pick an app from the list, or type a program on your PATH.' : 'Pick an app from the list. You can also type its name (like Antigravity) or pick a file with Browse.')),
           h('div', { class: 'field' }, h('span', { class: 'label' }, 'Arguments (optional)'), args, h('span', { class: 'help' }, 'Separate with spaces; use quotes for values with spaces.')));
       }
 
@@ -3657,6 +3808,7 @@
       const state = await call('get_state', null, { errorTitle: 'Couldn’t load Pady’s state' });
       store.app = state;
       M.setGlyphs(state.config); // the cards draw saved glyphs from here
+      rememberAppNames([]); // names of the apps gestures launch, from earlier picks
       syncGlyphsPage();
       renderShell();
       $('#boot').remove();

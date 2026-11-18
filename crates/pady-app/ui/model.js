@@ -258,7 +258,26 @@
   M.signed = signed;
 
   const prettyUrl = (u) => String(u || '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '');
-  const programName = (p) => String(p || '').split(/[\\/]/).pop();
+  /** Names of installed apps by what launches them, filled in by the app menu. */
+  let appNames = {};
+  M.setAppNames = (names) => { appNames = names && typeof names === 'object' ? names : {}; };
+  /**
+   * What to call a program on a card: the app's own name where the menu has
+   * told us, else the file name. A packaged app's id
+   * (`shell:AppsFolder\\Claude_pzs8sxrjxfjjc!Claude`) reads as its last word.
+   */
+  const programName = (p) => {
+    const program = String(p || '');
+    if (Object.prototype.hasOwnProperty.call(appNames, program) && typeof appNames[program] === 'string') return appNames[program];
+    const last = program.split(/[\\/]/).pop();
+    if (/^shell:appsfolder/i.test(program)) {
+      const [pkg, app] = last.split('!');
+      const generic = !app || /^(app|microsoft\.)/i.test(app);
+      return generic ? pkg.split('_')[0].split('.').pop() : app;
+    }
+    return last;
+  };
+  M.programName = programName;
 
   /** Rich summary for chips: { icon, text, keys? } */
   /** Shortcuts that switch the keyboard language (Windows and GNOME use Win/Super+Space). */

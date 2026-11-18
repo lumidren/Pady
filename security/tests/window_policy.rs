@@ -147,3 +147,19 @@ fn the_pages_have_no_inline_script() {
         );
     }
 }
+
+/// The app menu shows icons that come from the backend. The only image the
+/// window ever builds from data is one the backend encoded itself as a PNG:
+/// never an address from a config, a device or the network.
+#[test]
+fn the_only_image_built_from_data_is_a_png_the_backend_made() {
+    let (_, app) = scripts().into_iter().find(|(n, _)| n == "app.js").unwrap();
+    let images: Vec<&str> = app.match_indices("h('img'").map(|(i, _)| app[i..].lines().next().unwrap_or("")).collect();
+    assert_eq!(images.len(), 1, "a new image: check where its address comes from\n{images:#?}");
+    assert!(images[0].contains("src: app.icon"), "{images:#?}");
+    let guard = "app.icon.startsWith('data:image/png;base64,')";
+    let at = app.find(guard).expect("the icon's address is checked before it is used");
+    assert!(at < app.find("src: app.icon").unwrap(), "the check comes before the image");
+    // And the policy lets images come from the app itself or such data only.
+    assert_eq!(directive("img-src"), Some(vec!["'self'".to_string(), "data:".to_string()]));
+}

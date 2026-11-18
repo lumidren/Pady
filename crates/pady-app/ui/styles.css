@@ -784,6 +784,19 @@ a { color: var(--accent-text); }
 .backup-row .row-text { flex: 1; min-width: 0; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
+/* ---------- Choose an app ---------- */
+.modal--apps { display: flex; flex-direction: column; max-height: min(620px, calc(100vh - 48px)); }
+.modal--apps .input { margin-top: 14px; }
+.app-status { margin-top: 12px; }
+.app-list { list-style: none; margin: 10px 0 0; padding: 4px; flex: 1; min-height: 120px; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; }
+.app-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+.app-row.is-active { background: var(--surface-hover, rgba(127, 127, 127, .14)); }
+.app-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+.app-icon { width: 24px; height: 24px; flex: none; border-radius: 5px; }
+.app-icon--letter { display: grid; place-items: center; font-size: 12px; font-weight: 650; color: var(--text-2); background: var(--border); }
+.input-row--apps { flex-wrap: wrap; }
+.app-picked { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--text-2); }
+
 /* ---------- Toasts ---------- */
 .toasts { position: fixed; z-index: 60; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
 .toast {
