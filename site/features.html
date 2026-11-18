@@ -35,7 +35,7 @@
       <div class="glow" aria-hidden="true"></div>
       <p class="eyebrow">Features</p>
       <h1>Everything Pady <span class="grad">can do.</span></h1>
-      <p class="lead">Every gesture, every action and every setting, in one place. Marked <span class="tag tag-next">New in 1.1.0</span> when it just arrived, and <span class="tag tag-soon">Coming soon</span> when it isn't in a release yet.</p>
+      <p class="lead">Every gesture, every action and every setting, in one place. Marked with the version it arrived in, like <span class="tag tag-next">New in 1.1.2</span>, when it's recent, and <span class="tag tag-soon">Coming soon</span> when it isn't in a release yet.</p>
       <nav class="jump" aria-label="On this page">
         <a href="#gestures">Gestures</a>
         <a href="#actions">Actions</a>
@@ -77,6 +77,7 @@
         <div class="card"><h3>Media keys</h3><p>Play / pause, next, previous and stop, for Spotify, YouTube and any player.</p></div>
         <div class="card"><h3>Open a link</h3><p>In your default browser, or in Chrome, Edge, Firefox or Brave.</p></div>
         <div class="card"><h3>Launch an app</h3><p>A program, a path, or a link like <code>ms-settings:</code>.</p></div>
+        <div class="card"><span class="tag tag-soon">Coming soon</span><h3>Choose an app from a menu</h3><p>Pick the app from a searchable list of everything installed, with icons: the same apps Start shows, Store apps included. No paths to type.</p></div>
         <div class="card"><h3>Switch to an app</h3><p>Brings it to the front, minimises it if it's already there, and starts it if it isn't running.</p></div>
         <div class="card"><h3>Run a command</h3><p>Anything your shell can run.</p></div>
         <div class="card"><h3>Lock the screen</h3><p>One gesture and you're away.</p></div>
@@ -137,6 +138,7 @@ action = { type = "none" }   <span class="c"># off here</span></code></pre>
           <div class="f-point"><span class="tag tag-next">New in 1.0.0</span><h3>Automatic backups</h3><p>Pady keeps copies of your settings before every change. Restore one from Settings in a click.</p></div>
         </div>
         <div class="f-points">
+          <div class="f-point"><span class="tag tag-next">New in 1.1.1</span><h3>Taps that learn your pace</h3><p>When a finger count has a double tap too, a single tap waits only as long as you take to tap again, not a fixed time.</p></div>
           <div class="f-point"><h3>Tune the feel</h3><p>Tap speed, hold time, swipe distance, pinch sensitivity, drag speed and acceleration. All measured in millimetres, so they feel the same on every laptop.</p></div>
           <table class="f-table">
             <thead><tr><th>Setting</th><th>Default</th></tr></thead>
@@ -188,7 +190,8 @@ pady-cli fix-permissions   <span class="c"># Linux: set up touchpad access</span
       <div class="f-grid">
         <div class="card"><h3>Written in Rust</h3><p>Reads every finger straight from the touchpad and sleeps when you're not touching it. The settings window frees its memory when you close it.</p></div>
         <div class="card"><h3>Reads only the touchpad</h3><p>Never the keyboard. Nothing about you is sent anywhere; the only connection is the update check, which you can turn off.</p></div>
-        <div class="card"><h3>Tested hard</h3><p>About 260 unit tests cover every gesture and the config, and fuzz tests throw random input at every parser.</p></div>
+        <div class="card"><h3>Tested hard</h3><p>About 320 tests: every gesture and the config, fuzz tests that throw random input at every parser, and 54 attack tests that keep each fixed security finding fixed.</p></div>
+        <div class="card"><span class="tag tag-next">New in 1.1.2</span><h3>Security assessed</h3><p>A full assessment in November 2026: a threat model, attack tests, load and soak tests. Programs are never started from the wrong folder, settings can't be half-saved, and the log leaves out your commands' secrets. The <a href="https://github.com/lumidren/Pady/blob/main/security/REPORT.md">report</a> is public.</p></div>
       </div>
     </section>
 
