@@ -827,6 +827,14 @@ async fn pick_program(app: AppHandle) -> Option<String> {
     dialog.blocking_pick_file().map(|path| path.to_string())
 }
 
+/// The apps installed on this computer, for the "Choose an app" menu:
+/// what Start shows on Windows, the desktop entries on Linux. Listing them
+/// (with icons) takes a couple of seconds, so it runs off the main thread.
+#[tauri::command]
+async fn list_apps() -> Vec<pady_actions::InstalledApp> {
+    tauri::async_runtime::spawn_blocking(pady_actions::installed_apps).await.unwrap_or_default()
+}
+
 /// A newer release, if there is one (also announced as `pady://update`).
 #[tauri::command]
 async fn check_update(app: AppHandle) -> Result<Option<update::Available>, String> {
@@ -870,6 +878,7 @@ fn main() {
             install_update,
             pick_program,
             record_glyph,
+            list_apps,
         ])
         .setup(move |app| {
             let config_path = Config::default_path()?;

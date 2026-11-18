@@ -20,6 +20,7 @@ const COMMANDS: &[&str] = &[
     "install_update",
     "pick_program",
     "record_glyph",
+    "list_apps",
 ];
 
 fn main() {

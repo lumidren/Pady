@@ -24,6 +24,7 @@
     "allow-apply-preset",
     "allow-check-update",
     "allow-install-update",
-    "allow-pick-program"
+    "allow-pick-program",
+    "allow-list-apps"
   ]
 }
