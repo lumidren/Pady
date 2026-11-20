@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1 (2026-11-21)
+
+### Fixed
+
+- **"No update available."** Checking for updates when there is nothing newer now says so: in About, in a short notice, and in the tray menu. When GitHub has no release to compare with, that counts as no update too; before, it showed an error. Without a connection, Pady says in plain words that it couldn't reach GitHub.
+
+### Changed
+
+- **The log says why a "Copied" notice stayed away.** When the clipboard changes and Pady doesn't announce it, the log now names the reason (for example, that a program other than the one in front wrote it), at most twelve times per run. It never records what was copied.
+
 ## 1.0.0 (2026-11-20)
 
 The first public release.
