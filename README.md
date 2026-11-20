@@ -63,7 +63,7 @@
 
 | | Feature | Where it is |
 |---|---|---|
-| ✅ | 33 gestures, a dozen kinds of action, per-app profiles, five starter presets, three-finger drag | **v1.0.0** (released 2026-11-19) |
+| ✅ | 33 gestures, a dozen kinds of action, per-app profiles, five starter presets, three-finger drag | **v1.0.0** (released 2026-11-20) |
 | ✅ | Copy and paste with a three-finger pinch, corner notices, swipe glow, show touches | **v1.0.0** |
 | ✅ | Auto-update, first-run tutorial, `pady-cli`, Linux packages that set up touchpad access | **v1.0.0** |
 | ✅ | **Switch keyboard language** as an action, without Windows' pop-up, with the language named in a corner notice | **v1.0.0** |

@@ -1,6 +1,6 @@
 # Pady benchmarks
 
-> **About the version numbers.** This was written before the public launch. The versions it names (1.1.0, 1.1.1, 1.1.2) were preview builds; everything described here is in **Pady 1.0.0**, released 19 November 2026.
+> **About the version numbers.** This was written before the public launch. The versions it names (1.1.0, 1.1.1, 1.1.2) were preview builds; everything described here is in **Pady 1.0.0**, released 20 November 2026.
 
 Measured 16 November 2026, before and after the changes that followed the security and performance assessment of 1.1.1 ([security/REPORT.md](../security/REPORT.md)).
 
