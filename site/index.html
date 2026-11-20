@@ -103,6 +103,7 @@
             <tr><td>Double &amp; triple taps, holds</td><td>—</td><td class="us">✓</td></tr>
             <tr><td>Pinch with 3+ fingers</td><td>—</td><td class="us">✓</td></tr>
             <tr><td>Copy &amp; paste with a pinch</td><td>—</td><td class="us">✓</td></tr>
+            <tr><td>A note by your cursor, in any app</td><td>—</td><td class="us">✓</td></tr>
             <tr><td>Draw your own gestures (glyphs)</td><td>—</td><td class="us">Soon</td></tr>
             <tr><td>Translate selected text in any app</td><td>—</td><td class="us">Soon</td></tr>
             <tr><td>Switch keyboard language without the pop-up</td><td>—</td><td class="us">✓</td></tr>
@@ -130,25 +131,27 @@
       <ul class="chips">
         <li>Keyboard shortcuts</li><li>Volume &amp; mute</li><li>Brightness</li><li>Play / pause / skip</li>
         <li>Copy &amp; paste</li><li>Zoom</li><li>Switch desktops</li><li>Screenshot</li>
-        <li>Open a link</li><li>Launch an app</li><li>Switch to an app</li><li>Run a command</li><li>Lock the screen</li><li>Switch keyboard language</li><li>Switch apps (Alt+Tab)</li>
+        <li>Open a link</li><li>Launch an app</li><li>Switch to an app</li><li>Run a command</li><li>Lock the screen</li><li>Switch keyboard language</li><li>Switch apps (Alt+Tab)</li><li>Quick note</li><li>Clipboard history</li>
       </ul>
       <p class="see-all"><a href="features.html">See every feature <span aria-hidden="true">→</span></a></p>
     </section>
 
     <section id="new" class="section">
       <p class="eyebrow">In 1.0</p>
-      <h2>Switch apps, tap faster, <span class="grad">and trust it more</span></h2>
-      <p class="sub">Three releases since 1.0: an app switcher you steer with your fingers, taps that learn your pace, and a full security assessment with its findings fixed.</p>
+      <h2>Jot a note, pick an app, <span class="grad">and trust it</span></h2>
+      <p class="sub">Pady 1.0 is the first public release. Next to the 33 gestures, it comes with a note that opens the moment you ask, a menu of your apps, and a full security assessment with its findings fixed.</p>
       <div class="grid">
+        <div class="card"><h3>Quick note</h3><p>One gesture opens a small note by your cursor, in any app, at once. Type, then close it any way you like: it is saved.</p></div>
+        <div class="card"><h3>Notes</h3><p>Everything you jotted down, kept in the app on your computer: search, tags, colours, pins, to-do lists, undo, and an export to one Markdown file.</p></div>
+        <div class="card"><h3>Choose an app</h3><p>Pick the app a gesture opens from a searchable menu of everything installed, with icons. Store apps included, no paths to type.</p></div>
         <div class="card"><h3>App switcher</h3><p>Swipe to show every open app, keep your fingers down and slide sideways to pick one, lift to switch. Alt+Tab without the keys.</p></div>
-        <div class="card"><h3>Taps that learn your pace</h3><p>A single tap only waits as long as you take to double tap, and every gesture's action now runs before anything else Pady does.</p></div>
+        <div class="card"><h3>Clipboard history</h3><p>A gesture opens the system's clipboard history, so you can paste something you copied earlier.</p></div>
         <div class="card"><h3>Checked for security</h3><p>An assessment with attack tests, load tests and a 30-minute soak. What it found is fixed: safer app launching, settings that can't be half-saved, a log without your commands' secrets. <a href="https://github.com/lumidren/Pady/blob/main/security/REPORT.md">Read the report</a>.</p></div>
       </div>
-      <p class="note-center">Next: choose the app a gesture opens from a searchable menu of everything installed, Store apps included.</p>
     </section>
 
     <section id="copy-paste" class="section">
-      <p class="eyebrow">Since 0.6</p>
+      <p class="eyebrow">Built in</p>
       <h2>Copy and paste <span class="grad">with a pinch</span></h2>
       <p class="sub">Pinch three fingers in to copy, spread them to paste. It works in every app, and a glowing "Copied" tells you it worked.</p>
       <div class="video-frame" data-youtube="aciO9Ana1ZE" data-title="Copy and paste with a pinch">
@@ -210,6 +213,7 @@
         <figure><img src="docs/screenshots/settings.png" alt="Settings" loading="lazy"><figcaption>Settings</figcaption></figure>
         <figure><img src="docs/screenshots/overlay.png" alt="The volume overlay" loading="lazy"><figcaption>Level overlay</figcaption></figure>
         <figure><img src="docs/screenshots/apps.png" alt="A searchable menu of installed apps" loading="lazy"><figcaption>Choose an app</figcaption></figure>
+        <figure><img src="docs/screenshots/notes.png" alt="The Notes page with pinned, tagged and coloured notes" loading="lazy"><figcaption>Notes</figcaption></figure>
       </div>
     </section>
 
@@ -264,9 +268,10 @@
       <details><summary>Which touchpads work?</summary><p>On Windows, any Precision Touchpad, which is most laptops from the last several years. On Linux, any multitouch touchpad, including ones that track fewer fingers than they report.</p></details>
       <details><summary>Which Linux distros are supported?</summary><p>Ubuntu, Debian, Mint, Pop!_OS and friends get the .deb; Fedora and openSUSE the .rpm; everything else the AppImage. Both packages pull in what Pady needs and set up touchpad access, so it works right after installing.</p></details>
       <details><summary>Does it work on Wayland?</summary><p>Gestures and all actions do. Per-app profiles and "switch to app" need to know which window is in front: that works for X11 and XWayland apps, and on KDE Plasma.</p></details>
-      <details><summary>How much does it slow my PC down?</summary><p>It doesn't. In the tray Pady is one process using about 20 MB and no CPU while you're not touching the pad. The settings window uses more while it's open and frees it all when you close it.</p></details>
+      <details><summary>How much does it slow my PC down?</summary><p>It doesn't. In the tray Pady is one process using about 20 MB and no CPU while you're not touching the pad. The settings window uses more while it's open and frees it all when you close it. If you give a gesture the Quick note, Pady keeps that note ready so it opens at once: about 90 MB more memory, still no CPU.</p></details>
       <details><summary>Gestures don't work in one app</summary><p>If that app runs as administrator (some disk, security and forensics tools do), Windows blocks normal apps from sending it keys or clicks, Pady included. Gestures keep working everywhere else.</p></details>
-      <details><summary>How do I open an app like Spotify with a gesture?</summary><p>Pick a gesture, choose <b>Switch to app</b> and type the app's program name, such as <code>Spotify.exe</code>. The gesture brings it to the front, or starts it if it isn't running. Microsoft Store apps work the same way when they install a command under that name, as Spotify does.</p></details>
+      <details><summary>How do I open an app like Spotify with a gesture?</summary><p>Pick a gesture, choose <b>Switch to app</b>, click <b>Choose an app</b> and pick it from the menu: it lists everything installed, with icons, Microsoft Store apps included. The gesture brings the app to the front, or starts it if it isn't running. <b>Launch app</b> works the same way and always starts it.</p></details>
+      <details><summary>Where are my notes kept?</summary><p>In a file on your computer, next to Pady's settings. Nothing is uploaded and there is no account. <b>Export all notes</b> on the Notes page writes them all to one Markdown file you can keep anywhere.</p></details>
       <details><summary>What's coming next?</summary><p>Glyphs (draw your own gestures with two fingers) and a translator for selected text are being polished in beta builds. See them on the <a href="features.html#soon">features page</a>.</p></details>
       <details><summary>Is it safe?</summary><p>Pady reads only the touchpad, never the keyboard, and sends nothing about you anywhere. Its only connection is a twice-daily check on GitHub for a new version (you can turn it off), and updates install only if they're signed by Pady. The code is checked with fuzz tests and dependency audits. The details are in the <a href="https://github.com/lumidren/Pady/blob/main/SECURITY.md">security notes</a>, and how releases are signed is in the <a href="https://github.com/lumidren/Pady#code-signing-policy">code signing policy</a>.</p></details>
     </section>
