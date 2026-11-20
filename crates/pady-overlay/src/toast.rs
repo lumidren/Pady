@@ -308,6 +308,8 @@ struct Toaster {
     language_on: bool,
     /// Quick checks left after a gesture.
     soon_checks: u8,
+    /// Skipped "Copied" notices explained in the log so far.
+    explained: u8,
 }
 
 /// What Pady knows about a clipboard change; never its content.
@@ -347,13 +349,32 @@ fn clipboard_quiet() -> bool {
 /// Long enough for a slow app to finish writing after the key press.
 const COPY_WINDOW: Duration = Duration::from_millis(1500);
 
-fn looks_like_your_copy(c: &ClipboardChange) -> bool {
-    // A cleared clipboard (no formats) is not a copy.
-    c.formats > 0
-        && !c.pasting
-        && c.idle.is_some_and(|idle| idle <= COPY_WINDOW)
-        && c.owner.is_some_and(|owner| c.foreground.contains(&owner))
+/// Why a clipboard change is not announced as "Copied" (`None`: it is one
+/// of yours). The reasons go to the log, to tell why a notice stayed away.
+fn not_your_copy(c: &ClipboardChange) -> Option<&'static str> {
+    if c.formats <= 0 {
+        return Some("the clipboard was emptied");
+    }
+    if c.pasting {
+        return Some("a paste was under way");
+    }
+    if !c.idle.is_some_and(|idle| idle <= COPY_WINDOW) {
+        return Some("nothing was pressed or touched just before it");
+    }
+    match c.owner {
+        None => Some("the program that wrote it left no window as its owner"),
+        Some(owner) if !c.foreground.contains(&owner) => Some("a program other than the one in front wrote it"),
+        Some(_) => None,
+    }
 }
+
+#[cfg(test)]
+fn looks_like_your_copy(c: &ClipboardChange) -> bool {
+    not_your_copy(c).is_none()
+}
+
+/// Skipped notices explained in the log per run; after that it stays quiet.
+const EXPLAINED_AT_MOST: u8 = 12;
 
 impl ClipboardChange {
     fn now() -> ClipboardChange {
@@ -512,6 +533,7 @@ impl Toaster {
             language: LanguageWatch::default(),
             language_on: false,
             soon_checks: 0,
+            explained: 0,
             reported: false,
         }
     }
@@ -534,9 +556,14 @@ impl Toaster {
                         let seq = unsafe { GetClipboardSequenceNumber() };
                         if clipboard_quiet() {
                             self.last_copy = seq;
-                        } else if seq != self.last_copy && looks_like_your_copy(&ClipboardChange::now()) {
-                            self.last_copy = seq;
-                            self.show(Notice::Copied);
+                        } else if seq != self.last_copy {
+                            match not_your_copy(&ClipboardChange::now()) {
+                                None => {
+                                    self.last_copy = seq;
+                                    self.show(Notice::Copied);
+                                }
+                                Some(why) => self.explain(why),
+                            }
                         }
                     }
                     return true;
@@ -590,7 +617,10 @@ impl Toaster {
             }
         };
         match result {
-            Ok(()) => self.watching = on,
+            Ok(()) => {
+                self.watching = on;
+                log::info!("\"Copied\" notices are {}", if on { "on" } else { "off" });
+            }
             Err(e) => log::warn!("could not {} copy notices: {e}", if on { "turn on" } else { "turn off" }),
         }
     }
@@ -699,6 +729,16 @@ impl Toaster {
             renderer.compose(glow, turn).and_then(|()| renderer.push(self.hwnd, (self.origin.0, y), pose.opacity));
         if let Err(e) = result {
             self.report(&*e);
+        }
+    }
+
+    /// Says in the log why a clipboard change got no "Copied" (never what
+    /// was on it), a few times per run.
+    fn explain(&mut self, why: &str) {
+        if self.explained < EXPLAINED_AT_MOST {
+            self.explained += 1;
+            let last = if self.explained == EXPLAINED_AT_MOST { " (not logged again until Pady restarts)" } else { "" };
+            log::info!("no \"Copied\" notice for a clipboard change: {why}{last}");
         }
     }
 
