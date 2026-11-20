@@ -16,6 +16,14 @@ use tauri_plugin_updater::UpdaterExt;
 const FIRST_CHECK: Duration = Duration::from_secs(30);
 const CHECK_EVERY: Duration = Duration::from_secs(12 * 60 * 60);
 pub const TRAY_LABEL: &str = "Check for updates";
+/// What a person is told when a check fails; the details go to the log.
+const UNREACHABLE: &str = "Pady couldn't reach GitHub. Check your connection and try again.";
+
+/// GitHub answered, but has no release to compare with: there is simply
+/// nothing newer, which is not an error to bother anyone with.
+fn nothing_published(error: &tauri_plugin_updater::Error) -> bool {
+    matches!(error, tauri_plugin_updater::Error::ReleaseNotFound)
+}
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Available {
@@ -56,7 +64,17 @@ pub async fn check(app: &AppHandle) -> Result<Option<Available>, String> {
     if is_beta(app) {
         return Ok(None);
     }
-    let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+    let update = match app.updater().map_err(|e| e.to_string())?.check().await {
+        Ok(update) => update,
+        Err(e) if nothing_published(&e) => {
+            log::info!("update check: no release is published, so there is nothing newer");
+            None
+        }
+        Err(e) => {
+            log::info!("update check: {e}");
+            return Err(UNREACHABLE.into());
+        }
+    };
     let found =
         update.map(|u| Available { version: u.version.clone(), notes: u.body.clone(), can_install: can_install() });
     *lock(&app.state::<Updates>().available) = found.clone();
@@ -121,18 +139,26 @@ pub fn tray_clicked(app: &AppHandle) {
                 match check(&app).await {
                     Ok(Some(_)) => {}
                     Ok(None) => {
-                        set_tray_text(&app, "Pady is up to date");
-                        tauri::async_runtime::spawn_blocking(move || {
-                            std::thread::sleep(Duration::from_secs(5));
-                            set_tray_text(&app, TRAY_LABEL);
-                        });
+                        say_in_tray(app, "No update available");
                     }
                     Err(e) => {
                         log::warn!("update check failed: {e}");
-                        set_tray_text(&app, TRAY_LABEL);
+                        say_in_tray(app, "Couldn't check for updates");
                     }
                 }
             }
+        }
+    });
+}
+
+/// The tray item says `text` for a few seconds, then offers the check again.
+fn say_in_tray(app: AppHandle, text: &str) {
+    set_tray_text(&app, text);
+    tauri::async_runtime::spawn_blocking(move || {
+        std::thread::sleep(Duration::from_secs(5));
+        // An update found meanwhile keeps its own text.
+        if lock(&app.state::<Updates>().available).is_none() {
+            set_tray_text(&app, TRAY_LABEL);
         }
     });
 }
@@ -157,4 +183,17 @@ pub fn spawn_checks(app: AppHandle) {
             }
         })
         .expect("spawn update thread");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tauri_plugin_updater::Error;
+
+    #[test]
+    fn no_published_release_means_no_update_not_an_error() {
+        assert!(nothing_published(&Error::ReleaseNotFound));
+        assert!(!nothing_published(&Error::EmptyEndpoints), "a real fault still is one");
+        assert!(!UNREACHABLE.contains("JSON"), "people are told in plain words");
+    }
 }

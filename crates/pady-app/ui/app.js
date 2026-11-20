@@ -3657,9 +3657,12 @@
     try {
       const u = await call('check_update', null, { quiet: !manual, errorTitle: 'Couldn’t check for updates' });
       if (u) announceUpdate(u);
-      else updates.note = 'Pady is up to date.';
+      else {
+        updates.note = `No update available. You have the latest version, Pady ${store.app.version}.`;
+        if (manual) toast({ kind: 'success', title: 'No update available', text: `You have the latest version, Pady ${store.app.version}.`, timeout: 5000 });
+      }
     } catch (_) {
-      updates.note = manual ? 'Couldn’t reach GitHub. Check your connection.' : '';
+      updates.note = manual ? 'Couldn’t check for updates. Check your connection and try again.' : '';
     }
     updates.checking = false;
     if (store.page === 'about') renderAbout();
