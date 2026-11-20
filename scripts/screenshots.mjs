@@ -172,11 +172,21 @@ async function main() {
 
     await cdp.goto(page("index.html", "?noconflicts#live"), 1200);
     // Catch the virtual hand mid-swipe: four fingers down, trails drawn.
-    await cdp.waitForFingers(4, 650);
-    await cdp.shot("live.png");
+    // A headless browser doesn't always run the hand; the last picture stays then.
+    try {
+      await cdp.waitForFingers(4, 650);
+      await cdp.shot("live.png");
+    } catch (e) {
+      console.warn(`kept docs/screenshots/live.png (${e.message})`);
+    }
 
     await cdp.goto(page("index.html", "?noconflicts&still#settings"), 2600);
     await cdp.shot("settings.png");
+
+    await cdp.goto(page("index.html", "?noconflicts&still#notes"), 2600);
+    await cdp.blur();
+    await sleep(400);
+    await cdp.shot("notes.png");
 
     await cdp.goto(page("index.html", "?onboarding&noconflicts&still"), 2600);
     // Welcome → Your touchpad → OS gestures → Starter set.

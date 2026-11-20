@@ -103,8 +103,8 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
 | <img src="docs/screenshots/live.png" alt="Fingers drawn live on a to-scale touchpad"> | <img src="docs/screenshots/tutorial.png" alt="The first-run tutorial"> |
 | **Settings** | **Level overlay** |
 | <img src="docs/screenshots/settings.png" alt="Gesture tuning sliders"> | <img src="docs/screenshots/overlay.png" alt="The volume pill shown while scrubbing"> |
-| **Choose an app** | |
-| <img src="docs/screenshots/apps.png" alt="A searchable menu of installed apps to launch with a gesture"> | Pick the app a gesture opens from everything installed. The real menu shows each app's own icon. |
+| **Choose an app** | **Notes** |
+| <img src="docs/screenshots/apps.png" alt="A searchable menu of installed apps to launch with a gesture"> | <img src="docs/screenshots/notes.png" alt="The Notes page with pinned, tagged and coloured notes"> |
 
 ## Install
 
