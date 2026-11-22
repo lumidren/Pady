@@ -2594,7 +2594,7 @@
   // Fallbacks if the backend's settings predate a field (same values as pady-core's defaults).
   const SETTING_DEFAULTS = {
     tap_max_ms: 220, tap_slop_mm: 4, multi_tap_ms: 250, swipe_threshold_mm: 10, swipe_step_mm: 7, pinch_threshold_mm: 8,
-    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true, show_copy_notice: true, check_updates: true, note_selection: false,
+    hold_ms: 600, drag_speed: 9, drag_acceleration: 1, drag_release_ms: 350, show_overlay: false, pause_in_fullscreen: true, show_copy_notice: true, check_updates: true, note_selection: false, trim_paste: false,
     animations: true, anim_swipe_glow: false, anim_hints: false, anim_pinch: true, anim_notices: true, anim_screenshot: false, anim_touches: false,
     anim_previews: false, anim_mirror: false, anim_celebrate: false, anim_language: true,
     anim_glow: true, glow_strength: 1, anim_speed: 1, notice_time: 1,
@@ -2707,6 +2707,7 @@
             settingToggle('check_updates', 'Check for updates', 'Looks for a new version on GitHub twice a day and lets you install it with one click.'),
             setUI.pauseRow = settingToggle('pause_in_fullscreen', 'Pause in full-screen games', 'Pady ignores gestures while a game runs in exclusive full screen.'),
             settingToggle('note_selection', 'Selected text in quick notes', 'A quick note starts with the text you had selected. To read it, Pady presses Ctrl+C and puts your clipboard back afterwards. Off: the note opens empty and Pady never opens the clipboard.'),
+            setUI.trimRow = settingToggle('trim_paste', 'Trim spaces when pasting', 'A gesture that pastes first removes the spaces, tabs and line breaks around a single copied line, like the gap that text from a web page often starts with. Pady reads the copied text for this and keeps nothing. Off: a paste never opens the clipboard.'),
             h('div', { class: 'row' },
               h('div', { class: 'row-text' }, h('div', { class: 'row-title' }, 'Tutorial'), h('div', { class: 'row-sub' }, 'A quick, hands-on tour of the basics.')),
               h('button', { class: 'btn btn--sm', type: 'button', onClick: () => openTutorial({ firstRun: false }) }, ico('graduation', 14), 'Show tutorial')),
@@ -2881,6 +2882,7 @@
       if (!(key in setUI.pending)) input.checked = (cfg[key] ?? SETTING_DEFAULTS[key]) !== false;
     }
     setUI.pauseRow.hidden = platform() !== 'windows'; // exclusive full screen is a Windows thing
+    setUI.trimRow.hidden = platform() !== 'windows'; // the trimming is done on Windows' clipboard
     // The corner notices, the glow and the touches are drawn natively on Windows.
     [setUI.noticePanel, setUI.animPanel].forEach((p) => $$('[data-windows]', p).forEach((row) => { row.hidden = platform() !== 'windows'; }));
     setUI.animPanel.classList.toggle('is-off', cfg.animations === false);

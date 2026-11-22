@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Trim spaces when pasting** (Settings › General, off by default, Windows). Text copied from a web page often starts with a space, a tab or a line break picked up from the page's layout, and a form field shows it as a gap before the text. With this on, a gesture that pastes (Ctrl+V or Shift+Insert) first removes the blank space around a single copied line. Text of several lines is left alone, so code keeps its indentation, and so is anything copied together with a picture. Formatting copied with the line stays. To do this Pady reads the copied text; it keeps and sends nothing, and with the setting off a paste gesture never opens the clipboard.
+
 ## 1.0.1 (2026-11-21)
 
 ### Fixed

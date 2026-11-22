@@ -49,6 +49,10 @@ pub struct Settings {
     /// clipboard (it puts back what was there), and with this off it never
     /// opens the clipboard at all.
     pub note_selection: bool,
+    /// A paste gesture first removes the blanks around a single copied
+    /// line (Windows). Off by default: to do it Pady has to read the
+    /// copied text, which it otherwise never does for a paste.
+    pub trim_paste: bool,
     /// Master switch for the moving animations (swipe glow, touches,
     /// previews, the live touchpad, celebrations). Each also has its own
     /// switch. Corner notices and the glow don't depend on it.
@@ -115,6 +119,7 @@ impl Default for Settings {
             pause_in_fullscreen: true,
             show_copy_notice: true,
             note_selection: false,
+            trim_paste: false,
             animations: true,
             // The corner notices are on; the moving animations start off.
             anim_swipe_glow: false,
@@ -905,6 +910,7 @@ mod tests {
         let s = Settings::default();
         assert!(s.show_copy_notice && s.anim_language && s.anim_notices && s.anim_pinch, "the corner notices");
         assert!(!s.note_selection, "reading the selection (and so the clipboard) is opt-in");
+        assert!(!s.trim_paste, "reading the copied text before a paste is opt-in");
         assert!(!s.anim_hints, "hints are for learning");
         assert!(!s.anim_screenshot, "the screenshot tool shows itself");
         for (name, on) in [

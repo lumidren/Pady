@@ -84,6 +84,16 @@ pub struct KeyCombo {
     pub key: Option<Key>,
 }
 
+impl KeyCombo {
+    /// The paste shortcuts: Ctrl+V and Shift+Insert, with nothing else held.
+    pub fn is_paste(&self) -> bool {
+        let m = self.modifiers;
+        let ctrl_v = self.key == Some(Key::V) && m.ctrl && !m.shift;
+        let shift_insert = self.key == Some(Key::Insert) && m.shift && !m.ctrl;
+        (ctrl_v || shift_insert) && !m.alt && !m.super_key
+    }
+}
+
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum ParseComboError {
     #[error("empty shortcut")]
@@ -164,6 +174,17 @@ mod tests {
         let c: KeyCombo = "win".parse().unwrap();
         assert!(c.modifiers.super_key);
         assert_eq!(c.key, None);
+    }
+
+    #[test]
+    fn paste_shortcuts_are_recognised() {
+        for paste in ["ctrl+v", "Control + V", "shift+insert", "shift+ins"] {
+            assert!(paste.parse::<KeyCombo>().unwrap().is_paste(), "{paste}");
+        }
+        // Win+V is Windows' clipboard history, Ctrl+Shift+V an app's own "paste plain".
+        for other in ["win+v", "ctrl+shift+v", "ctrl+alt+v", "v", "insert", "ctrl+c", "ctrl"] {
+            assert!(!other.parse::<KeyCombo>().unwrap().is_paste(), "{other}");
+        }
     }
 
     #[test]

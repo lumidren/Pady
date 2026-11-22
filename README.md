@@ -330,6 +330,7 @@ All distances are millimetres on the touchpad surface, so they feel the same on 
 | `pause_in_fullscreen` | true | Ignore gestures while a game runs in exclusive full screen (Windows). |
 | `show_copy_notice` | true | The "Copied" notice (Windows). |
 | `note_selection` | false | Start a quick note with the selected text. Pady presses Ctrl+C to read it and puts the clipboard back. |
+| `trim_paste` | false | A gesture that pastes (Ctrl+V or Shift+Insert) first removes the spaces, tabs and line breaks around a single copied line (Windows). Text of several lines is left as it is. Pady reads the copied text to do this. |
 | `check_updates` | true | Look for a new version on GitHub twice a day. |
 
 The animation and notice switches (`animations`, `anim_*`, `glow_strength`, `anim_speed`, `notice_time`) are easiest to set in **Settings**.
@@ -405,7 +406,7 @@ No. Pady sleeps until the touchpad reports something. By default it also ignores
 <details>
 <summary><b>Does it read what I copy or type?</b></summary>
 
-No. Pady reads only the touchpad. For the "Copied" notice, Windows tells Pady *that* the clipboard changed, never what's in it. One feature can read selected text, and only if you switch it on: **Selected text in quick notes** (off by default) lets a quick note start with what you had selected. Pady then presses Ctrl+C, reads that text into your note, and puts your clipboard back.
+No. Pady reads only the touchpad. For the "Copied" notice, Windows tells Pady *that* the clipboard changed, never what's in it. One feature can read selected text, and only if you switch it on: **Selected text in quick notes** (off by default) lets a quick note start with what you had selected. Pady then presses Ctrl+C, reads that text into your note, and puts your clipboard back. **Trim spaces when pasting** (off by default, Windows) lets a paste gesture remove the blank space around a single copied line; for that Pady looks at the copied text, and keeps and sends nothing.
 </details>
 
 <details>

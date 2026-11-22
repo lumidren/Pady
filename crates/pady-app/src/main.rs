@@ -470,9 +470,11 @@ mod overlay_window {
     }
 }
 
-/// Glow, speed and notice time for the on-screen animations.
+/// Glow, speed and notice time for the on-screen animations, and whether a
+/// paste gesture trims the copied line first.
 fn apply_look(s: &Settings) {
     pady_overlay::set_look(pady_overlay::Look { glow: s.glow(), speed: s.anim_speed, stay: s.notice_time });
+    pady_actions::set_trim_paste(s.trim_paste);
 }
 
 /// The keyboard language notice shows when its own switch is on.
@@ -932,6 +934,8 @@ fn main() {
             let web_overlay_needed = native_overlay.is_none();
             let toasts = pady_overlay::Toasts::spawn().map(Arc::new);
             let effects = pady_overlay::Effects::spawn();
+            // Pady's own write of a trimmed line is not a copy of yours.
+            pady_actions::on_clipboard_write(|| pady_overlay::quiet_clipboard(Duration::from_millis(500)));
             apply_look(&config.get().settings);
             if let Some(toasts) = &toasts {
                 toasts.watch_clipboard(copy_notice_wanted(&config.get().settings));

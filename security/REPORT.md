@@ -244,6 +244,7 @@ One thing the fuzzing showed that is not a finding: the app parses a whole `save
 | Fork pull requests | Workflow triggers | No `pull_request_target`; fork PRs get no secrets. |
 | Linux root helper | The `pkexec` script | A fixed string with no user input; installs a fixed rule and fixed package names. |
 | Clipboard notice | What the "Copied" notice reads | Counts formats and the owner window only; never the contents. |
+| Trim spaces when pasting | What a paste gesture reads | Nothing unless the setting is switched on (off by default). On: the copied text is compared in memory and never logged, saved or sent; `security/tests/privacy.rs` holds that in place. |
 
 ## Not applicable
 

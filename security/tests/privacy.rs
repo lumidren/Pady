@@ -2,8 +2,9 @@
 //!
 //! README and SECURITY.md say: Pady reads only the touchpad, never the
 //! keyboard; it is told *that* something was copied, never what; it opens
-//! the clipboard only for a quick note's selected text, and only when that
-//! is switched on; and its only network connection is the update check.
+//! the clipboard for two things only, a quick note's selected text and
+//! trimming a line before a paste, each only when switched on; and its only
+//! network connection is the update check.
 //! These tests fail if code that would break a promise is ever added.
 
 use pady_security::{read, repo};
@@ -30,7 +31,8 @@ fn sources() -> Vec<(String, String)> {
 }
 
 /// The one file that may open the clipboard: it reads the selected text
-/// for a quick note (Ctrl+C, read, put everything back).
+/// for a quick note (Ctrl+C, read, put everything back) and trims a copied
+/// line before a paste.
 const CLIPBOARD_READER: &str = "clipboard.rs";
 
 #[test]
@@ -74,6 +76,47 @@ fn the_clipboard_is_opened_only_for_a_quick_note_and_only_when_asked() {
     // What was on the clipboard is put back, and kept out of Windows' history.
     let clipboard = read("crates/pady-actions/src/clipboard.rs");
     assert!(clipboard.contains("let restored = restore(&saved);") && clipboard.contains("keep_out_of_history()"));
+}
+
+/// A paste gesture reads the copied text in one place, behind a switch that
+/// is off unless the user turns it on, and never writes it anywhere.
+#[test]
+fn a_paste_reads_the_copied_text_only_when_asked() {
+    let mut callers = Vec::new();
+    let mut switches = Vec::new();
+    for (file, code) in sources() {
+        let file = file.replace('\\', "/");
+        if code.contains("trim_for_paste(") && !file.ends_with("pady-actions/src/clipboard.rs") {
+            callers.push(file.clone());
+        }
+        if code.contains("set_trim_paste(") && !file.ends_with("pady-actions/src/lib.rs") {
+            switches.push(file);
+        }
+    }
+    assert_eq!(callers.len(), 1, "{callers:#?}");
+    assert!(callers[0].ends_with("pady-actions/src/windows.rs"), "{callers:#?}");
+    // The read sits behind the switch, in the same condition as the paste shortcut...
+    let windows = read("crates/pady-actions/src/windows.rs");
+    let reading = windows.find("crate::clipboard::trim_for_paste()").expect("the copied line is trimmed");
+    let gate = "if combo.is_paste() && crate::trim_paste() {";
+    let gated = windows[..reading].rfind(gate).expect("the switch is checked");
+    assert!(!windows[gated + gate.len()..reading].contains('}'), "the read must be inside the check");
+    // ...only the app's setting turns the switch, and the setting starts off.
+    assert_eq!(switches.len(), 1, "{switches:#?}");
+    assert!(switches[0].ends_with("pady-app/src/main.rs"), "{switches:#?}");
+    assert!(read("crates/pady-app/src/main.rs").contains("pady_actions::set_trim_paste(s.trim_paste);"));
+    let actions = read("crates/pady-actions/src/lib.rs");
+    assert!(actions.contains("static TRIM_PASTE: AtomicBool = AtomicBool::new(false);"), "off until switched on");
+    assert!(read("crates/pady-core/src/config.rs").contains("trim_paste: false,"), "trim_paste must default to off");
+    // What was read is compared in memory: never logged, saved or sent.
+    let clipboard = read("crates/pady-actions/src/clipboard.rs");
+    let tests = clipboard.find("#[cfg(test)]").unwrap_or(clipboard.len());
+    for leak in ["log::", "println!", "eprintln!", "std::fs", "File::", "dbg!"] {
+        assert!(!clipboard[..tests].contains(leak), "clipboard.rs uses {leak}: the copied text must stay in memory");
+    }
+    // The trimmed line is kept out of Windows' clipboard history, like Pady's other writes.
+    let trim = &clipboard[clipboard.find("pub(crate) fn trim_for_paste").expect("the function")..tests];
+    assert!(trim.contains("restore(&with_text(saved, line))"));
 }
 
 #[test]

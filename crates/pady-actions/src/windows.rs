@@ -125,6 +125,12 @@ impl Executor for WindowsExecutor {
                 if is_win_space(&combo) {
                     switch_language()
                 } else {
+                    if combo.is_paste() && crate::trim_paste() {
+                        // A paste that couldn't be tidied is still a paste.
+                        if let Err(e) = crate::clipboard::trim_for_paste() {
+                            log::debug!("the copied text was left as it is: {e}");
+                        }
+                    }
                     send_combo(&combo)
                 }
             }

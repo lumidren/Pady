@@ -15,6 +15,8 @@ use pady_core::Config;
 pub use pady_core::{ActionError, Executor};
 use serde::Serialize;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 
 /// The executor for this OS. Individual actions report their own errors, so
 /// creating one never fails (e.g. a missing `/dev/uinput` only breaks keys).
@@ -98,6 +100,39 @@ pub fn selected_text(wait: std::time::Duration) -> Result<Option<String>, Action
     {
         let _ = wait;
         Ok(None)
+    }
+}
+
+/// "Trim spaces when pasting" is on.
+static TRIM_PASTE: AtomicBool = AtomicBool::new(false);
+/// Called right before Pady writes to the clipboard.
+static CLIPBOARD_WRITE: OnceLock<fn()> = OnceLock::new();
+
+/// Turn "Trim spaces when pasting" on or off (Windows; nothing happens
+/// elsewhere). On: a gesture that pastes (Ctrl+V or Shift+Insert) first
+/// looks at the copied text and, if it is one line with blanks around it,
+/// puts the line back without them. Off, the default: a paste gesture
+/// presses its keys and never opens the clipboard.
+pub fn set_trim_paste(on: bool) {
+    TRIM_PASTE.store(on, Ordering::Relaxed);
+}
+
+/// Have `hook` called right before Pady writes a trimmed line to the
+/// clipboard, so the app can keep its own "Copied" notice quiet. The
+/// first hook set stays.
+pub fn on_clipboard_write(hook: fn()) {
+    let _ = CLIPBOARD_WRITE.set(hook);
+}
+
+#[cfg(windows)]
+pub(crate) fn trim_paste() -> bool {
+    TRIM_PASTE.load(Ordering::Relaxed)
+}
+
+#[cfg(windows)]
+pub(crate) fn clipboard_write_coming() {
+    if let Some(hook) = CLIPBOARD_WRITE.get() {
+        hook();
     }
 }
 
