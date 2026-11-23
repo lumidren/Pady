@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.2 (2026-11-23)
 
 ### Added
 
@@ -10,7 +10,7 @@
 
 - **Updated the `url` library to 2.5.9.** Version 2.5.8 could crash on a deeply nested `blob:` address (RUSTSEC-2026-0592, published 20 November 2026). Pady only handles its own pages and the update address with it, so no way to trigger it in Pady is known; the update keeps the dependency check clean.
 
-## 1.0.1 (2026-11-21)
+## 1.0.1 (2026-11-21, not published; its changes ship with 1.0.2)
 
 ### Fixed
 
