@@ -75,7 +75,7 @@
 | ✅ | **Faster taps and a quieter language notice**: actions run before bookkeeping, and the tap wait learns your pace | **v1.0.0** |
 | ✅ | **Security and reliability fixes** from a full assessment: safer program lookup, safe config saves, a careful log, volume that stops when your fingers do | **v1.0.0** |
 | ✅ | **Choose an app**: pick the app a gesture opens from a searchable menu of everything installed, with icons, Store apps included | **v1.0.0** |
-| ✅ | **Quick note and Notes**: a gesture opens a note by the cursor in any app, and a Notes page keeps them, with search, tags, colours, to-dos, undo and export | **v1.0.0** |
+| ✅ | **Quick note and Notes**: a gesture opens a note by the cursor in any app, and a Notes page keeps them, with titles, search, tags, colours, to-dos, undo and export | **v1.0.0** |
 | ✅ | **Clipboard history** as an action: a gesture opens the system's own history (Win+V) | **v1.0.0** |
 | 🧪 | **Glyphs**: draw your own two-finger shapes (a circle, a V, a check mark) and bind them like any gesture | Coming soon. Built, but shown only in beta builds for now |
 | 🧪 | **Translator**: select text, do a gesture, and a pop-up shows the translation (free MyMemory or DeepL, 38 languages) | Coming soon. Being built on the `translator` branch |
@@ -108,7 +108,7 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
-Download from the [latest release](https://github.com/lumidren/Pady/releases/latest). Sizes are for v1.0.2.
+Download from the [latest release](https://github.com/lumidren/Pady/releases/latest). Sizes are for v1.0.3.
 
 | System | File | Size | What happens |
 |---|---|---|---|
@@ -673,7 +673,7 @@ Writes are atomic (a temporary file, then a rename), so a crash never leaves hal
 | A brightness step on Windows | about 4.5 ms, the first one 8 ms (it connects to WMI at startup) | `time_actions` |
 | Swipe glow and touches | about 0.2 ms of work per frame, paced by the display | The glow is drawn once; each frame only moves it and changes its opacity |
 | Timers for holds, double taps, drag release | 1 ms precision while one is pending (Windows' default tick is ~15.6 ms) | Requested only while needed, then given back |
-| Download | 5.7 MB Windows setup, 5.5 MB .deb | v1.0.2 release files |
+| Download | 5.7 MB Windows setup, 5.5 MB .deb | v1.0.3 release files |
 
 Load, spike and soak results (the frame rate ramped to 500 touchpads' worth, a burst of half a million frames, 30 minutes of steady load) are in [docs/benchmarks.md](docs/benchmarks.md).
 
@@ -775,7 +775,7 @@ Bug reports, gesture ideas and pull requests are all welcome. Open an [issue](ht
 Windows releases will be signed so you can check they come from this project. Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
 
 > [!NOTE]
-> Signing through SignPath is being set up, and the application is still pending. Until it's approved, Windows installers, v1.0.2 included, are **not** code-signed. Each release lists SHA-256 checksums for every file, and update files are always signed with Pady's updater key, which the app checks before installing anything.
+> Signing through SignPath is being set up, and the application is still pending. Until it's approved, Windows installers, v1.0.3 included, are **not** code-signed. Each release lists SHA-256 checksums for every file, and update files are always signed with Pady's updater key, which the app checks before installing anything.
 
 - **Committers and reviewers:** [lumidren](https://github.com/lumidren)
 - **Approvers:** [lumidren](https://github.com/lumidren)

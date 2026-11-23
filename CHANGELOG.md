@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.3 (2026-11-23)
 
 ### Added
 
@@ -10,7 +10,11 @@
 
 - **A tidier Notes page.** The list is grouped under headings (Pinned, Today, Yesterday, Last 7 days and so on), the open note shows its title, its dates and its buttons in one header, and Heading, Bold and Italic sit next to To-do and List. The list and the note now fill the window's height, so the colours and the word count stay in view, and with no notes the page shows one clear way to start.
 
-## 1.0.2 (2026-11-23)
+### Security
+
+- **Updated the `cookie` library to 0.18.3.** Version 0.18.2 could repeat a nonce for private cookies in a process that forks (RUSTSEC-2026-0594, published 23 November 2026). Pady uses no private cookies and never forks, so it was not affected; the update keeps the dependency check clean.
+
+## 1.0.2 (2026-11-23, not published; its changes ship with 1.0.3)
 
 ### Added
 
@@ -20,7 +24,7 @@
 
 - **Updated the `url` library to 2.5.9.** Version 2.5.8 could crash on a deeply nested `blob:` address (RUSTSEC-2026-0592, published 20 November 2026). Pady only handles its own pages and the update address with it, so no way to trigger it in Pady is known; the update keeps the dependency check clean.
 
-## 1.0.1 (2026-11-21, not published; its changes ship with 1.0.2)
+## 1.0.1 (2026-11-21, not published; its changes ship with 1.0.3)
 
 ### Fixed
 
