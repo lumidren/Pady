@@ -335,7 +335,7 @@ pub fn quick_act(
             quick.close(&app);
             focus(target);
             if !text.trim().is_empty() {
-                app.state::<Notes>().save(None, &text, source)?;
+                app.state::<Notes>().save(None, None, &text, source)?;
                 notes::changed(&app);
                 notice(&app, "Saved to Notes".into(), Icon::Note);
             }
@@ -344,7 +344,7 @@ pub fn quick_act(
             let text = text.unwrap_or_default();
             quick.close(&app);
             if !text.trim().is_empty() {
-                app.state::<Notes>().save(None, &text, source)?;
+                app.state::<Notes>().save(None, None, &text, source)?;
                 notes::changed(&app);
             }
             crate::show_page(&app, "notes");

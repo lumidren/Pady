@@ -9,12 +9,18 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 /// A note longer than this is cut (a paste of a whole book, by mistake).
 const MAX_CHARS: usize = 100_000;
+/// A title is one line, and a short one.
+const MAX_TITLE_CHARS: usize = 120;
 /// The colours a note can have (the page draws them).
 pub const COLORS: &[&str] = &["yellow", "orange", "red", "pink", "purple", "blue", "teal", "green", "gray"];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Note {
     pub id: u64,
+    /// What the note is called. Empty for a note that was never named (a
+    /// quick note): the page then shows its first line.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
     pub text: String,
     /// Milliseconds since 1970.
     pub created: u64,
@@ -60,29 +66,43 @@ impl Notes {
         notes
     }
 
-    /// Add a note (`id: None`) or change one. Saving a note empty deletes it.
-    pub fn save(&self, id: Option<u64>, text: &str, source: Option<String>) -> Result<Option<Note>, String> {
-        let text = cut(text);
+    /// Add a note (`id: None`) or change one. `title: None` leaves the title
+    /// as it is. A note saved with neither a title nor text is deleted.
+    pub fn save(
+        &self,
+        id: Option<u64>,
+        title: Option<&str>,
+        text: &str,
+        source: Option<String>,
+    ) -> Result<Option<Note>, String> {
+        let text = cut(text, MAX_CHARS);
+        let title = title.map(one_line);
         let now = wall_ms();
         let mut notes = lock(&self.notes);
         let saved = match id.and_then(|id| notes.iter().position(|n| n.id == id)) {
-            Some(i) if text.trim().is_empty() => {
-                notes.remove(i);
-                None
-            }
             Some(i) => {
-                let note = &mut notes[i];
-                if note.text != text {
-                    note.text = text;
-                    note.updated = now;
+                let title = title.unwrap_or_else(|| notes[i].title.clone());
+                if text.trim().is_empty() && title.is_empty() {
+                    notes.remove(i);
+                    None
+                } else {
+                    let note = &mut notes[i];
+                    if note.text != text || note.title != title {
+                        note.text = text;
+                        note.title = title;
+                        note.updated = now;
+                    }
+                    Some(note.clone())
                 }
-                Some(note.clone())
             }
-            None if text.trim().is_empty() => None,
             None => {
+                let title = title.unwrap_or_default();
+                if text.trim().is_empty() && title.is_empty() {
+                    return Ok(None);
+                }
                 // Unique even for two notes in the same millisecond.
                 let id = notes.iter().map(|n| n.id + 1).max().unwrap_or(0).max(now);
-                let note = Note { id, text, created: now, updated: now, source, pinned: false, color: None };
+                let note = Note { id, title, text, created: now, updated: now, source, pinned: false, color: None };
                 notes.push(note.clone());
                 Some(note)
             }
@@ -115,9 +135,14 @@ impl Notes {
     }
 
     /// Every note in one Markdown document, in the order of [`Notes::list`],
-    /// with a rule between them.
+    /// with a rule between them. A note's title is its heading.
     pub fn markdown(&self) -> String {
-        let notes: Vec<String> = self.list().iter().map(|n| n.text.trim().to_string()).collect();
+        let one = |n: &Note| match (n.title.is_empty(), n.text.trim()) {
+            (true, text) => text.to_string(),
+            (false, "") => format!("# {}", n.title),
+            (false, text) => format!("# {}\n\n{text}", n.title),
+        };
+        let notes: Vec<String> = self.list().iter().map(one).collect();
         notes.join("\n\n---\n\n") + "\n"
     }
 
@@ -140,11 +165,17 @@ pub fn wall_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
-fn cut(text: &str) -> String {
-    match text.char_indices().nth(MAX_CHARS) {
+fn cut(text: &str, max: usize) -> String {
+    match text.char_indices().nth(max) {
         Some((end, _)) => text[..end].to_string(),
         None => text.to_string(),
     }
+}
+
+/// A title as it is kept: one line, no blanks around it, not too long.
+fn one_line(title: &str) -> String {
+    let line = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    cut(&line, MAX_TITLE_CHARS)
 }
 
 /// Tell the main window the notes changed (a quick note was saved).
@@ -161,8 +192,13 @@ pub fn notes_list(notes: State<Notes>) -> Vec<Note> {
 }
 
 #[tauri::command]
-pub fn note_save(notes: State<Notes>, id: Option<u64>, text: String) -> Result<Option<Note>, String> {
-    notes.save(id, &text, None)
+pub fn note_save(
+    notes: State<Notes>,
+    id: Option<u64>,
+    title: Option<String>,
+    text: String,
+) -> Result<Option<Note>, String> {
+    notes.save(id, title.as_deref(), &text, None)
 }
 
 #[tauri::command]
@@ -212,14 +248,14 @@ mod tests {
     #[test]
     fn notes_save_change_pin_and_delete() {
         let notes = store("cycle");
-        let a = notes.save(None, "milk", Some("chrome.exe".into())).unwrap().unwrap();
-        let b = notes.save(None, "eggs", None).unwrap().unwrap();
+        let a = notes.save(None, None, "milk", Some("chrome.exe".into())).unwrap().unwrap();
+        let b = notes.save(None, None, "eggs", None).unwrap().unwrap();
         assert_ne!(a.id, b.id);
         notes.pin(a.id, true).unwrap();
         notes.color(a.id, Some("blue".into())).unwrap();
         notes.color(b.id, Some("plaid".into())).unwrap();
         assert_eq!(notes.list().iter().map(|n| n.text.as_str()).collect::<Vec<_>>(), ["milk", "eggs"]);
-        notes.save(Some(b.id), "eggs and bread", None).unwrap();
+        notes.save(Some(b.id), None, "eggs and bread", None).unwrap();
         // It survives a restart.
         let again = Notes::load(&notes.path.with_file_name("config.toml"));
         let list = again.list();
@@ -230,10 +266,45 @@ mod tests {
         assert_eq!(list[1].text, "eggs and bread");
         assert_eq!(again.markdown(), "milk\n\n---\n\neggs and bread\n");
         // Emptied, a note goes away; an empty new note is never made.
-        assert_eq!(again.save(Some(a.id), "  ", None).unwrap(), None);
-        assert_eq!(again.save(None, "", None).unwrap(), None);
+        assert_eq!(again.save(Some(a.id), None, "  ", None).unwrap(), None);
+        assert_eq!(again.save(None, None, "", None).unwrap(), None);
         again.delete(b.id).unwrap();
         assert!(again.list().is_empty());
+    }
+
+    #[test]
+    fn a_note_can_have_a_title() {
+        let notes = store("titles");
+        // A title is kept as one tidy line.
+        let a = notes.save(None, Some("  Shopping\n list  "), "milk", None).unwrap().unwrap();
+        assert_eq!(a.title, "Shopping list");
+        // Saving the text alone (a quick note does) leaves the title.
+        let a2 = notes.save(Some(a.id), None, "milk, eggs", None).unwrap().unwrap();
+        assert_eq!((a2.title.as_str(), a2.text.as_str()), ("Shopping list", "milk, eggs"));
+        // A title alone is a note; so is text alone; neither is no note.
+        let b = notes.save(None, Some("Call the bank"), "", None).unwrap().unwrap();
+        assert_eq!(notes.save(None, Some("  "), " ", None).unwrap(), None);
+        assert_eq!(notes.save(Some(b.id), Some(""), "", None).unwrap(), None);
+        // Renaming counts as an edit, and the title is the heading in an export.
+        let c = notes.save(Some(a.id), Some("Groceries"), "milk, eggs", None).unwrap().unwrap();
+        assert!(c.updated >= a.updated);
+        let only = notes.save(None, Some("Ideas"), "", None).unwrap().unwrap();
+        notes.pin(only.id, true).unwrap();
+        assert_eq!(notes.markdown(), "# Ideas\n\n---\n\n# Groceries\n\nmilk, eggs\n");
+        // A very long title is cut.
+        let long = notes.save(None, Some(&"x".repeat(500)), "", None).unwrap().unwrap();
+        assert_eq!(long.title.chars().count(), MAX_TITLE_CHARS);
+        // It survives a restart.
+        let again = Notes::load(&notes.path.with_file_name("config.toml"));
+        assert_eq!(again.list().len(), 3);
+        assert_eq!(again.list()[0].title, "Ideas");
+        // A file written before titles existed still loads, and a note
+        // without a title is written without one.
+        std::fs::write(&notes.path, r#"{"notes":[{"id":1,"text":"old","created":1,"updated":1}]}"#).unwrap();
+        let old = Notes::load(&notes.path.with_file_name("config.toml"));
+        assert_eq!(old.list()[0].title, "");
+        old.pin(1, true).unwrap();
+        assert!(!std::fs::read_to_string(&notes.path).unwrap().contains("title"));
     }
 
     #[test]

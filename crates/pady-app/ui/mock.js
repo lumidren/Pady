@@ -437,10 +437,10 @@
   const mockNotes = (() => {
     const now = Date.now();
     return [
-      { id: 1, text: 'Ideas for the weekend\n- [x] book the cabin\n- [ ] hike the ridge trail\n- [ ] try the new ramen place\n\n#plans', created: now - 3 * 864e5, updated: now - 2 * 3600e3, pinned: true, color: 'yellow' },
-      { id: 2, text: 'Meeting moved to 3pm, room 4B\nBring the **Q3 numbers** and the `budget.xlsx` draft. #work', created: now - 5 * 3600e3, updated: now - 5 * 3600e3, source: 'outlook.exe', pinned: false, color: 'blue' },
+      { id: 1, title: 'Ideas for the weekend', text: '- [x] book the cabin\n- [ ] hike the ridge trail\n- [ ] try the new ramen place\n\n#plans', created: now - 3 * 864e5, updated: now - 2 * 3600e3, pinned: true, color: 'yellow' },
+      { id: 2, title: 'Meeting moved to 3pm', text: 'Room 4B. Bring the **Q3 numbers** and the `budget.xlsx` draft. #work', created: now - 5 * 3600e3, updated: now - 5 * 3600e3, source: 'outlook.exe', pinned: false, color: 'blue' },
       { id: 3, text: 'https://lumidren.github.io/Pady/\nShare this with the team #work', created: now - 864e5, updated: now - 864e5, source: 'chrome.exe', pinned: false },
-      { id: 4, text: '## Reading list\n1. Deep Work\n2. The Design of Everyday Things\n3. Make Time\n#books', created: now - 6 * 864e5, updated: now - 4 * 864e5, pinned: false, color: 'green' },
+      { id: 4, title: 'Reading list', text: '1. Deep Work\n2. The Design of Everyday Things\n3. Make Time\n#books', created: now - 6 * 864e5, updated: now - 4 * 864e5, pinned: false, color: 'green' },
     ];
   })();
 
@@ -477,13 +477,18 @@
     // The installed apps, as the real backend lists them (no icons here: the
     // menu shows each app's initial instead). ?slow makes it take a while.
     notes_list: () => mockNotes.slice().sort((a, b) => b.pinned - a.pinned || b.updated - a.updated),
-    note_save: ({ id, text }) => {
+    note_save: ({ id, title, text }) => {
       const now = Date.now();
       const note = mockNotes.find((n) => n.id === id);
-      if (note && !text.trim()) { mockNotes.splice(mockNotes.indexOf(note), 1); return null; }
-      if (note) { note.text = text; note.updated = now; return note; }
-      if (!text.trim()) return null;
-      const fresh = { id: now, text, created: now, updated: now, pinned: false };
+      const name = title == null ? (note && note.title) || '' : title.trim().replace(/\s+/g, ' ').slice(0, 120);
+      const empty = !text.trim() && !name;
+      if (note && empty) { mockNotes.splice(mockNotes.indexOf(note), 1); return null; }
+      if (note) {
+        if (note.text !== text || (note.title || '') !== name) { note.text = text; note.title = name; note.updated = now; }
+        return { ...note };
+      }
+      if (empty) return null;
+      const fresh = { id: now, title: name, text, created: now, updated: now, pinned: false };
       mockNotes.push(fresh);
       return fresh;
     },

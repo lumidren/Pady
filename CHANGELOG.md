@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Notes have titles.** The open note has a title field above its text, and the list, the search, sorting by title, copying and the export all use it. Enter in the title moves on to the text. A note without a title, such as one taken with the Quick note gesture, is still shown by its first line.
+
+### Changed
+
+- **A tidier Notes page.** The list is grouped under headings (Pinned, Today, Yesterday, Last 7 days and so on), the open note shows its title, its dates and its buttons in one header, and Heading, Bold and Italic sit next to To-do and List. The list and the note now fill the window's height, so the colours and the word count stay in view, and with no notes the page shows one clear way to start.
+
 ## 1.0.2 (2026-11-23)
 
 ### Added
