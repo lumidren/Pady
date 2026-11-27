@@ -1,42 +1,10 @@
 # Changelog
 
-## 1.0.3 (2026-11-23)
-
-### Added
-
-- **Notes have titles.** The open note has a title field above its text, and the list, the search, sorting by title, copying and the export all use it. Enter in the title moves on to the text. A note without a title, such as one taken with the Quick note gesture, is still shown by its first line.
-
-### Changed
-
-- **A tidier Notes page.** The list is grouped under headings (Pinned, Today, Yesterday, Last 7 days and so on), the open note shows its title, its dates and its buttons in one header, and Heading, Bold and Italic sit next to To-do and List. The list and the note now fill the window's height, so the colours and the word count stay in view, and with no notes the page shows one clear way to start.
-
-### Security
-
-- **Updated the `cookie` library to 0.18.3.** Version 0.18.2 could repeat a nonce for private cookies in a process that forks (RUSTSEC-2026-0594, published 23 November 2026). Pady uses no private cookies and never forks, so it was not affected; the update keeps the dependency check clean.
-
-## 1.0.2 (2026-11-23, not published; its changes ship with 1.0.3)
-
-### Added
-
-- **Trim spaces when pasting** (Settings › General, off by default, Windows). Text copied from a web page often starts with a space, a tab or a line break picked up from the page's layout, and a form field shows it as a gap before the text. With this on, a gesture that pastes (Ctrl+V or Shift+Insert) first removes the blank space around a single copied line. Text of several lines is left alone, so code keeps its indentation, and so is anything copied together with a picture. Formatting copied with the line stays. To do this Pady reads the copied text; it keeps and sends nothing, and with the setting off a paste gesture never opens the clipboard.
-
-### Security
-
-- **Updated the `url` library to 2.5.9.** Version 2.5.8 could crash on a deeply nested `blob:` address (RUSTSEC-2026-0592, published 20 November 2026). Pady only handles its own pages and the update address with it, so no way to trigger it in Pady is known; the update keeps the dependency check clean.
-
-## 1.0.1 (2026-11-21, not published; its changes ship with 1.0.3)
-
-### Fixed
-
-- **"No update available."** Checking for updates when there is nothing newer now says so: in About, in a short notice, and in the tray menu. When GitHub has no release to compare with, that counts as no update too; before, it showed an error. Without a connection, Pady says in plain words that it couldn't reach GitHub.
-
-### Changed
-
-- **The log says why a "Copied" notice stayed away.** When the clipboard changes and Pady doesn't announce it, the log now names the reason (for example, that a program other than the one in front wrote it), at most twelve times per run. It never records what was copied.
-
-## 1.0.0 (2026-11-20)
+## 1.0.0 (2026-11-27)
 
 The first public release.
+
+A build was first published under this number on 20 November 2026; this one replaces it and adds note titles, the trim setting and the fixes listed below. If you installed that earlier build, download Pady again: a copy cannot update itself to a release with the same number.
 
 Pady gives a precision touchpad 33 multi-finger gestures (taps, double and triple taps, holds, swipes, pinches and a three-finger drag) and lets each one run an action: a shortcut, volume, brightness, media keys, a link, an app, a command, the app switcher, a quick note. Gestures can differ per app, five starter presets get you going, and a first-run tutorial shows the basics. It runs as one small process in the tray, updates itself, keeps a backup of your settings before every change, and sends nothing anywhere.
 
@@ -47,11 +15,18 @@ Pady gives a precision touchpad 33 multi-finger gestures (taps, double and tripl
 - **Selected text in quick notes** (Settings › General, off by default). With it on, a quick note starts with the text you had selected. This is the one thing that makes Pady open the clipboard: it presses Ctrl+C, reads the text and puts back what was there, while the note is already on screen. In a terminal the note still starts empty, because Ctrl+C means something else there.
 - **Notes page.** Everything you jot down, in the app: search (matches are highlighted), `#tags`, colours, pins, to-do lists you can tick, a reading view, and sorting. Notes save as you type. Deleting has an **Undo**, Ctrl+N starts a note, Ctrl+F searches, and **Export all notes** writes them into one Markdown file. Notes are plain text in `notes.json` next to the config, on your computer only.
 - **Clipboard history.** A new action that opens the system's own clipboard history (Win+V on Windows, Super+V on Linux desktops that have one), so a gesture can paste something you copied earlier.
+- **Notes have titles.** The open note has a title field above its text, and the list, the search, sorting by title, copying and the export all use it. Enter in the title moves on to the text. A note without a title, such as one taken with the Quick note gesture, is still shown by its first line.
+- **A Notes page that fits the window.** The list is grouped under headings (Pinned, Today, Yesterday, Last 7 days and so on), the open note shows its title, its dates and its buttons in one header, and Heading, Bold and Italic sit next to To-do and List. The list and the note fill the window's height, so the colours and the word count stay in view, and with no notes the page shows one clear way to start.
+- **Trim spaces when pasting** (Settings › General, off by default, Windows). Text copied from a web page often starts with a space, a tab or a line break picked up from the page's layout, and a form field shows it as a gap before the text. With this on, a gesture that pastes (Ctrl+V or Shift+Insert) first removes the blank space around a single copied line. Text of several lines is left alone, so code keeps its indentation, and so is anything copied together with a picture. Formatting copied with the line stays. To do this Pady reads the copied text; it keeps and sends nothing, and with the setting off a paste gesture never opens the clipboard.
+- **"No update available."** Checking for updates when there is nothing newer now says so: in About, in a short notice, and in the tray menu. When GitHub has no release to compare with, that counts as no update too. Without a connection, Pady says in plain words that it couldn't reach GitHub.
+- **The log says why a "Copied" notice stayed away.** When the clipboard changes and Pady doesn't announce it, the log names the reason (for example, that a program other than the one in front wrote it), at most twelve times per run. It never records what was copied.
 
 ### Security
 
 - **Assessed before launch.** A full security and performance assessment in November 2026: a threat model, attack tests, fuzzing, load and 30-minute soak tests. Fourteen findings, twelve fixed and held in place by tests that run on every change, two open and documented. The write-up is in [security/REPORT.md](security/REPORT.md).
 - **Control Flow Guard on Windows.** `pady.exe` and `pady-cli.exe` are now built with it, next to the address randomization and data execution prevention they already had. It stops a corrupted function pointer from being called, should the code that talks to Windows directly ever have a memory bug. No measurable cost.
+- **Updated the `url` library to 2.5.9.** Version 2.5.8 could crash on a deeply nested `blob:` address (RUSTSEC-2026-0592, published 20 November 2026). Pady only handles its own pages and the update address with it, so no way to trigger it in Pady is known; the update keeps the dependency check clean.
+- **Updated the `cookie` library to 0.18.3.** Version 0.18.2 could repeat a nonce for private cookies in a process that forks (RUSTSEC-2026-0594, published 23 November 2026). Pady uses no private cookies and never forks, so it was not affected; the update keeps the dependency check clean.
 
 ## Before 1.0.0: preview builds
 
