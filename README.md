@@ -4,11 +4,8 @@
 
 <p align="center">
   <a href="https://github.com/lumidren/Pady/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/lumidren/Pady?sort=semver&color=7c3aed"></a>
-  <a href="https://github.com/lumidren/Pady/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/lumidren/Pady/total?color=8b5cf6"></a>
   <a href="https://github.com/lumidren/Pady/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/lumidren/Pady/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Windows and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-6366f1">
-  <img alt="Rust 1.82+" src="https://img.shields.io/badge/rust-1.82%2B-a855f7">
-  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24c8db">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-22c55e"></a>
 </p>
 
@@ -25,7 +22,7 @@
   <a href="https://www.youtube.com/watch?v=e4grMSxty78">Video</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#faq">FAQ</a> ·
-  <a href="#how-it-works">How it works</a>
+  <a href="docs/how-it-works.md">How it works</a>
 </p>
 
 <p align="center">
@@ -35,16 +32,12 @@
 
 ## Contents
 
-- [Why Pady](#why-pady)
-- [What's in each version](#whats-in-each-version)
-- [Videos](#videos) · [Screenshots](#screenshots)
+- [Why Pady](#why-pady) · [Videos](#videos) · [Screenshots](#screenshots)
 - [Install](#install) · [Quick start](#quick-start)
 - [Gestures](#gestures) · [Actions](#actions) · [Starter presets](#starter-presets) · [Per-app profiles](#per-app-profiles)
-- [Notices and animations](#notices-and-animations)
-- [Configuration](#configuration) · [Backups](#backups) · [Command line](#command-line)
+- [Notices and animations](#notices-and-animations) · [Configuration](#configuration) · [Command line](#command-line)
 - [FAQ](#faq) · [Troubleshooting](#troubleshooting) · [Privacy and security](#privacy-and-security)
-- [How it works](#how-it-works): [architecture](#architecture), [threads and data flow](#threads-and-data-flow), [touchpad input](#touchpad-input), [gesture recognition](#gesture-recognition), [from gesture to action](#from-gesture-to-action), [config and backups](#config-hot-reload-and-backups), [performance](#performance), [tests](#tests), [repository layout](#repository-layout), [release pipeline](#release-pipeline)
-- [Build from source](#build-from-source) · [Contributing](#contributing)
+- [How it works](docs/how-it-works.md) · [Build from source](#build-from-source) · [Contributing](#contributing)
 - [Code signing policy](#code-signing-policy) · [License](#license) · [Made by](#made-by)
 
 ## Why Pady
@@ -59,28 +52,12 @@
 - **Keeps itself up to date.** A new version is one click away, from the tray or the app, and only installs if it carries Pady's update signature.
 - **Light and private.** One small Rust process in the tray, no CPU while idle, no telemetry, no accounts, no ads.
 
-## What's in each version
+### Coming soon
 
-| | Feature | Where it is |
-|---|---|---|
-| ✅ | 33 gestures, a dozen kinds of action, per-app profiles, five starter presets, three-finger drag | **v1.0.0** (released 2026-11-20) |
-| ✅ | Copy and paste with a three-finger pinch, corner notices, swipe glow, show touches | **v1.0.0** |
-| ✅ | Auto-update, first-run tutorial, `pady-cli`, Linux packages that set up touchpad access | **v1.0.0** |
-| ✅ | **Switch keyboard language** as an action, without Windows' pop-up, with the language named in a corner notice | **v1.0.0** |
-| ✅ | **Calmer defaults**: corner notices on, moving animations off, and a separate Notices section in Settings | **v1.0.0** |
-| ✅ | **Config backups**: a copy before every change, and **Restore** in Settings | **v1.0.0** |
-| ✅ | **Faster gestures**: a 0.1 ms full-screen check, quicker brightness, 250 ms taps, lighter recognition | **v1.0.0** |
-| ✅ | **Beta builds** for trying new things early (they never update themselves) | **v1.0.0** |
-| ✅ | **App switcher**: swipe to show every open app, slide sideways to pick one, lift to switch | **v1.0.0** |
-| ✅ | **Faster taps and a quieter language notice**: actions run before bookkeeping, and the tap wait learns your pace | **v1.0.0** |
-| ✅ | **Security and reliability fixes** from a full assessment: safer program lookup, safe config saves, a careful log, volume that stops when your fingers do | **v1.0.0** |
-| ✅ | **Choose an app**: pick the app a gesture opens from a searchable menu of everything installed, with icons, Store apps included | **v1.0.0** |
-| ✅ | **Quick note and Notes**: a gesture opens a note by the cursor in any app, and a Notes page keeps them, with titles, search, tags, colours, to-dos, undo and export | **v1.0.0** |
-| ✅ | **Clipboard history** as an action: a gesture opens the system's own history (Win+V) | **v1.0.0** |
-| 🧪 | **Glyphs**: draw your own two-finger shapes (a circle, a V, a check mark) and bind them like any gesture | Coming soon. Built, but shown only in beta builds for now |
-| 🧪 | **Translator**: select text, do a gesture, and a pop-up shows the translation (free MyMemory or DeepL, 38 languages) | Coming soon. In private testing |
+- **Glyphs:** draw your own two-finger shapes (a circle, a V, a check mark) and bind them like any gesture. Built, and shown only in beta builds for now.
+- **Translator:** select text, do a gesture, and a pop-up shows the translation (free MyMemory or DeepL, 38 languages). In private testing.
 
-The full history is in [CHANGELOG.md](CHANGELOG.md).
+What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Videos
 
@@ -252,118 +229,18 @@ These are the calm defaults. Glow, glow strength, animation speed and how long n
 
 ## Configuration
 
-Everything you set in the window is saved to a readable TOML file. Edit it by hand if you like: Pady notices the change within about two seconds and applies it, with no restart. If the file can't be read, Pady keeps it as `config.broken.toml` and starts with the defaults.
+Everything you set in the window is saved to a readable TOML file. Edit it by hand if you like: Pady notices the change within about two seconds and applies it, with no restart.
 
 | System | Config file | Logs |
 |---|---|---|
 | Windows | `%APPDATA%\Pady\config.toml` | `%LOCALAPPDATA%\com.lumidren.pady\logs` |
 | Linux | `~/.config/pady/config.toml` | `~/.local/share/com.lumidren.pady/logs` |
 
-`pady-cli config path` prints the location, and **Settings** has a button that opens the folder. Logs are rotated at 1 MB and hold gestures and errors, never what you type.
-
-<details>
-<summary><b>An example config</b></summary>
-
-```toml
-[settings]
-enabled = true
-tap_max_ms = 220
-swipe_threshold_mm = 10.0
-swipe_step_mm = 7.0
-hold_ms = 600
-pause_in_fullscreen = true
-check_updates = true
-
-# All apps
-[[binding]]
-trigger = "drag:3"
-action = { type = "drag" }
-
-[[binding]]
-trigger = "tap:3"
-action = { type = "media", key = "play_pause" }
-
-[[binding]]
-trigger = "swipe:4:up"
-action = { type = "volume", step = 4 }
-repeat = true                  # keep stepping while the fingers keep sliding
-
-[[binding]]
-trigger = "pinch:3:in"
-action = { type = "keys", combo = "ctrl+c" }
-
-[[binding]]
-trigger = "hold:5"
-action = { type = "open_url", url = "https://github.com/lumidren/Pady", browser = "firefox" }
-
-# Only while VS Code is in front
-[[profile]]
-name = "Code"
-apps = ["code"]
-
-[[profile.binding]]
-trigger = "swipe:4:left"
-action = { type = "keys", combo = "ctrl+pageup" }
-```
-
-Settings you leave out take their defaults, and a later binding for the same trigger replaces an earlier one. The top of the file Pady writes lists every trigger and action.
-</details>
-
-### Settings
-
-All distances are millimetres on the touchpad surface, so they feel the same on every laptop. Hand-edited values are kept within a workable range.
-
-| Setting | Default | Meaning |
-|---|---|---|
-| `enabled` | true | Master switch. When off, Pady watches but never acts. |
-| `tap_max_ms` | 220 | A tap must lift within this many milliseconds… |
-| `tap_slop_mm` | 4 | …and no finger may wander further than this. |
-| `multi_tap_ms` | 250 | Longest gap between the taps of a double or triple tap. |
-| `hold_ms` | 600 | Resting this long without moving counts as a hold. |
-| `swipe_threshold_mm` | 10 | Travel before a swipe or drag starts. |
-| `swipe_step_mm` | 7 | Spacing between repeats while sliding. Volume and brightness swipes glide 3.5 times as often, in 2% steps. Pinches step every 14 mm of hand span. |
-| `pinch_threshold_mm` | 8 | Change in hand span before a pinch starts. |
-| `drag_speed` | 9 | Cursor pixels per millimetre while dragging. |
-| `drag_acceleration` | 1 | How much faster quick flicks move the cursor (0 = linear). |
-| `drag_release_ms` | 350 | Lift and re-place within this to keep dragging (0 = let go at once). |
-| `show_overlay` | false on Windows, true on Linux | The level pill for volume and brightness. |
-| `pause_in_fullscreen` | true | Ignore gestures while a game runs in exclusive full screen (Windows). |
-| `show_copy_notice` | true | The "Copied" notice (Windows). |
-| `note_selection` | false | Start a quick note with the selected text. Pady presses Ctrl+C to read it and puts the clipboard back. |
-| `trim_paste` | false | A gesture that pastes (Ctrl+V or Shift+Insert) first removes the spaces, tabs and line breaks around a single copied line (Windows). Text of several lines is left as it is. Pady reads the copied text to do this. |
-| `check_updates` | true | Look for a new version on GitHub twice a day. |
-
-The animation and notice switches (`animations`, `anim_*`, `glow_strength`, `anim_speed`, `notice_time`) are easiest to set in **Settings**.
-
-### Backups
-
-Before Pady changes your config, it keeps a copy in a `backups` folder next to it (`config-<time>.toml`), so a slip in the app, a bad import or a broken update can always be undone. **Settings › Backups** lists the copies with how many gestures, profiles and glyphs each holds, and **Restore** brings one back. The current config is copied first, so a restore can itself be undone.
-
-- One copy each time Pady starts, and before every save.
-- Identical copies are skipped. While you're busy changing things, only the state from before the burst is kept (at most one copy per two minutes), so a dozen toggles don't push real history out.
-- Resetting, applying a preset and restoring always take a copy.
-- The newest 50 copies are kept.
+Before every change Pady keeps a copy of the file, and **Settings › Backups** brings one back. An example config, every setting and how backups work are in [docs/configuration.md](docs/configuration.md).
 
 ## Command line
 
-`pady-cli` is a small terminal companion. It's a separate download on the release page, or build it with `cargo build --release -p pady-cli`.
-
-```text
-pady-cli doctor                Check config, touchpad, clashing OS gestures and permissions
-pady-cli devices               List detected touchpads
-pady-cli monitor               Show fingers and recognised gestures live (no actions run)
-pady-cli run                   Run Pady headless with your config (actions run)
-pady-cli app                   Print the app in front as you switch (names for profiles)
-pady-cli action <toml>         Run one action now: pady-cli action '{ type = "volume", step = 5 }'
-pady-cli presets               List starter presets
-pady-cli config [path]         Print where the config file is
-pady-cli config show           Print the config
-pady-cli config reset          Go back to the defaults
-pady-cli config preset <id>    Apply a preset
-pady-cli fix-permissions       Linux: install the udev rule and helper tools Pady needs
-```
-
-Set `RUST_LOG=debug` for more detail.
+`pady-cli` is a small terminal companion, a separate download on the release page. `pady-cli doctor` checks your config, touchpad, clashing OS gestures and permissions; `pady-cli monitor` shows your fingers and the gestures Pady sees, without running actions. Every command is listed in [docs/configuration.md](docs/configuration.md#command-line).
 
 ## FAQ
 
@@ -450,304 +327,11 @@ Found a vulnerability? Please report it privately, as described in [SECURITY.md]
 
 ## How it works
 
-### Architecture
-
-Pady is a Cargo workspace of six crates. The gesture logic in `pady-core` has no OS code at all, so it's tested the same way on every platform. Everything OS-specific sits around it.
-
-```mermaid
-flowchart TD
-    app["pady-app<br/>Tauri 2 desktop app, tray, settings UI"]
-    cli["pady-cli<br/>terminal tool"]
-    input["pady-input<br/>touchpad backends"]
-    actions["pady-actions<br/>runs actions on each OS"]
-    overlay["pady-overlay<br/>native Windows pill, notices, glow"]
-    core["pady-core<br/>recognizer, engine, config, presets<br/>no OS code"]
-
-    app --> input
-    app --> actions
-    app --> overlay
-    app --> core
-    cli --> input
-    cli --> actions
-    cli --> core
-    input --> core
-    actions --> core
-    overlay --> core
-```
-
-| Crate | Purpose | Main modules |
-|---|---|---|
-| `pady-core` | Turns touch frames into gestures and gestures into jobs. Config, presets, backups. Platform-independent and fully unit-tested. | `recognizer`, `engine`, `config`, `trigger`, `gesture`, `action`, `presets`, `backups`, `glyphs`, `keys` |
-| `pady-input` | Touchpad backends: Windows Raw Input and Linux evdev. Thread priority and timer precision. | `windows`, `hid`, `linux`, `mt`, `sched` |
-| `pady-actions` | Keys, audio, brightness, apps, links, lock, autostart, permissions and OS-gesture conflict checks. | `windows`, `linux` |
-| `pady-overlay` | Native Windows layered windows drawn with GDI+: the level pill, corner notices, swipe glow and touches. | `windows`, `toast`, `fx`, `glow`, `anim`, `notice`, `layout`, `shadow` |
-| `pady-app` | The Tauri app: tray, commands, watchdog, updater. The UI is plain HTML/CSS/JS with no build step. | `main`, `update`, `feedback`, `responsive`, `ui/` |
-| `pady-cli` | `doctor`, `monitor`, `run` and the rest. | `main` |
-
-### Threads and data flow
-
-Data flows one way. Each stage runs on its own thread and hands over through channels, so a slow action never delays touch handling.
-
-```mermaid
-flowchart LR
-    pad[("Touchpad")]
-    subgraph inputT["Input thread: pady-input"]
-        backend["Raw Input HID or evdev decoder"]
-    end
-    subgraph engineT["Engine thread: pady-core"]
-        rec["Recognizer"]
-        strokes["Two-finger stroke tracker<br/>for Glyphs"]
-    end
-    subgraph actionT["Action thread: pady-core + pady-actions"]
-        resolve["Resolve the binding<br/>for the app in front"]
-        exec["Executor"]
-    end
-    os["OS: keys, volume, brightness,<br/>apps, links, mouse"]
-    obs["Observer in pady-app"]
-    ui["Settings window<br/>live view, gesture feed"]
-    ov["Overlay threads: pady-overlay<br/>level pill, notices, glow, touches"]
-
-    pad --> backend
-    backend -- "TouchFrame in mm" --> rec
-    backend -- "TouchFrame" --> strokes
-    rec -- "Gesture as a Job" --> resolve
-    strokes -- "Glyph as a Job" --> resolve
-    resolve --> exec --> os
-    rec -. "frames, swipe progress" .-> obs
-    exec -. "gesture, level, errors" .-> obs
-    obs --> ui
-    obs --> ov
-```
-
-- The **engine thread** sleeps until a frame arrives or the next timer (hold, double tap, drag release) is due. With nothing pending it never wakes up.
-- The **action thread** owns the OS handles (COM on Windows) and runs jobs in order.
-- The **observer** passes events to the settings window (only while it's open, at most about 60 frames a second) and to the native overlay threads, which sleep while nothing is on screen.
-- A **watchdog** in the app checks the touchpad listener every two seconds. It starts a fresh one after sleep, if the old one stopped, or if no touch arrived for a long time while the computer was in use. The same loop picks up hand edits to the config file.
-
-### Touchpad input
-
-Both backends only listen. They never grab the device, so the OS keeps pointing, clicking and scrolling. Every finger is reported in millimetres from the pad's top-left corner.
-
-```mermaid
-flowchart TB
-    subgraph win["Windows"]
-        direction TB
-        w1["Precision Touchpad"] --> w2["Raw Input with RIDEV_INPUTSINK<br/>usage page 0x0D Digitizer, usage 0x05 Touch Pad"]
-        w2 --> w3["Hidden message-only window<br/>WM_INPUT, size-checked records"]
-        w3 --> w4["HID preparsed data<br/>X, Y, contact id, tip switch per finger"]
-        w4 --> w5["FrameAssembler<br/>joins parallel and hybrid reports"]
-    end
-    subgraph lin["Linux"]
-        direction TB
-        l1["Touchpad at /dev/input/event*"] --> l2["evdev reader thread per pad<br/>never grabbed"]
-        l2 --> l3["MtTracker<br/>multitouch protocol type B: slots,<br/>tracking ids, palm rejection"]
-        l4["Hotplug watcher<br/>rescans every 3 s"] -.-> l2
-    end
-    w5 --> tf(["TouchFrame<br/>time, contacts in mm, pad size"])
-    l3 --> tf
-```
-
-- **Windows.** Registering with `RIDEV_INPUTSINK` means reports arrive even while another app has focus. Some pads have fewer finger slots than fingers they can sense and split a frame over several reports ("hybrid" mode); the assembler puts it back together.
-- **Linux.** The kernel only sends what changed, so the tracker remembers each slot's last state and yields a frame whenever a packet changes the contacts. Contacts the kernel marks as a palm are left out.
-- **Scheduling.** On Windows the input, engine and action threads run at the highest normal priority. Pady asks for 1 ms timers only while a hold, double tap or drag release is pending, so idle battery use is unchanged. On Linux timers are already precise.
-
-### Gesture recognition
-
-A *session* lasts from the first finger landing until the last one lifts. Within it the [recognizer](crates/pady-core/src/recognizer.rs) is in one phase at a time. Movement and spread are measured only from fingers present in consecutive frames, so a finger landing or lifting never looks like a jump. A finger at an impossible position is ignored, as if it had briefly lifted.
-
-```mermaid
-stateDiagram-v2
-    [*] --> Idle
-    Idle --> Pending: fingers land
-    Pending --> Pending: finger count changes, measuring restarts
-    Pending --> Idle: all lift, a tap if quick and still
-    Pending --> Pinching: pinch bound, hand span changes 8 mm and more than it slides
-    Pending --> Swiping: slides 10 mm, axis locks
-    Pending --> Consumed: rests 600 ms, Hold
-    Pending --> Consumed: fast pinch merges two fingers, Pinch in
-    Pending --> Dragging: slides 10 mm with drag on, DragStart
-    state "A gesture fired" as Fired {
-        Swiping --> Swiping: each step, Swipe step n
-        Pinching --> Pinching: each step, Pinch step n
-        Swiping --> Consumed: finger count changes
-        Pinching --> Consumed: finger count changes
-    }
-    Fired --> Idle: all lift
-    state "Drag, left button held" as Drag {
-        Dragging --> Lifted: all lift
-        Lifted --> Dragging: two or more fingers back within 350 ms
-    }
-    Drag --> Idle: release time runs out, DragEnd
-```
-
-- **Pending** is where every decision is made. Swipes, pinches, drags and holds fire as soon as they're recognised. A **tap** is decided when the fingers lift: they lifted within `tap_max_ms`, no finger wandered more than `tap_slop_mm`, and nothing else fired. A tap counts the most fingers that were down.
-- **Pinch or swipe?** A pinch is judged by the hand's *span* (the two fingers furthest apart), which moves by the full distance even when only the thumb does the pinching. In a close call, the recognizer waits until the hand has clearly travelled (1.5 × the swipe threshold) before calling it a swipe.
-- **Swiping** stays on the axis it started on. With repeat, each further `swipe_step_mm` (a 3.5th of it for volume and brightness) fires another step. Pinches step every 2 × `swipe_step_mm` of span change. One frame can only produce a few steps, so a driver glitch can't flood the system with actions.
-- **Dragging** keeps the button held for `drag_release_ms` after the fingers lift, so you can re-place them and carry on. A single finger coming back ends the drag at once, since that's ordinary pointing.
-- **Fewer than 3 fingers** never fire anything, so pointing and scrolling stay with the OS.
-
-Double and triple taps are counted across sessions:
-
-```mermaid
-flowchart LR
-    tap["Tap with N fingers"] --> bound{"Double or triple tap<br/>bound for N?"}
-    bound -- no --> fire["Fire tap:N now"]
-    bound -- yes --> wait["Hold it back<br/>and count it"]
-    wait --> next{"Another tap with N fingers<br/>within multi_tap_ms?"}
-    next -- "yes, and the count reaches<br/>the most that is bound" --> multi["Fire doubletap:N<br/>or tripletap:N"]
-    next -- "yes, more are possible" --> wait
-    next -- "no, or another<br/>gesture starts" --> single["Fire what was counted"]
-```
-
-### From gesture to action
-
-The engine thread turns each gesture into a trigger such as `swipe:4:up` and sends it to the action thread, which decides what runs.
-
-```mermaid
-flowchart TD
-    g["Gesture"] --> t["Trigger, e.g. swipe:4:up"]
-    t --> paused{"Full-screen game in front<br/>and pause_in_fullscreen on?"}
-    paused -- yes --> skip["Skip it, with a notice now and then"]
-    paused -- no --> prof{"Any per-app profiles?"}
-    prof -- yes --> app["Ask the OS for the app in front"] --> match{"Does its profile<br/>bind this trigger?"}
-    prof -- no --> global
-    match -- "yes, to an action" --> bound["Profile binding"]
-    match -- "yes, to none" --> off["Off in this app"]
-    match -- no --> global["All apps binding"]
-    bound --> rep{"A repeat step, and the<br/>binding doesn't repeat?"}
-    global --> rep
-    rep -- yes --> drop["Ignore"]
-    rep -- no --> glide["Volume or brightness swipe:<br/>glide in 2% steps"] --> run["The executor runs it"]
-    run --> fb["Report it: gesture feed, level pill, notice"]
-```
-
-Each OS has its own executor:
-
-| | Windows | Linux |
-|---|---|---|
-| Keys, media keys, mouse | `SendInput` | A `/dev/uinput` virtual device (X11 and Wayland alike), with `playerctl` as a media fallback |
-| Volume | The volume keys, so Windows shows its own slider | `wpctl`, `pactl` or `amixer` |
-| Brightness | WMI for laptop panels, DDC/CI for monitors | `brightnessctl`, sysfs backlight, logind, `ddcutil` |
-| Apps and links | `ShellExecuteW`, which resolves App Paths; names are also found in the Start menu | `xdg-open`, or the program itself |
-| App in front, switch to app | Win32 window APIs | `xdotool`, `xprop`, `wmctrl`, `kdotool` |
-
-### Config, hot reload and backups
-
-```mermaid
-flowchart TD
-    start(["Pady starts"]) --> snap1["Back up config.toml<br/>unless identical"]
-    snap1 --> load{"Load config.toml"}
-    load -- missing --> create["Write the defaults<br/>with the Recommended preset"]
-    load -- broken --> broken["Keep it as config.broken.toml<br/>and use the defaults"]
-    load -- ok --> shared
-    create --> shared
-    broken --> shared
-    shared[("SharedConfig<br/>with a generation number")]
-
-    ui(["A change in the app"]) --> norm["Normalise and clamp"]
-    norm --> snap2["Back up the file on disk:<br/>skipped if identical or within 2 min,<br/>always before reset, preset or restore"]
-    snap2 --> write["Write config.toml.tmp,<br/>rename it over config.toml"]
-    write --> shared
-
-    hand(["A hand edit"]) --> watch["The watcher sees a new<br/>modified time, every 2 s"]
-    watch --> shared
-
-    restore(["Restore in Settings"]) --> snap2
-
-    shared --> threads["Engine and action threads compare<br/>the generation on each frame or job"]
-    snap2 -.-> dir[("backups/config-time.toml<br/>newest 50 kept")]
-```
-
-Writes are atomic (a temporary file, then a rename), so a crash never leaves half a config. The engine and action threads keep their own copy and only re-read it when the generation number changes, so nothing locks on each touch frame.
-
-### Performance
-
-| What | Number | Where it comes from |
-|---|---|---|
-| Memory in the tray | about 20 MB (21.7 MB working set, 4.8 MB private) | Measured on Windows 11 with the window closed |
-| CPU while idle | 0% | No polling: every thread sleeps until a frame, a timer or a message arrives |
-| Recognizing one touch frame | 23 ns (one finger pointing) to about 120 ns (swipes, pinches, drags), with no memory allocated while pointing or scrolling | `cargo bench -p pady-core` on a Windows 11 laptop. Touchpads send a frame every 7–8 ms. A test also keeps the 99th percentile under 100 µs on every CI run |
-| Finger lift to action running | 56 µs median, about 200 µs at the 99th percentile | `cargo bench -p pady-core`, a five-finger tap through the engine to the action thread |
-| Full-screen game check before each gesture (Windows) | about 0.1 ms; only the first gesture in a newly full-screen window waits for Windows' answer (17–90 ms) | `time_actions`; the shell's answer is reused and refreshed in the background |
-| A volume step on Windows | well under 1 ms (about 13 ms before 0.3.2) | `cargo run -p pady-actions --release --example time_actions` |
-| A brightness step on Windows | about 4.5 ms, the first one 8 ms (it connects to WMI at startup) | `time_actions` |
-| Swipe glow and touches | about 0.2 ms of work per frame, paced by the display | The glow is drawn once; each frame only moves it and changes its opacity |
-| Timers for holds, double taps, drag release | 1 ms precision while one is pending (Windows' default tick is ~15.6 ms) | Requested only while needed, then given back |
-| Download | 5.7 MB Windows setup, 5.5 MB .deb | v1.0.0 release files |
-
-Load, spike and soak results (the frame rate ramped to 500 touchpads' worth, a burst of half a million frames, 30 minutes of steady load) are in [docs/benchmarks.md](docs/benchmarks.md).
-
-To measure on your own machine:
-
-```bash
-cargo bench -p pady-core                                     # time and allocations per frame, gesture → action latency
-cargo bench -p pady-security                                 # load ramp, overload point, profile lookup, config I/O, spike
-cargo run -p pady-actions --release --example time_actions   # how long volume, mute and brightness take (changes are undone)
-```
-
-### Tests
-
-About 266 unit tests across the workspace cover taps, multi-taps, holds, swipes, pinches, drags and glyphs, the config format and backups, the HID and Linux multitouch decoders, parsing Linux tool output, and the overlay's layout, motion and colours. Fuzz tests (named `fuzzed_*`) feed deterministic random device reports, multitouch events, configs, triggers, shortcuts and touch frames through every parser: nothing a device or a hand-edited file says may make Pady panic.
-
-The 54 security tests in [`security/`](security/README.md) are attacks: each one failed against the code before its fix (a program planted in the current folder, six threads saving the config at once, a process killed mid-save, a token in the log, a flood of volume steps) and must pass now. `cargo test -p pady-security` runs them alone.
-
-CI runs on every push and pull request, on Windows and Ubuntu:
-
-```mermaid
-flowchart LR
-    push(["Push, pull request<br/>or weekly"]) --> matrix["windows-latest and ubuntu-22.04"]
-    matrix --> fmt["cargo fmt --check"] --> clippy["cargo clippy, warnings are errors"] --> test["cargo test --workspace<br/>(unit, fuzz and security tests)"] --> perf["performance regression check<br/>against a recorded baseline"] --> js["node --check on every script"]
-    push --> audit["cargo audit<br/>against RustSec advisories"]
-    push --> scan["gitleaks over the history<br/>CodeQL: Rust, scripts, workflows"]
-```
-
-### Repository layout
-
-```text
-Pady/
-├── Cargo.toml                 workspace: shared version and release profile
-├── crates/
-│   ├── pady-core/             recognizer, engine, config, presets, backups, glyphs
-│   │   └── benches/           hot_path.rs: cost per frame, gesture → action latency
-│   ├── pady-input/            windows.rs + hid.rs (Raw Input), linux.rs + mt.rs (evdev), sched.rs
-│   ├── pady-actions/          windows.rs, linux.rs, apps.rs (installed apps), examples/
-│   ├── pady-overlay/          native Windows pill, notices, glow and touches (GDI+)
-│   ├── pady-cli/              the pady-cli tool
-│   └── pady-app/              the Tauri app
-│       ├── src/               main.rs (commands, tray, watchdog), update.rs, feedback.rs
-│       ├── ui/                index.html, app.js, model.js, mock.js, styles.css, overlay.*
-│       ├── capabilities/      which window may call which command
-│       └── tauri.conf.json    bundles, CSP, updater public key
-├── security/                  attack tests, load harness, threat model, assessment report
-├── packaging/linux/           udev rule, modules-load file, .deb/.rpm scripts
-├── site/                      the website, lumidren.github.io/Pady
-├── scripts/                   website build, icons, README screenshots
-├── docs/                      banner, demo, screenshots, video posters, benchmarks.md
-└── .github/                   CI, security, release and website workflows, issue templates
-```
-
-### Release pipeline
-
-```mermaid
-flowchart TD
-    tag(["Push a tag like v1.2.3"]) --> rel["Release workflow"]
-    rel --> winb["windows-latest<br/>NSIS setup and MSI, pady-cli .zip"]
-    rel --> linb["ubuntu-22.04<br/>.deb, .rpm, AppImage, pady-cli .tar.gz"]
-    winb --> sp{"SignPath set up?"}
-    sp -- "not yet, application pending" --> sums
-    sp -- "once approved" --> sign["SignPath signs the .exe and .msi,<br/>each request approved by hand"] --> resig["Sign them again<br/>for the updater"] --> sums
-    linb --> sums["SHA256SUMS files"]
-    sums --> draft["Draft GitHub release<br/>installers, .sig files, checksums"]
-    draft --> manifest["latest.json<br/>version, URLs, updater signatures"]
-    manifest --> publish(["The maintainer checks and publishes"])
-    publish --> apps["Installed copies read latest.json twice a day,<br/>verify the signature, install and restart"]
-```
-
-Update files are signed with Pady's updater key, and the app only installs files signed with it. Windows installs and the AppImage update themselves; .deb and .rpm installs are told about new versions and update through the package manager. Beta builds never update themselves. [RELEASING.md](RELEASING.md) has the details.
+Pady reads the touchpad directly (Raw Input on Windows, evdev on Linux), turns each frame into finger positions in millimetres, and a recognizer with no OS code decides which gesture it is. Actions then run through each system's own interfaces. The architecture, threads, gesture recognition, performance, tests and release pipeline are explained in [docs/how-it-works.md](docs/how-it-works.md).
 
 ## Build from source
 
-You need [Rust](https://rustup.rs) 1.82+, and Node.js only to build installers.
+Pady is written in Rust with [Tauri 2](https://tauri.app). You need [Rust](https://rustup.rs) 1.82+, and Node.js only to build installers.
 
 - **Windows:** Visual Studio Build Tools (*Desktop development with C++*).
 - **Linux:** `sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev`
